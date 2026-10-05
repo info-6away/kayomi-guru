@@ -69,13 +69,10 @@ export function Timeline(p: Props) {
   const touch = useRef({ x: 0, y: 0 });
 
   useLayoutEffect(() => {
-    const el = p.scroller.current;
-    if (!el) return;
-    // Open just after 07:30, or around the current time when that would leave "now" off screen.
-    let top = Math.round(7.6 * hourH);
-    if (todayShown && (nowTop < top || nowTop > top + el.clientHeight - 2 * hourH)) top = nowTop - el.clientHeight / 3;
-    el.scrollTop = Math.max(0, top);
+    // Always open just after 07:30, whatever the hour: with the hour height sized to the window,
+    // that puts the working day (about 08:00 to 20:00) on screen without scrolling.
     // Only when the timeline first appears; after that the scroll position is the user's.
+    if (p.scroller.current) p.scroller.current.scrollTop = Math.round(7.6 * hourH);
   }, []);
 
   useEffect(() => {

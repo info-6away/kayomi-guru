@@ -39,6 +39,8 @@ Day/Week/Month, phone layout, dark mode, reload and browser restart, offline use
   `dates.ts`, `recurrence.ts` and `occurrences.ts` are the calendar arithmetic.
 - `public/sw.js`: the service worker that keeps the app shell available offline.
 - `scripts/make-icons.mjs`: draws the icons (`npm run icons`).
+- `docs/design/`: the approved visual baseline, with screenshots. Read
+  [DESIGN_BASELINE.md](docs/design/DESIGN_BASELINE.md) before changing how anything looks.
 
 ### Data model
 

@@ -29,3 +29,12 @@ Thumbs.db
 # tests
 /test-results/
 /playwright-report/
+
+# Written by `next dev` only when a coding agent runs it; generic Next.js boilerplate, not repo guidance.
+# Delete these two lines if you add an AGENTS.md or CLAUDE.md of your own.
+/AGENTS.md
+/CLAUDE.md
+
+# The original Claude Design export of the approved prototype (16 MB of embedded fonts).
+# Kept out of the repository; see docs/design/DESIGN_BASELINE.md.
+/Kayomi*.html

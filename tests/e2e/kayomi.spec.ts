@@ -522,6 +522,27 @@ test.describe('look', () => {
     { name: 'desktop', width: 1440, height: 900 },
     { name: 'laptop', width: 1280, height: 720 },
   ]) {
+    test(`${size.name}: opens on the working day, whatever the hour`, async ({ page }) => {
+      await page.setViewportSize(size);
+      for (const hour of [6, 13, 22]) {
+        const now = new Date();
+        now.setHours(hour, 30, 0, 0);
+        await page.clock.setFixedTime(now);
+        await open(page);
+        // The hours between the column headings and the bottom of the window, as fractions of a day.
+        const visible = await columns(page).first().evaluate((column) => {
+          const scroller = column.closest('.overflow-y-auto')!;
+          const headings = scroller.querySelector('.sticky')!.getBoundingClientRect().bottom;
+          const hourH = column.getBoundingClientRect().height / 24;
+          const start = column.getBoundingClientRect().top;
+          return { from: (headings - start) / hourH, to: (scroller.getBoundingClientRect().bottom - start) / hourH };
+        });
+        expect(visible.from, `first hour shown at ${hour}:30`).toBeGreaterThan(7);
+        expect(visible.from, `first hour shown at ${hour}:30`).toBeLessThanOrEqual(8);
+        expect(visible.to, `last hour shown at ${hour}:30`).toBeGreaterThanOrEqual(19.5);
+      }
+    });
+
     test(`${size.name}: week fits the window with no sideways scroll`, async ({ page }) => {
       await page.setViewportSize(size);
       await open(page);
