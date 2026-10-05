@@ -25,3 +25,7 @@ next-env.d.ts
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# tests
+/test-results/
+/playwright-report/
