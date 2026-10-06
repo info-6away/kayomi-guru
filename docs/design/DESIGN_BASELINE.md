@@ -9,7 +9,7 @@ below needs approval first.
 
 ## Screenshots
 
-Taken from the production build with the prototype's sample week, the clock set to Monday
+Taken from the production build with a neutral sample week, the clock set to Monday
 5 October 2026, 14:25. Desktop is 1440×900; phone is 390×844 at twice the pixel density.
 
 | View | Light | Dark |

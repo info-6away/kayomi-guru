@@ -424,27 +424,27 @@ test.describe('Plan', () => {
   test('marking a scheduled Plan item done completes the item and keeps the event', async ({ page }) => {
     await open(page);
     await page.keyboard.press('p');
-    await addToPlan(page, 'Call Haleh');
-    await placeFromPlan(page, 'Call Haleh', '18:00');
+    await addToPlan(page, 'Call supplier');
+    await placeFromPlan(page, 'Call supplier', '18:00');
 
-    await event(page, 'Call Haleh').click();
+    await event(page, 'Call supplier').click();
     await popover(page).getByRole('button', { name: 'Mark done' }).click();
-    await expect(event(page, 'Call Haleh')).toBeVisible();
-    await expect(event(page, 'Call Haleh').locator('span').nth(1)).toHaveCSS('text-decoration-line', 'line-through');
+    await expect(event(page, 'Call supplier')).toBeVisible();
+    await expect(event(page, 'Call supplier').locator('span').nth(1)).toHaveCSS('text-decoration-line', 'line-through');
 
     // Completed sits collapsed at the foot of Plan.
     const completed = plan(page).getByRole('button', { name: /Completed/ });
     await expect(completed).toContainText('1');
-    await expect(plan(page).getByText('Call Haleh')).toHaveCount(0);
+    await expect(plan(page).getByText('Call supplier')).toHaveCount(0);
     await completed.click();
-    await expect(plan(page).getByText('Call Haleh')).toBeVisible();
+    await expect(plan(page).getByText('Call supplier')).toBeVisible();
     await expect.poll(async () => (await stored(page)).planItems[0]?.status).toBe('completed');
 
     await reload(page);
-    await event(page, 'Call Haleh').click();
+    await event(page, 'Call supplier').click();
     await popover(page).getByRole('button', { name: 'Not done' }).click();
     await expect.poll(async () => (await stored(page)).planItems[0]?.status).toBe('open');
-    await expect(event(page, 'Call Haleh')).toBeVisible();
+    await expect(event(page, 'Call supplier')).toBeVisible();
   });
 
   test('complete and reopen an item inside Plan', async ({ page }) => {
@@ -462,12 +462,12 @@ test.describe('Plan', () => {
   test('drag a Plan item onto the calendar', async ({ page }) => {
     await open(page);
     await page.keyboard.press('p');
-    await addToPlan(page, 'Review RotaLink');
+    await addToPlan(page, 'Project review');
     const { column, position } = await at(page, today(), '15:00');
-    await plan(page).getByRole('button', { name: 'Review RotaLink', exact: true }).dragTo(column, { targetPosition: position });
-    await expect(event(page, 'Review RotaLink')).toContainText('15:00 – 16:00');
+    await plan(page).getByRole('button', { name: 'Project review', exact: true }).dragTo(column, { targetPosition: position });
+    await expect(event(page, 'Project review')).toContainText('15:00 – 16:00');
     await expect(plan(page)).toContainText('Nothing waiting');
-    await event(page, 'Review RotaLink').click();
+    await event(page, 'Project review').click();
     await expect(popover(page).getByRole('button', { name: 'Back to Plan' })).toBeVisible();
   });
 
