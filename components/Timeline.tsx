@@ -179,7 +179,7 @@ export function Timeline(p: Props) {
                 onClick={() => p.onOpenDay(key)}
                 className="flex min-w-0 flex-col gap-[7px] rounded-[4px] px-3 py-1 text-left hover:bg-wash"
               >
-                <span className={`flex h-3 items-center gap-[7px] text-[10.5px] tracking-[.18em] ${isToday ? 'text-ink' : 'text-muted'}`}>
+                <span className={`flex h-3 items-center gap-[7px] text-[10.5px] tracking-[.18em] ${isToday ? 'text-ink' : 'text-dow'}`}>
                   {DOW[weekday(key)]}
                   {isToday && <span className="size-[5px] rounded-full bg-verm" />}
                 </span>
@@ -205,7 +205,7 @@ export function Timeline(p: Props) {
           {Array.from({ length: 23 }, (_, i) => i + 1).map((h) => (
             <span
               key={h}
-              className="absolute text-[11px] leading-[14px] tracking-[.04em] text-muted tabular-nums"
+              className="absolute text-[11px] leading-[14px] tracking-[.04em] text-hour tabular-nums"
               style={{ top: h * hourH - 7, right: mobile ? 12 : 14, opacity: todayShown && Math.abs(now - h * 60) < 14 ? 0 : 1 }}
             >
               {pad(h)}
@@ -292,11 +292,14 @@ export function Timeline(p: Props) {
                 const isSel = sel === o.key;
                 const past = o.date < today || (o.date === today && o.end <= now);
                 const moving = drag?.key === o.key;
+                // What is over steps back, unless it is the event being looked at.
+                const receded = past && !isSel;
                 return (
                   <EventBox
                     key={o.key}
                     o={o}
                     mobile={mobile}
+                    receded={receded}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!justDragged.current) p.onSelect(isSel ? null : o.key);
@@ -308,8 +311,8 @@ export function Timeline(p: Props) {
                       height: Math.max(minH, yOf(o.end - o.start) - 2),
                       left: `calc(4px + ${eventW} * ${col / of})`,
                       width: of > 1 ? `calc(${eventW} / ${of} - 2px)` : eventW,
-                      background: `color-mix(in oklab, ${CAT[o.event.category]} ${isSel ? 16 : 6}%, transparent)`,
-                      opacity: moving ? 0.3 : past && !isSel ? 0.5 : 1,
+                      background: `color-mix(in oklab, ${CAT[o.event.category]} ${isSel ? '16%' : receded ? 'var(--past-tint)' : '6%'}, transparent)`,
+                      opacity: moving ? 0.3 : receded ? 'var(--past-opacity)' : 1,
                       zIndex: isSel ? 4 : 2,
                     }}
                   />
@@ -361,6 +364,7 @@ export function Timeline(p: Props) {
 function EventBox({
   o,
   mobile,
+  receded = false,
   style,
   onClick,
   onPointerDown,
@@ -368,6 +372,8 @@ function EventBox({
 }: {
   o: Occurrence;
   mobile: boolean;
+  /** A past event: drawn quieter, but still easy to read. How much quieter is set per theme in globals.css. */
+  receded?: boolean;
   style: CSSProperties;
   onClick?: (e: ReactMouseEvent) => void;
   onPointerDown?: (e: ReactPointerEvent) => void;
@@ -391,16 +397,20 @@ function EventBox({
     >
       <span
         className="absolute top-1 bottom-1 left-0.5 w-0.5 rounded-[1px]"
-        style={{ background: o.done ? 'var(--stone)' : CAT[o.event.category] }}
+        style={{ background: o.done ? 'var(--stone)' : CAT[o.event.category], opacity: receded ? 'var(--past-bar)' : undefined }}
       />
       <span
         className={`max-w-full min-w-0 shrink truncate leading-[1.35] font-medium ${mobile ? 'text-[15px]' : 'text-[13px]'} ${
-          o.done ? 'text-muted line-through' : 'text-ink'
+          o.done ? 'text-muted line-through' : receded ? 'text-past-title' : 'text-ink'
         }`}
       >
         {o.event.title}
       </span>
-      <span className={`flex-none tracking-[.02em] whitespace-nowrap text-muted tabular-nums ${mobile ? 'text-[12.5px]' : 'text-[11.5px]'}`}>
+      <span
+        className={`flex-none tracking-[.02em] whitespace-nowrap tabular-nums ${receded ? 'text-past-time' : 'text-event-time'} ${
+          mobile ? 'text-[12.5px]' : 'text-[11.5px]'
+        }`}
+      >
         {tall ? `${hm(o.start)} – ${hm(o.end)}` : hm(o.start)}
       </span>
       {onResizeDown && <span onPointerDown={onResizeDown} className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize" />}

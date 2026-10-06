@@ -43,7 +43,7 @@ export function MonthView({ date, today, mobile, viewportH, byDay, label, year, 
 
       <div className="grid grid-cols-7 pb-2.5">
         {DOWS.map((d) => (
-          <span key={d} className={`text-[10.5px] tracking-[.18em] text-muted ${mobile ? 'text-center' : 'px-3 text-left'}`}>
+          <span key={d} className={`text-[10.5px] tracking-[.18em] text-dow ${mobile ? 'text-center' : 'px-3 text-left'}`}>
             {mobile ? d[0] : d}
           </span>
         ))}
@@ -100,7 +100,7 @@ export function MonthView({ date, today, mobile, viewportH, byDay, label, year, 
               {list.slice(0, max).map((o) => (
                 <span key={o.key} className="flex min-w-0 items-center gap-[7px] text-[12px] leading-[1.35]">
                   <span className="h-[11px] w-0.5 flex-none rounded-[1px]" style={{ background: CAT[o.event.category] }} />
-                  <span className="flex-none text-muted tabular-nums">{hm(o.start)}</span>
+                  <span className="flex-none text-event-time tabular-nums">{hm(o.start)}</span>
                   <span className={`min-w-0 truncate ${o.done ? 'text-muted line-through' : 'text-ink'}`}>{o.event.title}</span>
                 </span>
               ))}
