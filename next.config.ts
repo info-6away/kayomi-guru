@@ -2,14 +2,14 @@ import type { NextConfig } from 'next';
 
 // One deployment serves two sites, told apart by host name:
 //
-//   kayomi.guru       the landing page (app/home), shown at "/"
-//   app.kayomi.guru   the calendar (app/page.tsx)
+//   koyomi.guru       the landing page (app/home), shown at "/"
+//   app.koyomi.guru   the calendar (app/page.tsx)
 //
 // Any other host (a Vercel address, localhost) gets the calendar at "/" and the landing page at "/home".
-const SITE_HOST = 'kayomi\\.guru';
-const APP_HOST = 'app\\.kayomi\\.guru';
-const SITE_URL = 'https://kayomi.guru';
-const APP_URL = 'https://app.kayomi.guru';
+const SITE_HOST = 'koyomi\\.guru';
+const APP_HOST = 'app\\.koyomi\\.guru';
+const SITE_URL = 'https://koyomi.guru';
+const APP_URL = 'https://app.koyomi.guru';
 
 const nextConfig: NextConfig = {
   async rewrites() {

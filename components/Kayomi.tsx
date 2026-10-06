@@ -236,7 +236,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
           <header className="grid h-16 flex-none grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 pr-5 pl-7">
             <div className="flex items-center gap-2.5">
               <span className="size-[9px] flex-none rounded-full bg-verm" />
-              <span className="pb-0.5 font-mincho text-[21px] leading-none tracking-[.01em]">kayomi</span>
+              <span className="pb-0.5 font-mincho text-[21px] leading-none tracking-[.01em]">koyomi</span>
             </div>
             <div className="flex min-w-0 items-center justify-center gap-1">
               <button onClick={() => step(-1)} aria-label="Previous" className={`size-8 text-[20px] leading-none text-muted ${ROUND}`}>
@@ -297,7 +297,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
             <header className="flex flex-none items-center gap-1 pt-2.5 pr-1.5 pb-0.5 pl-5">
               <div className="flex min-w-0 flex-1 items-center gap-[9px] overflow-hidden">
                 <span className="size-2 flex-none rounded-full bg-verm" />
-                <span className="pb-0.5 font-mincho text-[19px] leading-none">kayomi</span>
+                <span className="pb-0.5 font-mincho text-[19px] leading-none">koyomi</span>
               </div>
               <button
                 onClick={() => {

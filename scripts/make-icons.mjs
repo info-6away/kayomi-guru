@@ -1,4 +1,4 @@
-// Draws Kayomi's icons: the vermilion dot on warm paper.
+// Draws Koyomi's icons: the vermilion dot on warm paper.
 // Run with `npm run icons`. No dependencies; the files it writes are committed.
 // Next picks up app/favicon.ico, app/icon.svg and app/apple-icon.png by name; the manifest lists public/icons.
 

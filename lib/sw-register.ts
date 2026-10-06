@@ -1,4 +1,4 @@
-/** Installs the service worker that keeps Kayomi usable offline. Production only. */
+/** Installs the service worker that keeps Koyomi usable offline. Production only. */
 export function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   if (process.env.NODE_ENV !== 'production') {

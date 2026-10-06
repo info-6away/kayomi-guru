@@ -21,13 +21,13 @@ const columns = (page: Page) => page.locator('[data-day]');
 
 async function open(page: Page, url = '/') {
   await page.goto(url);
-  await expect(page.getByText('kayomi')).toBeVisible();
+  await expect(page.getByText('koyomi')).toBeVisible();
 }
 
 /** Reloads and waits until the calendar is on screen and taking keys again. */
 async function reload(page: Page) {
   await page.reload();
-  await expect(page.getByText('kayomi')).toBeVisible();
+  await expect(page.getByText('koyomi')).toBeVisible();
 }
 
 /** A time of day inside a day's column, scrolled into view. */
@@ -112,7 +112,7 @@ test.describe('calendar', () => {
     await expect(columns(page)).toHaveCount(7);
     await expect(page.locator(`[data-day="${today()}"]`)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Week' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page).toHaveTitle('Kayomi');
+    await expect(page).toHaveTitle('Koyomi');
     expect(failed).toEqual([]);
     // Only the Latin slice of each font weight is fetched up front, not the Japanese ranges.
     expect(await page.locator('link[rel="preload"][as="font"]').count()).toBeLessThanOrEqual(4);
@@ -618,7 +618,7 @@ test.describe('phone', () => {
 test.describe('installed app', () => {
   test('has a manifest, icons and a service worker', async ({ request }) => {
     const manifest = await (await request.get('/manifest.webmanifest')).json();
-    expect(manifest).toMatchObject({ name: 'Kayomi', display: 'standalone', start_url: '/', background_color: '#F5F1E8' });
+    expect(manifest).toMatchObject({ name: 'Koyomi', display: 'standalone', start_url: '/', background_color: '#F5F1E8' });
     expect(manifest.icons.map((i: { sizes: string }) => i.sizes)).toEqual(expect.arrayContaining(['192x192', '512x512']));
     for (const icon of [...manifest.icons.map((i: { src: string }) => i.src), '/apple-icon.png', '/favicon.ico', '/icon.svg']) {
       const response = await request.get(icon);
@@ -722,7 +722,7 @@ test.describe('installed app', () => {
       await expect.poll(reachable, { timeout: 30_000 }).toBe(false);
 
       await reload(page);
-      await expect(page.getByText('kayomi')).toBeVisible();
+      await expect(page.getByText('koyomi')).toBeVisible();
       await expect(event(page, 'Before the tunnel')).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
       await expect.poll(() => renderedFonts(page, 'header span.font-mincho')).toEqual(['Shippori Mincho']);

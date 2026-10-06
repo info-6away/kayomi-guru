@@ -3,13 +3,13 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { CAT } from '@/components/ui';
 import type { Category } from '@/lib/types';
 
-// The landing page. On kayomi.guru it is served at "/"; see next.config.ts.
+// The landing page. On koyomi.guru it is served at "/"; see next.config.ts.
 
-const SITE_URL = 'https://kayomi.guru';
-const TITLE = 'Kayomi — a calm calendar';
-const DESCRIPTION = 'Kayomi holds two things: what has a time, and what doesn’t yet. Nothing else.';
+const SITE_URL = 'https://koyomi.guru';
+const TITLE = 'Koyomi — a calm calendar';
+const DESCRIPTION = 'Koyomi holds two things: what has a time, and what doesn’t yet. Nothing else.';
 
-/** Takes the visitor to the calendar: app.kayomi.guru from the live site, this host's "/" anywhere else. */
+/** Takes the visitor to the calendar: app.koyomi.guru from the live site, this host's "/" anywhere else. */
 const OPEN = '/open';
 
 export const metadata: Metadata = {
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   alternates: { canonical: '/' },
-  openGraph: { type: 'website', url: '/', siteName: 'Kayomi', title: TITLE, description: DESCRIPTION },
+  openGraph: { type: 'website', url: '/', siteName: 'Koyomi', title: TITLE, description: DESCRIPTION },
 };
 
 // The sample week is an illustration, not live data.
@@ -53,10 +53,10 @@ export default function Home() {
       <header className={`${WRAP} flex items-center justify-between gap-4 pt-7`}>
         <div className="flex items-center gap-2.5">
           <span className="size-[9px] rounded-full bg-verm" />
-          <span className="pb-0.5 font-mincho text-[21px] leading-none">kayomi</span>
+          <span className="pb-0.5 font-mincho text-[21px] leading-none">koyomi</span>
         </div>
         <a href={OPEN} className="flex items-center gap-2 text-[13px] tracking-[.03em] text-ink2 hover:text-ink">
-          Open Kayomi <span className="text-[15px]">→</span>
+          Open Koyomi <span className="text-[15px]">→</span>
         </a>
       </header>
 
@@ -128,14 +128,14 @@ export default function Home() {
           <span className="size-[9px] rounded-full bg-verm" />
           <p className="font-mincho text-[clamp(26px,3.4vw,36px)] leading-[1.5] text-balance">Your day should have space in it.</p>
           <a href={OPEN} className={PILL}>
-            Open Kayomi <span>→</span>
+            Open Koyomi <span>→</span>
           </a>
           <span className="text-[12.5px] tracking-[.02em] text-muted">Free. Works in your browser. Install it on desktop or phone.</span>
         </section>
       </main>
 
       <footer className={`${WRAP} flex items-center justify-between gap-4 border-t border-line pt-[22px] pb-8 text-[12px] tracking-[.03em] text-muted`}>
-        <span>kayomi.guru</span>
+        <span>koyomi.guru</span>
         <ThemeToggle />
       </footer>
     </div>
