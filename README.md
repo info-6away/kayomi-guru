@@ -20,6 +20,23 @@ npm run preview    # production build on http://localhost:4310, installable, wor
 `npm run preview` uses its own port on purpose: the production build registers a service worker for
 its origin, and you do not want that worker left behind on the port your other projects use.
 
+## Two sites, one deployment
+
+The same build serves both sites and tells them apart by host name (see `next.config.ts`):
+
+| Host | What it shows |
+| --- | --- |
+| `kayomi.guru` | The landing page (`app/home`), at `/` |
+| `www.kayomi.guru` | Redirects to `kayomi.guru` |
+| `app.kayomi.guru` | The calendar (`app/page.tsx`) |
+| Anything else (a Vercel address, `localhost`) | The calendar at `/`, the landing page at `/home` |
+
+The landing page's buttons link to `/open`, which goes to `app.kayomi.guru` from the live site and
+to `/` on any other host, so they work in previews and locally too.
+
+The calendar keeps its data in the browser, and a browser keeps data per address. What someone
+saved at one address (say the Vercel one) does not appear at another (say `app.kayomi.guru`).
+
 ## Test it
 
 ```sh
@@ -32,7 +49,8 @@ Day/Week/Month, phone layout, dark mode, reload and browser restart, offline use
 
 ## How it is built
 
-- `app/`: the Next.js shell: fonts, theme, web app manifest and icons.
+- `app/`: the Next.js shell: fonts, theme and icons. `app/page.tsx` is the calendar and
+  `app/home/page.tsx` is the landing page.
 - `components/`: the calendar itself. `Kayomi.tsx` holds the screen; `Timeline`, `MonthView`,
   `PlanPanel`, `EventPopover` and `SearchPanel` are its parts.
 - `lib/`: no React. `types.ts` is the data model, `db.ts` and `store.ts` persist it, and

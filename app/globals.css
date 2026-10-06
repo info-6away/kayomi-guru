@@ -78,9 +78,13 @@
     background: var(--bg);
     color: var(--ink);
     font-size: 14px;
-    overscroll-behavior: none;
     -webkit-font-smoothing: antialiased;
     transition: background-color .25s ease, color .25s ease;
+  }
+
+  /* The calendar is a fixed, app-like screen. The landing page scrolls like any other page. */
+  body:has([data-app]) {
+    overscroll-behavior: none;
   }
 
   * {

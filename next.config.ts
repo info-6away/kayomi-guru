@@ -1,6 +1,37 @@
 import type { NextConfig } from 'next';
 
+// One deployment serves two sites, told apart by host name:
+//
+//   kayomi.guru       the landing page (app/home), shown at "/"
+//   app.kayomi.guru   the calendar (app/page.tsx)
+//
+// Any other host (a Vercel address, localhost) gets the calendar at "/" and the landing page at "/home".
+const SITE_HOST = 'kayomi\\.guru';
+const APP_HOST = 'app\\.kayomi\\.guru';
+const SITE_URL = 'https://kayomi.guru';
+const APP_URL = 'https://app.kayomi.guru';
+
 const nextConfig: NextConfig = {
+  async rewrites() {
+    return {
+      beforeFiles: [{ source: '/', has: [{ type: 'host', value: SITE_HOST }], destination: '/home' }],
+      afterFiles: [],
+      fallback: [],
+    };
+  },
+
+  async redirects() {
+    return [
+      { source: '/:path*', has: [{ type: 'host', value: `www\\.${SITE_HOST}` }], destination: `${SITE_URL}/:path*`, permanent: true },
+      // The landing page's buttons point at /open, so they work on every host.
+      { source: '/open', has: [{ type: 'host', value: SITE_HOST }], destination: `${APP_URL}/`, permanent: false },
+      { source: '/open', destination: '/', permanent: false },
+      // Each site stays on its own host.
+      { source: '/home', has: [{ type: 'host', value: SITE_HOST }], destination: '/', permanent: true },
+      { source: '/home', has: [{ type: 'host', value: APP_HOST }], destination: `${SITE_URL}/`, permanent: true },
+    ];
+  },
+
   async headers() {
     return [
       {

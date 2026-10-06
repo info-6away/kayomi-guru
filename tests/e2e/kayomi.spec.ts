@@ -630,6 +630,8 @@ test.describe('installed app', () => {
   });
 
   test('survives a browser restart, and Chrome finds it installable', async ({ baseURL }, testInfo) => {
+    // Starts Chrome twice with a real profile, which is slow when the other tests are running too.
+    test.setTimeout(90_000);
     const profile = testInfo.outputPath('profile');
     const launch = () => chromium.launchPersistentContext(profile, { channel: 'chrome', viewport: { width: 1440, height: 900 } });
 
