@@ -1,0 +1,118 @@
+@import "tailwindcss" source(none);
+@source "../app";
+@source "../components";
+
+/* Light: warm paper. */
+:root {
+  --bg: #F5F1E8;
+  --paper: #EFEADF;
+  --ink: #252421;
+  --ink2: #56524B;
+  --muted: #736E65;
+  --stone: #B7B1A7;
+  --line: rgba(183, 177, 167, .5);
+  --line2: rgba(183, 177, 167, .24);
+  --indigo: #33465C;
+  --verm: #C45845;
+  --matcha: #78866B;
+  --hover: rgba(37, 36, 33, .04);
+  --shadow: rgba(37, 36, 33, .16);
+  color-scheme: light;
+}
+
+/* Dark: ink at night. */
+:root[data-theme="dark"] {
+  --bg: #1D1D1B;
+  --paper: #252522;
+  --ink: #ECE8DE;
+  --ink2: #BDB8AD;
+  --muted: #908C82;
+  --stone: #615F5A;
+  --line: #393936;
+  --line2: rgba(57, 57, 54, .55);
+  --indigo: #8FA2B8;
+  --verm: #C45D4A;
+  --matcha: #9DAA8E;
+  --hover: rgba(236, 232, 222, .045);
+  --shadow: rgba(0, 0, 0, .5);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-ink2: var(--ink2);
+  --color-muted: var(--muted);
+  --color-stone: var(--stone);
+  --color-line: var(--line);
+  --color-line2: var(--line2);
+  --color-indigo: var(--indigo);
+  --color-verm: var(--verm);
+  --color-matcha: var(--matcha);
+  --color-wash: var(--hover);
+
+  --font-sans: var(--font-zen), system-ui, sans-serif;
+  --font-mincho: var(--font-shippori), serif;
+
+  --ease-kayomi: cubic-bezier(.2, 0, 0, 1);
+  --animate-in: kIn 180ms cubic-bezier(.2, 0, 0, 1);
+
+  @keyframes kIn {
+    from { opacity: 0; transform: translateY(-3px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  html {
+    line-height: normal;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+    overscroll-behavior: none;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color .25s ease, color .25s ease;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--line);
+    border-radius: 8px;
+  }
+
+  button {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  input::placeholder {
+    color: var(--muted);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 1ms !important;
+      transition-duration: 1ms !important;
+    }
+  }
+}
