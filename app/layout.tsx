@@ -1,4 +1,4 @@
-import type { Metadata, Viewport } from 'next';
+import type { Viewport } from 'next';
 import { Shippori_Mincho, Zen_Kaku_Gothic_New } from 'next/font/google';
 import { THEME_BG, themeBootScript } from '@/lib/theme';
 import './globals.css';
@@ -11,13 +11,7 @@ const mincho = Shippori_Mincho({ weight: '400', subsets: ['latin'], variable: '-
 const gothic = Zen_Kaku_Gothic_New({ weight: '400', subsets: ['latin'], variable: '--font-zen', display: 'swap' });
 const gothicMedium = Zen_Kaku_Gothic_New({ weight: '500', subsets: ['latin'], variable: '--font-zen-medium', display: 'swap' });
 
-export const metadata: Metadata = {
-  title: 'Kayomi',
-  description: 'A calm planning calendar. Calendar is scheduled time; Plan is what waits for time.',
-  applicationName: 'Kayomi',
-  appleWebApp: { capable: true, title: 'Kayomi', statusBarStyle: 'default' },
-};
-
+// Shared by the calendar (app/page.tsx) and the landing page (app/home). Each sets its own title.
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,

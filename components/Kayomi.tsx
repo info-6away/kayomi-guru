@@ -44,7 +44,7 @@ export default function Kayomi() {
   }, []);
 
   // Layout depends on the window and the calendar on this device's data, so there is nothing to draw before both are known.
-  if (!viewport || !data.ready) return <div className="h-dvh bg-bg" />;
+  if (!viewport || !data.ready) return <div data-app className="h-dvh bg-bg" />;
   return <Calendar data={data} w={viewport.w} h={viewport.h} />;
 }
 
@@ -229,7 +229,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
   );
 
   return (
-    <div className="h-dvh">
+    <div data-app className="h-dvh">
       {/* overflow-clip, not hidden: the Plan drawer waits off-screen, and a clipped box cannot be scrolled sideways to it. */}
       <div className="relative flex h-full flex-col overflow-clip bg-bg pt-[env(safe-area-inset-top)]">
         {!mobile && (
