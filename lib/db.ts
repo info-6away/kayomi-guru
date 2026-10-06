@@ -1,5 +1,7 @@
 import type { CalendarEvent, PlanItem } from './types';
 
+// The product's first spelling, kept on purpose: under a new name the browser would open an
+// empty database and everything already saved would seem to be gone.
 const NAME = 'kayomi';
 const VERSION = 1;
 const STORES = ['events', 'planItems'] as const;

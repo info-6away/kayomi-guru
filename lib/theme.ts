@@ -1,5 +1,6 @@
 export type Theme = 'light' | 'dark';
 
+/** Keeps the product's first spelling, so a theme chosen before the rename is still found. */
 export const THEME_KEY = 'kayomi-theme';
 /** Page backgrounds: warm paper, and ink at night. Also the browser/window chrome colour. */
 export const THEME_BG: Record<Theme, string> = { light: '#F5F1E8', dark: '#1D1D1B' };

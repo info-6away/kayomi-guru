@@ -1,7 +1,7 @@
-# Kayomi design baseline
+# Koyomi design baseline
 
 The production app as it stands at the first local-first milestone (October 2026) is the approved
-Kayomi visual baseline. It was ported from the approved Claude Design prototype and checked against
+Koyomi visual baseline. It was ported from the approved Claude Design prototype and checked against
 it side by side.
 
 Do not redesign it. New work should be built in the same visual language, and any change to the look
@@ -26,7 +26,7 @@ Month and the phone Plan sheet are shown in light only: dark changes their palet
 
 ![Desktop Week with Plan, dark](desktop-week-plan-dark.png)
 
-## What makes it Kayomi
+## What makes it Koyomi
 
 - **Two palettes.** Light is warm paper; dark is ink at night. Every colour is a token in
   [app/globals.css](../../app/globals.css). The one accent is vermilion, used for the logo dot,

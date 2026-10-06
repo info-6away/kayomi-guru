@@ -1,11 +1,15 @@
 # kayomi-guru
 
-Kayomi is a calm, local-first planning calendar.
+Koyomi (暦, Japanese for calendar) is a calm, local-first planning calendar.
 
 - **Calendar** is scheduled time.
 - **Plan** is what is still waiting for time.
 
 Everything is stored on the device, in the browser's IndexedDB. There is no account, no server and no sync yet.
+
+The product was first written "Kayomi". That spelling survives in the repository name, in the
+`Kayomi` component, and in the names the app uses inside the browser (the `kayomi` database, caches
+and theme key). Those are deliberate: renaming the database would hide everything people have saved.
 
 ## Run it
 
@@ -26,16 +30,16 @@ The same build serves both sites and tells them apart by host name (see `next.co
 
 | Host | What it shows |
 | --- | --- |
-| `kayomi.guru` | The landing page (`app/home`), at `/` |
-| `www.kayomi.guru` | Redirects to `kayomi.guru` |
-| `app.kayomi.guru` | The calendar (`app/page.tsx`) |
+| `koyomi.guru` | The landing page (`app/home`), at `/` |
+| `www.koyomi.guru` | Redirects to `koyomi.guru` |
+| `app.koyomi.guru` | The calendar (`app/page.tsx`) |
 | Anything else (a Vercel address, `localhost`) | The calendar at `/`, the landing page at `/home` |
 
-The landing page's buttons link to `/open`, which goes to `app.kayomi.guru` from the live site and
+The landing page's buttons link to `/open`, which goes to `app.koyomi.guru` from the live site and
 to `/` on any other host, so they work in previews and locally too.
 
 The calendar keeps its data in the browser, and a browser keeps data per address. What someone
-saved at one address (say the Vercel one) does not appear at another (say `app.kayomi.guru`).
+saved at one address (say the Vercel one) does not appear at another (say `app.koyomi.guru`).
 
 ## Test it
 

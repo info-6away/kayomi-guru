@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
-// The landing page (kayomi.guru) and the calendar (app.kayomi.guru) come from one build.
+// The landing page (koyomi.guru) and the calendar (app.koyomi.guru) come from one build.
 // On any other host, such as this test server, the landing page is at /home and the calendar at /.
 
 test.describe('landing page', () => {
@@ -10,11 +10,11 @@ test.describe('landing page', () => {
     page.on('response', (r) => r.status() >= 400 && problems.push(`${r.status()} ${r.url()}`));
 
     await page.goto('/home');
-    await expect(page).toHaveTitle('Kayomi — a calm calendar');
+    await expect(page).toHaveTitle('Koyomi — a calm calendar');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('A calm calendar for planning your own life.');
     await expect(page.getByRole('heading', { level: 2 })).toHaveText(['Things with a time.', 'Things without one yet.', 'Move one to the other.']);
     await expect(page.getByText('Your day should have space in it.')).toBeVisible();
-    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /^https:\/\/kayomi\.guru\/?$/);
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /^https:\/\/koyomi\.guru\/?$/);
 
     // Three ways in, all to the same place.
     const links = page.getByRole('link');
@@ -28,7 +28,7 @@ test.describe('landing page', () => {
 
     await page.getByRole('link', { name: /Begin/ }).click();
     await expect(page.locator('[data-day]')).toHaveCount(7);
-    await expect(page).toHaveTitle('Kayomi');
+    await expect(page).toHaveTitle('Koyomi');
     await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/manifest.webmanifest');
   });
 
@@ -66,17 +66,17 @@ test.describe('host names', () => {
   const get = (request: APIRequestContext, host: string, path: string) => request.get(path, { headers: { host }, maxRedirects: 0 });
   const LANDING = 'A calm calendar for planning your own life.';
 
-  test('kayomi.guru shows the landing page at /', async ({ request }) => {
-    const response = await get(request, 'kayomi.guru', '/');
+  test('koyomi.guru shows the landing page at /', async ({ request }) => {
+    const response = await get(request, 'koyomi.guru', '/');
     expect(response.status()).toBe(200);
     const html = await response.text();
     expect(html).toContain(LANDING);
     expect(html).not.toContain('rel="manifest"');
   });
 
-  test('app.kayomi.guru, and any other host, shows the calendar at /', async ({ request }) => {
+  test('app.koyomi.guru, and any other host, shows the calendar at /', async ({ request }) => {
     // The last two only look like the site's host.
-    for (const host of ['app.kayomi.guru', 'kayomi-guru.vercel.app', 'notkayomi.guru', 'kayomi.guru.example.com']) {
+    for (const host of ['app.koyomi.guru', 'kayomi-guru.vercel.app', 'notkoyomi.guru', 'koyomi.guru.example.com']) {
       const response = await get(request, host, '/');
       expect(response.status(), host).toBe(200);
       const html = await response.text();
@@ -85,26 +85,26 @@ test.describe('host names', () => {
     }
   });
 
-  test('www.kayomi.guru redirects to kayomi.guru, keeping the path', async ({ request }) => {
-    const home = await get(request, 'www.kayomi.guru', '/');
+  test('www.koyomi.guru redirects to koyomi.guru, keeping the path', async ({ request }) => {
+    const home = await get(request, 'www.koyomi.guru', '/');
     expect(home.status()).toBe(308);
-    expect(home.headers().location).toMatch(/^https:\/\/kayomi\.guru\/?$/);
-    const deep = await get(request, 'www.kayomi.guru', '/anything');
-    expect([deep.status(), deep.headers().location]).toEqual([308, 'https://kayomi.guru/anything']);
+    expect(home.headers().location).toMatch(/^https:\/\/koyomi\.guru\/?$/);
+    const deep = await get(request, 'www.koyomi.guru', '/anything');
+    expect([deep.status(), deep.headers().location]).toEqual([308, 'https://koyomi.guru/anything']);
   });
 
-  test('/open goes to app.kayomi.guru from the site, and to / anywhere else', async ({ request }) => {
-    const fromSite = await get(request, 'kayomi.guru', '/open');
-    expect([fromSite.status(), fromSite.headers().location]).toEqual([307, 'https://app.kayomi.guru/']);
+  test('/open goes to app.koyomi.guru from the site, and to / anywhere else', async ({ request }) => {
+    const fromSite = await get(request, 'koyomi.guru', '/open');
+    expect([fromSite.status(), fromSite.headers().location]).toEqual([307, 'https://app.koyomi.guru/']);
     const elsewhere = await get(request, 'kayomi-guru.vercel.app', '/open');
     expect([elsewhere.status(), elsewhere.headers().location]).toEqual([307, '/']);
   });
 
   test('/home is only an address on hosts that have no domain of their own', async ({ request }) => {
-    const onSite = await get(request, 'kayomi.guru', '/home');
+    const onSite = await get(request, 'koyomi.guru', '/home');
     expect([onSite.status(), onSite.headers().location]).toEqual([308, '/']);
-    const onApp = await get(request, 'app.kayomi.guru', '/home');
-    expect([onApp.status(), onApp.headers().location]).toEqual([308, 'https://kayomi.guru/']);
+    const onApp = await get(request, 'app.koyomi.guru', '/home');
+    expect([onApp.status(), onApp.headers().location]).toEqual([308, 'https://koyomi.guru/']);
     const elsewhere = await get(request, 'kayomi-guru.vercel.app', '/home');
     expect(elsewhere.status()).toBe(200);
     expect(await elsewhere.text()).toContain(LANDING);

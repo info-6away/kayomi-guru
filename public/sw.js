@@ -1,4 +1,4 @@
-// Kayomi's service worker: keeps the app shell available offline.
+// Koyomi's service worker: keeps the app shell available offline.
 //
 // - The page itself is fetched from the network first, so a new release shows up on the
 //   next load, and comes from the cache when there is no connection.
@@ -8,6 +8,7 @@
 //
 // The calendar's data is not here. It lives in IndexedDB and never leaves the device.
 
+// The cache names keep the product's first spelling, "kayomi"; they are internal and never shown.
 const SHELL = 'kayomi-shell-v1';
 const STATIC = 'kayomi-static-v1';
 const STATIC_PATH = '/_next/static/';
