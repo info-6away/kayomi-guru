@@ -2,11 +2,15 @@ import type { NextConfig } from 'next';
 
 // One deployment serves two sites, told apart by host name:
 //
-//   koyomi.guru       the landing page (app/home), shown at "/"
+//   koyomi.guru       the landing page (app/home), shown at "/"; www.koyomi.guru too
 //   app.koyomi.guru   the calendar (app/page.tsx)
 //
 // Any other host (a Vercel address, localhost) gets the calendar at "/" and the landing page at "/home".
-const SITE_HOST = 'koyomi\\.guru';
+//
+// Nothing here redirects between koyomi.guru and www.koyomi.guru. Which one is the main address is a
+// domain setting in Vercel, and a second redirect in code can only disagree with it: the two then
+// send every visitor back and forth until the browser gives up.
+const SITE_HOST = '(?:www\\.)?koyomi\\.guru';
 const APP_HOST = 'app\\.koyomi\\.guru';
 const SITE_URL = 'https://koyomi.guru';
 const APP_URL = 'https://app.koyomi.guru';
@@ -22,7 +26,6 @@ const nextConfig: NextConfig = {
 
   async redirects() {
     return [
-      { source: '/:path*', has: [{ type: 'host', value: `www\\.${SITE_HOST}` }], destination: `${SITE_URL}/:path*`, permanent: true },
       // The landing page's buttons point at /open, so they work on every host.
       { source: '/open', has: [{ type: 'host', value: SITE_HOST }], destination: `${APP_URL}/`, permanent: false },
       { source: '/open', destination: '/', permanent: false },
