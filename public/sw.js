@@ -56,11 +56,13 @@ self.addEventListener('message', (event) => {
     (async () => {
       await addStatic(urls);
       const current = new Set(urls);
-      if (![...current].some((url) => url.includes(`${STATIC_PATH}chunks/`))) return;
+      // Match the folder, not the whole path: a local build serves /_next/static/chunks/,
+      // while Vercel nests the same files under /_next/static/immutable/chunks/.
+      if (![...current].some((url) => url.includes('/chunks/'))) return;
       const cache = await caches.open(STATIC);
       for (const request of await cache.keys()) {
         // Fonts keep the same name across releases and may load later, so they stay.
-        if (!current.has(request.url) && !request.url.includes(`${STATIC_PATH}media/`)) await cache.delete(request);
+        if (!current.has(request.url) && !request.url.includes('/media/')) await cache.delete(request);
       }
     })(),
   );

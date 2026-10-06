@@ -656,6 +656,34 @@ test.describe('installed app', () => {
     await context.close();
   });
 
+  test('the offline cache drops files from older releases, on a host that nests them too', async ({ page }) => {
+    await open(page);
+    // Let the page finish handing its own files to the worker first.
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          if (!navigator.serviceWorker.controller) return false;
+          const cache = await caches.open('kayomi-static-v1');
+          const loaded = performance.getEntriesByType('resource').map((e) => e.name).filter((u) => u.includes('/_next/static/'));
+          for (const url of loaded) if (!(await cache.match(url))) return false;
+          return loaded.length > 0;
+        }),
+      )
+      .toBe(true);
+
+    // Vercel serves hashed files one folder deeper than a local build: /_next/static/immutable/.
+    const kept = await page.evaluate(async () => {
+      const base = `${location.origin}/_next/static/immutable/`;
+      const cache = await caches.open('kayomi-static-v1');
+      for (const file of ['chunks/old-release.js', 'chunks/current.js', 'media/font.woff2']) await cache.put(base + file, new Response('x'));
+      navigator.serviceWorker.controller!.postMessage({ type: 'warm', urls: [`${base}chunks/current.js`] });
+      for (let i = 0; i < 40 && (await cache.match(`${base}chunks/old-release.js`)); i++) await new Promise((r) => setTimeout(r, 100));
+      const has = async (file: string) => !!(await cache.match(base + file));
+      return { oldRelease: await has('chunks/old-release.js'), current: await has('chunks/current.js'), font: await has('media/font.woff2') };
+    });
+    expect(kept).toEqual({ oldRelease: false, current: true, font: true });
+  });
+
   test('works with no connection after one visit', async ({ page }) => {
     test.setTimeout(120_000);
     // Its own server, so that it can be taken away.
