@@ -38,8 +38,12 @@ Month and the phone Plan sheet are shown in light only: dark changes their palet
   shrinks: a week strip, a single day, and Plan as a bottom sheet.
 - **Plan is a drawer.** 320px wide; it sits beside the calendar from 1100px and slides over it below
   that. Completed items stay collapsed at its foot.
-- **Events are quiet.** A 2px colour bar and a 6% tint of the same colour; 16% when selected; half
-  opacity once past; struck through when a Plan item is done.
+- **Events are quiet.** A 2px colour bar and a 6% tint of the same colour; 16% when selected;
+  struck through when a Plan item is done. Once past, the bar and tint drop to half strength and
+  the text goes one step lighter. At night the whole block fades to half instead.
+- **Quiet structure, readable information.** On paper, the words a day is read by (event titles
+  and times, hour labels, weekday labels) are set darker than the chrome around them. The
+  background, the grid lines and the header controls stay faint.
 - **The working day is on screen.** The hour height follows the window (44 to 58px) and the timeline
   opens just after 07:30, so about 08:00 to 20:00 is visible without scrolling.
 - **Creation is one line.** Click a time, type, Enter: `14:00 │ What are you doing?`

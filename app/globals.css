@@ -17,6 +17,18 @@
   --matcha: #78866B;
   --hover: rgba(37, 36, 33, .04);
   --shadow: rgba(37, 36, 33, .16);
+
+  /* Quiet structure, readable information: on paper the words a day is read by sit darker than
+     the chrome around them. A past event still steps back, with the same half-strength bar and
+     tint as before, but its text is set a step lighter instead of being faded with the block. */
+  --hour: #5A564F;
+  --dow: #625E56;
+  --event-time: var(--ink2);
+  --past-title: var(--ink2);
+  --past-time: var(--muted);
+  --past-bar: .5;
+  --past-tint: 3%;
+  --past-opacity: 1;
   color-scheme: light;
 }
 
@@ -35,6 +47,16 @@
   --matcha: #9DAA8E;
   --hover: rgba(236, 232, 222, .045);
   --shadow: rgba(0, 0, 0, .5);
+
+  /* At night the muted text already reads well, and a past event simply fades. */
+  --hour: var(--muted);
+  --dow: var(--muted);
+  --event-time: var(--muted);
+  --past-title: var(--ink);
+  --past-time: var(--muted);
+  --past-bar: 1;
+  --past-tint: 6%;
+  --past-opacity: .5;
   color-scheme: dark;
 }
 
@@ -51,6 +73,11 @@
   --color-verm: var(--verm);
   --color-matcha: var(--matcha);
   --color-wash: var(--hover);
+  --color-hour: var(--hour);
+  --color-dow: var(--dow);
+  --color-event-time: var(--event-time);
+  --color-past-title: var(--past-title);
+  --color-past-time: var(--past-time);
 
   --font-sans: var(--font-zen), system-ui, sans-serif;
   --font-mincho: var(--font-shippori), serif;

@@ -338,7 +338,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
                     const isSel = key === date;
                     return (
                       <button key={key} onClick={() => go(key)} aria-pressed={isSel} className="flex h-16 flex-col items-center justify-center gap-1">
-                        <span className={`text-[10.5px] tracking-[.1em] ${isSel ? 'text-ink' : 'text-muted'}`}>{DOW[weekday(key)][0]}</span>
+                        <span className={`text-[10.5px] tracking-[.1em] ${isSel ? 'text-ink' : 'text-dow'}`}>{DOW[weekday(key)][0]}</span>
                         <span
                           className={`grid size-[34px] place-items-center rounded-full font-mincho text-[17px] leading-none transition-colors duration-200 ease-kayomi ${
                             isSel ? (isToday ? 'bg-verm text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm' : 'text-ink'
@@ -370,7 +370,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
         >
           {v === 'day' && !mobile && w >= 900 && (
             <aside className="flex w-[280px] flex-none flex-col pt-9 pb-7 pl-10">
-              <span className="text-[11px] tracking-[.2em] text-muted">{DOWL[weekday(date)].toUpperCase()}</span>
+              <span className="text-[11px] tracking-[.2em] text-dow">{DOWL[weekday(date)].toUpperCase()}</span>
               <span className="mt-2.5 mb-1 -ml-1 font-mincho text-[112px] leading-none">{cur.d}</span>
               <span className="font-mincho text-[19px] text-ink2">{`${MON[cur.m - 1]} ${cur.y}`}</span>
               {date === today && (
@@ -382,7 +382,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
               <div className="mt-auto grid grid-cols-[repeat(7,30px)] gap-0.5">
                 {week.map((key) => (
                   <button key={key} onClick={() => go(key)} className="flex h-[46px] flex-col items-center gap-1.5 rounded-[4px] py-1.5 hover:bg-wash">
-                    <span className="text-[9.5px] tracking-[.1em] text-muted">{DOW[weekday(key)][0]}</span>
+                    <span className="text-[9.5px] tracking-[.1em] text-dow">{DOW[weekday(key)][0]}</span>
                     <span
                       className={`border-b pb-[3px] font-mincho text-[15px] leading-none ${key === today ? 'text-verm' : 'text-ink'} ${
                         key === date ? 'border-ink' : 'border-transparent'
