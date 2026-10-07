@@ -63,10 +63,10 @@ Month and the phone Plan sheet are shown in light only: dark changes their palet
   | `stone`, `line` | Never text: rules, dots and outlines only | | |
 
 - **Two vermilions, one accent.** The accent (`verm`) is for shapes: the logo dot, the now line,
-  today's disc, an event's bar. On paper it is 3.9:1, too little for an 11px time, so small
-  vermilion text uses `verm-text`, a shade deeper. One exception is deliberate: the numeral on
-  today's disc on a phone stays paper on the accent itself (3.9:1 at 17px), because darkening
-  the disc would change the accent.
+  an event's bar. On paper it is 3.9:1, too little for an 11px time, so small vermilion text uses
+  `verm-text`, a shade deeper. Today's filled disc on a phone uses the deeper shade too: it is
+  the one shape with small text on it, and its numeral then reads at 4.9:1 (5.1:1 at night).
+  Nothing else changes colour: the accent is never darkened as a whole.
 - **The working day is on screen.** The hour height follows the window (44 to 58px) and the timeline
   opens just after 07:30, so about 08:00 to 20:00 is visible without scrolling.
 - **Creation is one line.** Click a time, type, Enter: `14:00 │ What are you doing?`

@@ -348,7 +348,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
                         <span className={`text-[10.5px] tracking-[.1em] ${isSel ? 'text-ink' : 'text-dow'}`}>{DOW[weekday(key)][0]}</span>
                         <span
                           className={`grid size-[34px] place-items-center rounded-full font-mincho text-[17px] leading-none transition-colors duration-200 ease-kayomi ${
-                            isSel ? (isToday ? 'bg-verm text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm-text' : 'text-ink'
+                            isSel ? (isToday ? 'bg-verm-text text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm-text' : 'text-ink'
                           }`}
                         >
                           {parts(key).d}

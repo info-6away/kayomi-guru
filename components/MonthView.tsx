@@ -70,7 +70,7 @@ export function MonthView({ date, today, mobile, viewportH, byDay, label, year, 
               >
                 <span
                   className={`grid size-8 place-items-center rounded-full font-mincho text-[16px] leading-none ${
-                    isSel ? (isToday ? 'bg-verm text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm-text' : inMonth ? 'text-ink' : 'text-muted'
+                    isSel ? (isToday ? 'bg-verm-text text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm-text' : inMonth ? 'text-ink' : 'text-muted'
                   }`}
                 >
                   {day.d}

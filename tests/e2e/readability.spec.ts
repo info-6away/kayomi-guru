@@ -6,8 +6,7 @@ import { columns, event, open, plan, popover, seed } from './helpers';
 // on screen is compared with the pixels actually behind it, so a tint, a faded parent or a new
 // colour cannot quietly slip under the line.
 //
-// The line is WCAG AA: 4.5:1, or 3:1 for large text. One thing is held to 3:1 on purpose: the
-// numeral on today's vermilion disc. The disc is the accent itself, and darkening it would change it.
+// The line is WCAG AA: 4.5:1, or 3:1 for large text. Nothing is exempt.
 
 const NOW = new Date(2026, 9, 7, 13, 10); // a Wednesday at midday: the week has past and coming events
 const STAMP = '2026-10-01T08:00:00.000Z';
@@ -54,8 +53,8 @@ interface Reading {
   text: string;
   ratio: number;
   size: number;
-  /** Large enough, or the numeral on the accent disc: held to 3:1 instead of 4.5:1. */
-  lenient: boolean;
+  /** Large text, which WCAG holds to 3:1 instead of 4.5:1. */
+  large: boolean;
   /** Dimmed with opacity rather than set in a colour of its own. */
   faded: boolean;
 }
@@ -100,7 +99,6 @@ async function read(page: Page): Promise<Reading[]> {
       const [r, g, b, a] = probe.getImageData(0, 0, 1, 1).data;
       return a ? [(r * 255) / a, (g * 255) / a, (b * 255) / a, a / 255] : [0, 0, 0, 0];
     };
-    const accent = rgba(getComputedStyle(document.documentElement).getPropertyValue('--verm')).slice(0, 3).map(Math.round).join();
 
     const out = [];
     const seen = new Set<Element>();
@@ -130,7 +128,7 @@ async function read(page: Page): Promise<Reading[]> {
         text: text.slice(0, 30),
         ratio: Math.round(((lighter + 0.05) / (darker + 0.05)) * 10) / 10,
         size,
-        lenient: size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700) || background.join() === accent,
+        large: size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700),
         faded: opacity < 1,
       });
     }
@@ -141,7 +139,7 @@ async function read(page: Page): Promise<Reading[]> {
 async function check(page: Page, screen: string) {
   const readings = await read(page);
   expect(readings.length, `${screen}: text found`).toBeGreaterThan(10);
-  const hard = readings.filter((r) => r.ratio < (r.lenient ? 3 : 4.5)).map((r) => `"${r.text}" ${r.ratio}:1 at ${r.size}px`);
+  const hard = readings.filter((r) => r.ratio < (r.large ? 3 : 4.5)).map((r) => `"${r.text}" ${r.ratio}:1 at ${r.size}px`);
   expect(hard, `${screen}: text that is hard to read`).toEqual([]);
   expect(readings.filter((r) => r.faded).map((r) => r.text), `${screen}: text dimmed with opacity`).toEqual([]);
   return readings;
@@ -203,7 +201,9 @@ for (const theme of ['light', 'dark'] as const) {
 
       test('everything on a 390×844 screen is easy to read', async ({ page }) => {
         await start(page);
-        await check(page, 'day');
+        const day = await check(page, 'day');
+        // Today's numeral on its filled disc: the one place small text sits on vermilion.
+        expect(day.find((r) => r.text === '7' && r.size === 17)?.ratio).toBeGreaterThanOrEqual(4.5);
 
         await page.getByRole('button', { name: /^Plan/ }).tap();
         await plan(page).getByRole('button', { name: /Completed/ }).tap();
@@ -213,7 +213,8 @@ for (const theme of ['light', 'dark'] as const) {
 
         await page.getByRole('button', { name: /October/ }).first().tap();
         await expect(columns(page)).toHaveCount(0);
-        await check(page, 'month');
+        const month = await check(page, 'month');
+        expect(month.find((r) => r.text === '7' && r.size === 16)?.ratio).toBeGreaterThanOrEqual(4.5);
       });
     });
   });

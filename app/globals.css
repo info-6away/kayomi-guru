@@ -31,7 +31,8 @@
   --past-bar: .5;
   /* Vermilion for small text. The accent itself is 3.9:1 on paper, fine for a dot or a large
      numeral but not for an 11px time, so small text uses this slightly deeper one: 4.9:1, and
-     still 4.6:1 on the shaded weekend. */
+     still 4.6:1 on the shaded weekend. It also fills today's disc on a phone, the one place
+     small text sits on vermilion, so the numeral there has the same 4.9:1. */
   --verm-text: #B04836;
   /* How much of an event's colour its block takes: resting, past, and selected. */
   --tint: 10%;
