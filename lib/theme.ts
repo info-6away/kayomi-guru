@@ -11,6 +11,12 @@ export const THEME_BG: Record<Theme, string> = { light: '#F5F1E8', dark: '#1D1D1
  */
 export const themeBootScript = `(function(){try{var t=localStorage.getItem('${THEME_KEY}');if(t!=='light'&&t!=='dark')t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=t}catch(e){}})()`;
 
+/**
+ * The page's own colour, inline in the document so it is there before any stylesheet arrives.
+ * An installed app then opens on paper (or ink) from its first frame, with no white flash.
+ */
+export const themeBootStyle = `html{background:${THEME_BG.light};color-scheme:light}html[data-theme=dark]{background:${THEME_BG.dark};color-scheme:dark}`;
+
 export const currentTheme = (): Theme => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
 
 export function applyTheme(theme: Theme) {

@@ -66,11 +66,11 @@ export function MonthView({ date, today, mobile, viewportH, byDay, label, year, 
               <button
                 key={key}
                 onClick={() => onOpenDay(key)}
-                className={`flex min-h-0 flex-col items-center gap-1.5 border-t border-line2 py-2 ${inMonth ? '' : 'opacity-40'}`}
+                className="flex min-h-0 flex-col items-center gap-1.5 border-t border-line2 py-2"
               >
                 <span
                   className={`grid size-8 place-items-center rounded-full font-mincho text-[16px] leading-none ${
-                    isSel ? (isToday ? 'bg-verm text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm' : 'text-ink'
+                    isSel ? (isToday ? 'bg-verm-text text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm-text' : inMonth ? 'text-ink' : 'text-muted'
                   }`}
                 >
                   {day.d}
@@ -78,7 +78,7 @@ export function MonthView({ date, today, mobile, viewportH, byDay, label, year, 
                 {list.length > 0 && (
                   <span className="flex h-1 justify-center gap-[3px]">
                     {list.slice(0, 3).map((o) => (
-                      <span key={o.key} className="size-1 rounded-full" style={{ background: CAT[o.event.category] }} />
+                      <span key={o.key} className="size-1 rounded-full" style={{ background: CAT[o.event.category], opacity: inMonth ? undefined : 0.5 }} />
                     ))}
                   </span>
                 )}
@@ -93,15 +93,15 @@ export function MonthView({ date, today, mobile, viewportH, byDay, label, year, 
               onClick={() => onOpenDay(key)}
               className={`flex min-h-0 flex-col items-stretch gap-[5px] overflow-hidden border-t border-line px-3 pt-2.5 pb-2 text-left transition-colors duration-150 hover:bg-wash ${
                 i % 7 ? 'border-l border-l-line2' : ''
-              } ${inMonth ? '' : 'opacity-40'}`}
+              }`}
               style={{ backgroundColor: i % 7 >= 5 ? 'color-mix(in oklab, var(--ink) 2.5%, transparent)' : undefined }}
             >
-              <span className={`mb-1 font-mincho text-[17px] leading-none ${isToday ? 'text-verm' : 'text-ink'}`}>{day.d}</span>
+              <span className={`mb-1 font-mincho text-[17px] leading-none ${isToday ? 'text-verm-text' : inMonth ? 'text-ink' : 'text-muted'}`}>{day.d}</span>
               {list.slice(0, max).map((o) => (
                 <span key={o.key} className="flex min-w-0 items-center gap-[7px] text-[12px] leading-[1.35]">
-                  <span className="h-[11px] w-0.5 flex-none rounded-[1px]" style={{ background: CAT[o.event.category] }} />
-                  <span className="flex-none text-event-time tabular-nums">{hm(o.start)}</span>
-                  <span className={`min-w-0 truncate ${o.done ? 'text-muted line-through' : 'text-ink'}`}>{o.event.title}</span>
+                  <span className="h-[11px] w-0.5 flex-none rounded-[1px]" style={{ background: CAT[o.event.category], opacity: inMonth ? undefined : 0.5 }} />
+                  <span className={`flex-none tabular-nums ${inMonth ? 'text-event-time' : 'text-muted'}`}>{hm(o.start)}</span>
+                  <span className={`min-w-0 truncate ${o.done ? 'text-muted line-through' : inMonth ? 'text-ink' : 'text-ink2'}`}>{o.event.title}</span>
                 </span>
               ))}
               {list.length > max && <span className="pl-[9px] text-[11.5px] text-muted">+{list.length - max} more</span>}

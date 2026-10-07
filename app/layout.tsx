@@ -1,6 +1,6 @@
 import type { Viewport } from 'next';
 import { Shippori_Mincho, Zen_Kaku_Gothic_New } from 'next/font/google';
-import { THEME_BG, themeBootScript } from '@/lib/theme';
+import { THEME_BG, themeBootScript, themeBootStyle } from '@/lib/theme';
 import './globals.css';
 
 // One call per weight, on purpose. Each weight of these families comes as about 120 slices, most of
@@ -28,6 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${mincho.variable} ${gothic.variable} ${gothicMedium.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+        <style dangerouslySetInnerHTML={{ __html: themeBootStyle }} />
       </head>
       <body>{children}</body>
     </html>

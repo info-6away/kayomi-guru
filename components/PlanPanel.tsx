@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
+import { install, useCanInstall } from '@/lib/install';
 import { addPlanItem, setPlanStatus } from '@/lib/store';
 import type { PlanItem } from '@/lib/types';
 import { things } from './ui';
@@ -24,6 +25,7 @@ export function PlanPanel({ mobile, open, pushes, waiting, done, placingId, drag
   const [text, setText] = useState('');
   const [doneOpen, setDoneOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const canInstall = useCanInstall();
   const slideMs = mobile ? 260 : 220;
 
   useEffect(() => {
@@ -173,6 +175,12 @@ export function PlanPanel({ mobile, open, pushes, waiting, done, placingId, drag
 
       <div className="flex-none px-[26px] pt-2.5 pb-[22px] text-[12px] leading-[1.6] text-muted">
         {mobile ? 'Tap a thing, then tap a time to schedule it.' : 'Drag onto your week, or click a thing and choose a time.'}
+        {/* Only while the browser offers it: never in Safari or Firefox, and never once installed. */}
+        {canInstall && (
+          <button onClick={install} className="mt-1 block underline decoration-line underline-offset-4 hover:text-ink2">
+            Install Koyomi
+          </button>
+        )}
       </div>
     </section>
   );

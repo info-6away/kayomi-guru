@@ -6,7 +6,12 @@
 // - Anything else from this origin (icons, manifest) is served from the cache and
 //   refreshed in the background.
 //
-// The calendar's data is not here. It lives in IndexedDB and never leaves the device.
+// The calendar's data is not here. It lives in IndexedDB and never leaves the device. Nothing in
+// this file reads, writes or clears IndexedDB: the caches below can be thrown away at any time
+// and rebuilt from the network, and the calendar cannot.
+//
+// Updates need no prompt. The page is fetched fresh on every launch, so a new release is simply
+// what the next launch shows. An open session is never reloaded from here.
 
 // The cache names keep the product's first spelling, "kayomi"; they are internal and never shown.
 const SHELL = 'kayomi-shell-v1';
@@ -82,15 +87,17 @@ self.addEventListener('fetch', (event) => {
 
 async function page(event) {
   const cache = await caches.open(SHELL);
+  const isShell = new URL(event.request.url).pathname === '/';
+  const network = fetch(event.request);
+  // The request carries on even when the visitor has been answered from the cache, and whatever
+  // it brings back is kept. On a slow connection today's launch may show the saved shell, but the
+  // next one has the newest: nobody stays on an old release for want of a fast network.
+  event.waitUntil(network.then((response) => (response.ok && isShell ? cache.put('/', response.clone()) : undefined)).catch(() => {}));
   try {
-    const response = await Promise.race([
-      fetch(event.request),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), PAGE_TIMEOUT_MS)),
-    ]);
-    if (response.ok && new URL(event.request.url).pathname === '/') event.waitUntil(cache.put('/', response.clone()));
-    return response;
+    return await Promise.race([network, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), PAGE_TIMEOUT_MS))]);
   } catch {
-    return (await cache.match('/')) || Response.error();
+    // Offline, or too slow. With nothing saved yet (a first visit), waiting is all there is.
+    return (await cache.match('/')) || network.catch(() => Response.error());
   }
 }
 

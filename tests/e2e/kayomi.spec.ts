@@ -1,107 +1,26 @@
-import { spawn } from 'node:child_process';
-import { chromium, expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import {
+  addDays,
+  addEvent,
+  addToPlan,
+  at,
+  columns,
+  event,
+  hourHeight,
+  open,
+  otherDay,
+  placeFromPlan,
+  plan,
+  popover,
+  reload,
+  renderedFonts,
+  stored,
+  storedTitles,
+  today,
+} from './helpers';
 
-// These run against the production build, so they exercise the real service worker and IndexedDB.
-// Every test starts from an empty calendar: each gets its own browser profile.
-
-const pad = (n: number) => String(n).padStart(2, '0');
-const key = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const addDays = (k: string, n: number) => {
-  const [y, m, d] = k.split('-').map(Number);
-  return key(new Date(y, m - 1, d + n));
-};
-const today = () => key(new Date());
-/** Another day in the same Monday-first week as today. */
-const otherDay = () => addDays(today(), (new Date().getDay() + 6) % 7 === 6 ? -1 : 1);
-
-const event = (page: Page, title: string) => page.locator('[data-event]', { hasText: title });
-const popover = (page: Page) => page.locator('[data-popover]');
-const plan = (page: Page) => page.getByRole('region', { name: 'Plan' });
-const columns = (page: Page) => page.locator('[data-day]');
-
-async function open(page: Page, url = '/') {
-  await page.goto(url);
-  await expect(page.getByText('koyomi')).toBeVisible();
-}
-
-/** Reloads and waits until the calendar is on screen and taking keys again. */
-async function reload(page: Page) {
-  await page.reload();
-  await expect(page.getByText('koyomi')).toBeVisible();
-}
-
-/** A time of day inside a day's column, scrolled into view. */
-async function at(page: Page, day: string, time: string) {
-  const column = page.locator(`[data-day="${day}"]`);
-  const [h, m] = time.split(':').map(Number);
-  const y = await column.evaluate((el, minutes) => {
-    const y = (minutes / 60) * (el.getBoundingClientRect().height / 24);
-    el.closest('.overflow-y-auto')!.scrollTop = Math.max(0, y - 250);
-    return y;
-  }, h * 60 + m);
-  return { column, position: { x: 40, y: y + 6 } };
-}
-
-const hourHeight = (page: Page) => columns(page).first().evaluate((el) => el.getBoundingClientRect().height / 24);
-
-async function addEvent(page: Page, title: string, time: string, day = today()) {
-  const { column, position } = await at(page, day, time);
-  await column.click({ position });
-  await expect(page.getByPlaceholder('What are you doing?')).toBeFocused();
-  await page.keyboard.type(title);
-  await page.keyboard.press('Enter');
-  await expect(event(page, title)).toBeVisible();
-}
-
-async function addToPlan(page: Page, ...titles: string[]) {
-  await plan(page).getByRole('button', { name: /Add$/ }).click();
-  for (const title of titles) {
-    await page.keyboard.type(title);
-    await page.keyboard.press('Enter');
-  }
-  await page.keyboard.press('Escape');
-}
-
-async function placeFromPlan(page: Page, title: string, time: string, day = today()) {
-  await plan(page).getByRole('button', { name: title, exact: true }).click();
-  await expect(page.getByText('Choose a time for')).toBeVisible();
-  const { column, position } = await at(page, day, time);
-  await column.click({ position });
-  await expect(event(page, title)).toBeVisible();
-}
-
-/** What is actually written to this device, read straight from IndexedDB. */
-function stored(page: Page) {
-  return page.evaluate(
-    () =>
-      new Promise<{ events: any[]; planItems: any[] }>((resolve, reject) => {
-        const open = indexedDB.open('kayomi');
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
-          const tx = open.result.transaction(['events', 'planItems']);
-          const events = tx.objectStore('events').getAll();
-          const planItems = tx.objectStore('planItems').getAll();
-          tx.oncomplete = () => {
-            open.result.close();
-            resolve({ events: events.result, planItems: planItems.result });
-          };
-        };
-      }),
-  );
-}
-const storedTitles = async (page: Page) => (await stored(page)).events.map((e) => e.title).sort();
-
-/** The font files Chrome really drew an element's text with (not just what the CSS asks for). */
-async function renderedFonts(page: Page, selector: string) {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('DOM.enable');
-  await cdp.send('CSS.enable');
-  const { root } = await cdp.send('DOM.getDocument');
-  const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector });
-  const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId });
-  await cdp.detach();
-  return fonts.filter((f) => f.isCustomFont).map((f) => f.familyName);
-}
+// The calendar itself: events, Plan, the views and the look.
+// Koyomi as an installed app (manifest, offline, releases) is in pwa.spec.ts.
 
 test.describe('calendar', () => {
   test('opens on the week, with nothing failing to load', async ({ page }) => {
@@ -612,133 +531,5 @@ test.describe('phone', () => {
     await page.getByRole('button', { name: '15', exact: true }).tap();
     await expect(columns(page)).toHaveCount(1);
     await expect(page.locator(`[data-day="${today().slice(0, 8)}15"]`)).toBeVisible();
-  });
-});
-
-test.describe('installed app', () => {
-  test('has a manifest, icons and a service worker', async ({ request }) => {
-    const manifest = await (await request.get('/manifest.webmanifest')).json();
-    expect(manifest).toMatchObject({ name: 'Koyomi', display: 'standalone', start_url: '/', background_color: '#F5F1E8' });
-    expect(manifest.icons.map((i: { sizes: string }) => i.sizes)).toEqual(expect.arrayContaining(['192x192', '512x512']));
-    for (const icon of [...manifest.icons.map((i: { src: string }) => i.src), '/apple-icon.png', '/favicon.ico', '/icon.svg']) {
-      const response = await request.get(icon);
-      expect(response.status(), icon).toBe(200);
-    }
-    const worker = await request.get('/sw.js');
-    expect(worker.status()).toBe(200);
-    expect(worker.headers()['cache-control']).toContain('no-cache');
-  });
-
-  test('survives a browser restart, and Chrome finds it installable', async ({ baseURL }, testInfo) => {
-    // Starts Chrome twice with a real profile, which is slow when the other tests are running too.
-    test.setTimeout(90_000);
-    const profile = testInfo.outputPath('profile');
-    const launch = () => chromium.launchPersistentContext(profile, { channel: 'chrome', viewport: { width: 1440, height: 900 } });
-
-    let context = await launch();
-    let page = context.pages()[0] ?? (await context.newPage());
-    await open(page, baseURL!);
-    await addEvent(page, 'Flight to Lisbon', '06:00');
-    await page.keyboard.press('p');
-    await addToPlan(page, 'Pack');
-    await expect.poll(async () => (await stored(page)).planItems.length).toBe(1);
-
-    const cdp = await context.newCDPSession(page);
-    const manifest = await cdp.send('Page.getAppManifest');
-    expect(manifest.errors).toEqual([]);
-    expect((await cdp.send('Page.getInstallabilityErrors')).installabilityErrors).toEqual([]);
-    await context.close();
-
-    context = await launch();
-    page = context.pages()[0] ?? (await context.newPage());
-    await open(page, baseURL!);
-    await expect(event(page, 'Flight to Lisbon')).toContainText('06:00 – 07:00');
-    await page.keyboard.press('p');
-    await expect(plan(page).getByRole('button', { name: 'Pack', exact: true })).toBeVisible();
-    await context.close();
-  });
-
-  test('the offline cache drops files from older releases, on a host that nests them too', async ({ page }) => {
-    await open(page);
-    // Let the page finish handing its own files to the worker first.
-    await expect
-      .poll(() =>
-        page.evaluate(async () => {
-          if (!navigator.serviceWorker.controller) return false;
-          const cache = await caches.open('kayomi-static-v1');
-          const loaded = performance.getEntriesByType('resource').map((e) => e.name).filter((u) => u.includes('/_next/static/'));
-          for (const url of loaded) if (!(await cache.match(url))) return false;
-          return loaded.length > 0;
-        }),
-      )
-      .toBe(true);
-
-    // Vercel serves hashed files one folder deeper than a local build: /_next/static/immutable/.
-    const kept = await page.evaluate(async () => {
-      const base = `${location.origin}/_next/static/immutable/`;
-      const cache = await caches.open('kayomi-static-v1');
-      for (const file of ['chunks/old-release.js', 'chunks/current.js', 'media/font.woff2']) await cache.put(base + file, new Response('x'));
-      navigator.serviceWorker.controller!.postMessage({ type: 'warm', urls: [`${base}chunks/current.js`] });
-      for (let i = 0; i < 40 && (await cache.match(`${base}chunks/old-release.js`)); i++) await new Promise((r) => setTimeout(r, 100));
-      const has = async (file: string) => !!(await cache.match(base + file));
-      return { oldRelease: await has('chunks/old-release.js'), current: await has('chunks/current.js'), font: await has('media/font.woff2') };
-    });
-    expect(kept).toEqual({ oldRelease: false, current: true, font: true });
-  });
-
-  test('works with no connection after one visit', async ({ page }) => {
-    test.setTimeout(120_000);
-    // Its own server, so that it can be taken away.
-    const origin = 'http://localhost:4311';
-    const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-p', '4311'], { stdio: 'ignore' });
-    const reachable = () =>
-      fetch(origin).then(
-        (r) => r.ok,
-        () => false,
-      );
-    try {
-      await expect.poll(reachable, { timeout: 60_000 }).toBe(true);
-      await open(page, origin);
-      await addEvent(page, 'Before the tunnel', '10:00');
-
-      // The worker holds the page and every file the page loaded, fonts included.
-      await expect
-        .poll(
-          () =>
-            page.evaluate(async () => {
-              if (!navigator.serviceWorker.controller) return 'no worker yet';
-              const cache = await caches.open('kayomi-static-v1');
-              const loaded = performance.getEntriesByType('resource').map((e) => e.name).filter((u) => u.includes('/_next/static/'));
-              const missing = [];
-              for (const url of loaded) if (!(await cache.match(url))) missing.push(url);
-              const shell = await (await caches.open('kayomi-shell-v1')).match('/');
-              return loaded.length && shell && !missing.length ? 'ready' : `missing ${missing.length}`;
-            }),
-          { timeout: 30_000 },
-        )
-        .toBe('ready');
-
-      server.kill();
-      await expect.poll(reachable, { timeout: 30_000 }).toBe(false);
-
-      await reload(page);
-      await expect(page.getByText('koyomi')).toBeVisible();
-      await expect(event(page, 'Before the tunnel')).toBeVisible();
-      await page.evaluate(() => document.fonts.ready);
-      await expect.poll(() => renderedFonts(page, 'header span.font-mincho')).toEqual(['Shippori Mincho']);
-      await expect.poll(() => renderedFonts(page, 'header nav button')).toEqual(['Zen Kaku Gothic New']);
-
-      await addEvent(page, 'In the tunnel', '12:00');
-      await page.keyboard.press('p');
-      await addToPlan(page, 'Reply when back online');
-      await expect.poll(() => storedTitles(page)).toEqual(['Before the tunnel', 'In the tunnel']);
-
-      await reload(page);
-      await expect(event(page, 'In the tunnel')).toBeVisible();
-      await page.keyboard.press('p');
-      await expect(plan(page).getByRole('button', { name: 'Reply when back online', exact: true })).toBeVisible();
-    } finally {
-      server.kill();
-    }
   });
 });

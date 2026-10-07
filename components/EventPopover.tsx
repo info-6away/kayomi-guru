@@ -63,7 +63,8 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
                 // No picker to open here; the field still takes typed dates.
               }
             }}
-            className="absolute inset-0 size-full cursor-pointer opacity-0"
+            // 16px although it is never seen: iOS zooms the page when a smaller field takes focus.
+            className="absolute inset-0 size-full cursor-pointer text-[16px] opacity-0"
           />
         </label>
       </div>
@@ -168,7 +169,7 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
               deleteEvent(ev.id);
               close();
             }}
-            className={`${ACTION} ml-auto text-muted hover:text-verm`}
+            className={`${ACTION} ml-auto text-muted hover:text-verm-text`}
           >
             All
           </button>
@@ -204,7 +205,7 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
               deleteEvent(ev.id);
               close();
             }}
-            className={`${ACTION} ml-auto text-muted hover:text-verm`}
+            className={`${ACTION} ml-auto text-muted hover:text-verm-text`}
           >
             Delete
           </button>
