@@ -4,6 +4,10 @@ import type { CalendarInfo } from '../calendars/types';
 
 // Everything Koyomi says to Google, and nothing more: the consent screen, the token exchange,
 // and two read-only calls. Plain fetch, so there is no SDK between this file and the wire.
+//
+// Every address used here comes from this file. Nothing a browser sends is ever treated as an
+// address: a calendar's id is put into the path percent-encoded, so it can name a calendar and
+// nothing else.
 
 /**
  * The whole permission Koyomi asks for: see which calendars exist, and read their events.
@@ -45,7 +49,7 @@ export interface GoogleClient {
  * - `reconnect`: the permission is gone (revoked, expired, or too narrow). Only the person can fix it.
  * - `gone`: the "what changed since" cursor is no longer valid. Fetch everything again.
  * - `not_found`: that calendar is not there for this account any more.
- * - `busy`: Google is unreachable, failing or limiting requests. Nothing is wrong; try later.
+ * - `busy`: Google is unreachable, slow, failing or limiting requests. Nothing is wrong; try later.
  */
 export class GoogleError extends Error {
   constructor(public readonly kind: 'reconnect' | 'gone' | 'not_found' | 'busy') {
@@ -53,7 +57,15 @@ export class GoogleError extends Error {
   }
 }
 
-const TIMEOUT_MS = 15_000;
+/** No single request to Google is waited on for longer than this. */
+export const REQUEST_TIMEOUT_MS = 15_000;
+/** A calendar list longer than this is cut short: 250 calendars a page. */
+export const MAX_CALENDAR_PAGES = 2;
+/** One reading of one calendar stops here: 2,500 events a page, so 10,000 events. */
+export const MAX_EVENT_PAGES = 4;
+
+/** Stops at the request's own limit, or when the whole job it is part of runs out of time. */
+const limit = (deadline?: AbortSignal) => (deadline ? AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT_MS), deadline]) : AbortSignal.timeout(REQUEST_TIMEOUT_MS));
 
 /** A one-time secret for the consent round trip, and the hash of it that Google is shown (PKCE). */
 export function pkce() {
@@ -87,7 +99,7 @@ async function token(g: GoogleClient, params: Record<string, string>) {
       headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
       body: new URLSearchParams({ client_id: g.clientId, client_secret: g.clientSecret, ...params }),
       cache: 'no-store',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: limit(),
     });
   } catch {
     throw new GoogleError('busy');
@@ -95,10 +107,14 @@ async function token(g: GoogleClient, params: Record<string, string>) {
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (response.ok) return body;
   // The one answer that means "ask the person again": the grant was revoked or has expired.
+  // Whatever else Google said stays here; it is not passed on or logged.
   throw new GoogleError(body.error === 'invalid_grant' ? 'reconnect' : 'busy');
 }
 
-/** Trades the code from the consent screen for tokens. Runs on the server only. */
+/**
+ * Trades the code from the consent screen for tokens. Runs on the server only. Google honours
+ * it only for this client, this redirect address, and the secret whose hash it was shown.
+ */
 export async function exchangeCode(g: GoogleClient, code: string, verifier: string) {
   const body = await token(g, { grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: g.redirectUri });
   return {
@@ -123,7 +139,7 @@ export async function revoke(g: GoogleClient, refreshToken: string): Promise<boo
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ token: refreshToken }),
       cache: 'no-store',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: limit(),
     });
     return response.ok;
   } catch {
@@ -131,13 +147,13 @@ export async function revoke(g: GoogleClient, refreshToken: string): Promise<boo
   }
 }
 
-async function api<T>(g: GoogleClient, accessToken: string, path: string, query: Record<string, string>): Promise<T> {
+async function api<T>(g: GoogleClient, accessToken: string, path: string, query: Record<string, string>, deadline?: AbortSignal): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${g.endpoints.api}${path}?${new URLSearchParams(query)}`, {
       headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
       cache: 'no-store',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: limit(deadline),
     });
   } catch {
     throw new GoogleError('busy');
@@ -156,22 +172,25 @@ async function api<T>(g: GoogleClient, accessToken: string, path: string, query:
 }
 
 /** The calendars this account has in its list, excluding ones it has deleted. */
-export async function listCalendars(g: GoogleClient, accessToken: string): Promise<CalendarInfo[]> {
+export async function listCalendars(g: GoogleClient, accessToken: string, deadline?: AbortSignal): Promise<CalendarInfo[]> {
   interface Entry { id: string; summary?: string; summaryOverride?: string; primary?: boolean; selected?: boolean; deleted?: boolean }
   const out: CalendarInfo[] = [];
   let pageToken: string | undefined;
-  do {
-    const page: { items?: Entry[]; nextPageToken?: string } = await api(g, accessToken, '/users/me/calendarList', {
-      maxResults: '250',
-      fields: 'nextPageToken,items(id,summary,summaryOverride,primary,selected,deleted)',
-      ...(pageToken ? { pageToken } : {}),
-    });
-    for (const entry of page.items ?? []) {
+  for (let page = 0; page < MAX_CALENDAR_PAGES; page++) {
+    const result: { items?: Entry[]; nextPageToken?: string } = await api(
+      g,
+      accessToken,
+      '/users/me/calendarList',
+      { maxResults: '250', fields: 'nextPageToken,items(id,summary,summaryOverride,primary,selected,deleted)', ...(pageToken ? { pageToken } : {}) },
+      deadline,
+    );
+    for (const entry of result.items ?? []) {
       if (!entry.id || entry.deleted) continue;
       out.push({ calendarId: entry.id, name: entry.summaryOverride || entry.summary || entry.id, primary: !!entry.primary, selected: !!entry.selected });
     }
-    pageToken = page.nextPageToken;
-  } while (pageToken);
+    pageToken = result.nextPageToken;
+    if (!pageToken) break;
+  }
   // The person's own calendar first, then by name: the order they are listed in Koyomi.
   return out.sort((a, b) => Number(b.primary) - Number(a.primary) || a.name.localeCompare(b.name));
 }
@@ -182,6 +201,9 @@ export async function listCalendars(g: GoogleClient, accessToken: string): Promi
  *
  * Without a cursor: everything between `timeMin` and `timeMax`.
  * With one: only what has changed since it was issued, including what was deleted.
+ *
+ * A calendar with more than MAX_EVENT_PAGES pages in the span is cut short. What was read is
+ * returned without a cursor, so the next reading starts again rather than trusting a partial one.
  */
 export async function listEvents(
   g: GoogleClient,
@@ -189,12 +211,12 @@ export async function listEvents(
   calendarId: string,
   span: { timeMin: string; timeMax: string },
   syncToken: string | null,
+  deadline?: AbortSignal,
 ): Promise<{ items: GoogleEvent[]; nextSyncToken: string | null }> {
   const items: GoogleEvent[] = [];
   let pageToken: string | undefined;
-  let nextSyncToken: string | null = null;
-  do {
-    const page: { items?: GoogleEvent[]; nextPageToken?: string; nextSyncToken?: string } = await api(
+  for (let page = 0; page < MAX_EVENT_PAGES; page++) {
+    const result: { items?: GoogleEvent[]; nextPageToken?: string; nextSyncToken?: string } = await api(
       g,
       accessToken,
       `/calendars/${encodeURIComponent(calendarId)}/events`,
@@ -206,10 +228,11 @@ export async function listEvents(
         ...(syncToken ? { syncToken } : { timeMin: span.timeMin, timeMax: span.timeMax }),
         ...(pageToken ? { pageToken } : {}),
       },
+      deadline,
     );
-    items.push(...(page.items ?? []));
-    pageToken = page.nextPageToken;
-    nextSyncToken = page.nextSyncToken ?? null;
-  } while (pageToken);
-  return { items, nextSyncToken };
+    items.push(...(result.items ?? []));
+    pageToken = result.nextPageToken;
+    if (!pageToken) return { items, nextSyncToken: result.nextSyncToken ?? null };
+  }
+  return { items, nextSyncToken: null };
 }

@@ -78,10 +78,11 @@ export interface EventsResponse {
 
 /**
  * Why a request to the server did not produce data.
- * - `signed_out`: no Koyomi session on this device.
+ * - `signed_out`: no Koyomi session on this device. Says nothing about the connection, which is kept on the server.
  * - `not_connected`: signed in, but no calendar account is connected.
  * - `reconnect`: the provider no longer honours the stored permission.
  * - `busy`: the provider is unavailable or limiting requests; try later.
+ * - `slow_down`: this person has asked too often in the last minute; try later.
  * - `unavailable`: calendar connections are not set up on this server.
  */
-export type ApiError = 'signed_out' | 'not_connected' | 'reconnect' | 'busy' | 'unavailable' | 'bad_request';
+export type ApiError = 'signed_out' | 'not_connected' | 'reconnect' | 'busy' | 'slow_down' | 'unavailable' | 'bad_request';

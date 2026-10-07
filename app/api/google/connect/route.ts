@@ -1,16 +1,19 @@
-import { randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
-import { OAUTH_COOKIE, googleAccess, storeFor, type Ctx } from '@/lib/server/api';
+import { OAUTH_COOKIE, storeFor, works } from '@/lib/server/api';
 import { auth } from '@/lib/server/auth';
 import { connectionsConfig } from '@/lib/server/env';
-import { authorizeUrl, pkce } from '@/lib/server/google';
+import { FLOW_SECONDS, beginFlow } from '@/lib/server/flow';
+import { authorizeUrl } from '@/lib/server/google';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * "Connect" in Calendars leads here. Signs the visitor in with 6Away if they are not, then
- * hands them to Google's consent screen. Someone whose connection still works is sent straight
- * back: there is nothing to ask Google again.
+ * "Connect" and "Reconnect" in Calendars lead here. Signs the visitor in with 6Away if they are
+ * not, then hands them to Google's consent screen. Someone whose connection still works is sent
+ * straight back: there is nothing to ask Google again.
+ *
+ * Every redirect from here goes to an address built on the server: the app's own, 6Away's
+ * sign-in on the app's own origin, or Google's consent screen. Nothing in the request chooses it.
  */
 export async function GET(request: Request) {
   const config = connectionsConfig();
@@ -25,21 +28,18 @@ export async function GET(request: Request) {
     return Response.redirect(`${config.appUrl}/api/auth/signin?returnTo=${encodeURIComponent('/api/google/connect?signed=1')}`, 303);
   }
 
-  const ctx: Ctx = { config, store: storeFor(config), subject: user.sub };
-  try {
-    if (typeof (await googleAccess(ctx)) === 'string') return home('connected');
-  } catch {
-    // Google could not confirm it either way; asking for consent again is always safe.
-  }
+  if (await works({ config, store: storeFor(config), subject: user.sub })) return home('connected');
 
-  const state = randomBytes(16).toString('base64url');
-  const { verifier, challenge } = pkce();
-  (await cookies()).set(OAUTH_COOKIE, `${state}.${verifier}`, {
+  // A new attempt: fresh random state and PKCE secret, sealed with who is asking, in a cookie
+  // that page code cannot read. Lax, because the way back from Google is a link from another
+  // site, which a Strict cookie would not accompany.
+  const { flow, challenge, cookie } = beginFlow(user.sub, config.tokenKey);
+  (await cookies()).set(OAUTH_COOKIE, cookie, {
     httpOnly: true,
-    secure: config.appUrl.startsWith('https:'),
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/api/google',
-    maxAge: 600,
+    maxAge: FLOW_SECONDS,
   });
-  return Response.redirect(authorizeUrl(config.google, state, challenge), 303);
+  return Response.redirect(authorizeUrl(config.google, flow.state, challenge), 303);
 }

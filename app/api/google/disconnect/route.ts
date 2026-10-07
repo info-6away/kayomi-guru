@@ -1,6 +1,7 @@
-import { fail, forgetAccess, json, sameOrigin, sealContext, signedIn } from '@/lib/server/api';
+import { forgetAccess, isAnswer, no, respond, sameOrigin, sealContext, signedIn } from '@/lib/server/api';
 import { auth } from '@/lib/server/auth';
 import { revoke } from '@/lib/server/google';
+import { report } from '@/lib/server/log';
 import { open } from '@/lib/server/seal';
 
 export const dynamic = 'force-dynamic';
@@ -9,11 +10,15 @@ export const dynamic = 'force-dynamic';
  * Ends the connection: withdraws the permission at Google, deletes the stored token, and signs
  * this device out of Koyomi's server, since the connection was the only reason it was signed in.
  * The browser then removes its own copy of the events.
+ *
+ * This is the only thing that removes a connection. It acts on the signed-in person's own row
+ * and no other, and only when asked from the app itself: a request from another site arrives
+ * without the session cookie (SameSite) and with the wrong origin, and is refused on both counts.
  */
 export async function POST(request: Request) {
   const ctx = await signedIn();
-  if (ctx instanceof Response) return ctx;
-  if (!sameOrigin(request, ctx.config)) return fail('bad_request', 403);
+  if (isAnswer(ctx)) return respond(ctx);
+  if (!sameOrigin(request, ctx.config)) return respond(no('bad_request', 403));
 
   try {
     const connection = await ctx.store.get(ctx.subject, 'google');
@@ -28,8 +33,9 @@ export async function POST(request: Request) {
     }
     forgetAccess(ctx.subject);
     await auth.destroySession();
-    return json({ ok: true, revoked });
-  } catch {
-    return fail('busy', 503);
+    return respond({ status: 200, body: { ok: true, revoked } });
+  } catch (error) {
+    report('disconnecting', error);
+    return respond(no('busy', 503));
   }
 }

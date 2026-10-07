@@ -103,9 +103,11 @@ for someone who does. Taken with `npm run screenshots -- --connected` against
   Koyomi, always shown, then the connected account's calendars, each a row that is on or off.
   Refresh and Disconnect are text at the foot. There is no settings page, no avatar, no account
   screen.
-- **Trouble is one line.** If Google needs the person again, "Google Calendar needs
-  reconnecting" appears as a small pill at the bottom of the calendar and in Calendars. Being
-  offline, or Google being slow, shows nothing at all.
+- **Trouble is one line, and says which trouble.** If the Koyomi sign-in has ended: "Sign in
+  again to update Google Calendar". If Google itself has refused the permission: "Google
+  Calendar needs reconnecting". Either appears as a small pill at the bottom of the calendar and
+  in Calendars, and the two are never confused. Being offline, or Google being slow, shows
+  nothing at all.
 
 ## Differences from the prototype
 

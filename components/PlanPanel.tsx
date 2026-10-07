@@ -189,7 +189,7 @@ export function PlanPanel({ mobile, open, pushes, waiting, done, placingId, drag
         {/* Only where the server is set up for it. The way to calendars from elsewhere, kept out of the way. */}
         {external.available && (
           <button onClick={() => onView('calendars')} className="mt-1 block underline decoration-line underline-offset-4 hover:text-ink2">
-            {external.status === 'reconnect' ? 'Calendars · needs reconnecting' : 'Calendars'}
+            {external.status === 'reconnect' ? 'Calendars · needs reconnecting' : external.status === 'signin' ? 'Calendars · sign in again' : 'Calendars'}
           </button>
         )}
         {/* Only while the browser offers it: never in Safari or Firefox, and never once installed. */}

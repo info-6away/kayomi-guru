@@ -19,7 +19,7 @@ import {
   type Span,
 } from '@/lib/dates';
 import { showingsByDay } from '@/lib/calendars/showings';
-import { connected, disconnect, initExternal, say, useExternal } from '@/lib/calendars/store';
+import { connected, finishDisconnect, initExternal, resume, say, useExternal } from '@/lib/calendars/store';
 import { moved, occurrenceKey, occurrencesByDay, type Occurrence } from '@/lib/occurrences';
 import { watchInstall } from '@/lib/install';
 import { addEvent, init, schedulePlanItem, updateEvent, useData, type Data } from '@/lib/store';
@@ -141,12 +141,16 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     if (!planOpen) setPlanView('plan');
   }, [planOpen]);
 
-  // Back from signing in or from Google's consent screen: the address says how it went.
+  // Back from signing in or from Google's consent screen: the address says how it went. An
+  // address can also be a link from anywhere, so none of these words can do anything on its own:
+  // each only prompts a question to the server, or needs something this tab left behind.
   useEffect(() => {
     const outcome = new URLSearchParams(location.search).get('calendars');
     if (!outcome) return;
     history.replaceState(null, '', location.pathname);
-    if (outcome === 'disconnect') return void disconnect();
+    if (outcome === 'disconnect') return void finishDisconnect();
+    // Signed in to 6Away again: nothing to show, the calendars simply carry on.
+    if (outcome === 'resume') return void resume();
     openCalendars();
     if (outcome === 'connected') void connected();
     else if (outcome === 'cancelled') say('Google Calendar was not connected.');
@@ -560,7 +564,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
         )}
 
         {/* Koyomi carries on as it is; what was read before stays on screen. One quiet line says what is needed. */}
-        {external.status === 'reconnect' && !planOpen && (
+        {(external.status === 'reconnect' || external.status === 'signin') && !planOpen && (
           <button
             onClick={openCalendars}
             className={`absolute z-[24] h-7 rounded-full border border-line bg-bg px-3 text-[12px] text-ink2 shadow-[0_6px_18px_-10px_var(--shadow)] hover:border-stone hover:text-ink ${
@@ -568,7 +572,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
             }`}
             style={mobile ? { bottom: 'calc(76px + env(safe-area-inset-bottom))' } : undefined}
           >
-            Google Calendar needs reconnecting
+            {external.status === 'reconnect' ? 'Google Calendar needs reconnecting' : 'Sign in again to update Google Calendar'}
           </button>
         )}
 

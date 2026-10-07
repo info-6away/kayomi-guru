@@ -81,11 +81,12 @@ npm test           # date, recurrence and layout logic
 npm run test:e2e   # the real app in Google Chrome: builds, serves and drives the production build
 ```
 
-The browser tests are in four files: `kayomi.spec.ts` (the calendar: quick-add, editing, drag and
-resize, Plan, search, Day/Week/Month, phone layout, dark mode), `pwa.spec.ts` (the installed app, as
-above), `calendars.spec.ts` (connected calendars and the all-day row) and `readability.spec.ts`
-(the contrast of every piece of text, in both themes, at three sizes). `site.spec.ts` covers the
-landing page and the host names.
+The browser tests: `kayomi.spec.ts` (the calendar: quick-add, editing, drag and resize, Plan,
+search, Day/Week/Month, phone layout, dark mode), `pwa.spec.ts` (the installed app, as above),
+`calendars.spec.ts` (connected calendars and the all-day row), `connection-security.spec.ts`
+(sign-in, the round trip to Google, requests from other sites, and how much one person may ask),
+`readability.spec.ts` (the contrast of every piece of text, in both themes, at three sizes) and
+`site.spec.ts` (the landing page and the host names).
 
 No test touches a real account. Signing in and Google are played by stand-ins
 (`tests/fakes/providers.mjs`) that Playwright starts with the app, and connections are kept in
@@ -106,7 +107,7 @@ memory, never in a database, whatever `DATABASE_URL` the machine happens to have
   the connection table, and everything said to Google.
 - `public/sw.js`: the service worker that keeps the app shell available offline.
 - `scripts/`: `make-icons.mjs` draws the icons and `make-screenshots.mjs` takes the pictures in
-  `docs/design` and the manifest. `migrate.mjs` creates the one table in `migrations/`.
+  `docs/design` and the manifest. `migrate.mjs` applies `migrations/` (one table).
 - `docs/design/`: the approved visual baseline, with screenshots. Read
   [DESIGN_BASELINE.md](docs/design/DESIGN_BASELINE.md) before changing how anything looks.
 

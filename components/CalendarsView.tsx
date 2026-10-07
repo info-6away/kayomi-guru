@@ -1,6 +1,6 @@
 'use client';
 
-import { disconnect, showCalendar, sync, type External } from '@/lib/calendars/store';
+import { disconnect, showCalendar, signIn, sync, type External } from '@/lib/calendars/store';
 import { hm } from '@/lib/dates';
 
 const QUIET = 'underline decoration-line underline-offset-4 hover:text-ink2 disabled:no-underline disabled:opacity-60';
@@ -8,6 +8,7 @@ const ROW = 'flex min-h-11 items-center gap-3 rounded-[4px] px-3.5';
 
 /** Leaves the calendar for 6Away's sign-in (if needed) and Google's own consent screen. */
 const connect = () => location.assign('/api/google/connect');
+const PILL = 'h-8 flex-none rounded-full border border-line px-3.5 text-[12.5px] text-ink2 hover:border-stone hover:text-ink';
 
 const readAt = (iso: string) => {
   const d = new Date(iso);
@@ -43,7 +44,7 @@ export function CalendarsView({ external, mobile, onBack }: { external: External
           <>
             <div className={`${ROW} text-[15px] text-ink`}>
               <span className="flex-1">Google Calendar</span>
-              <button onClick={connect} className="h-8 rounded-full border border-line px-3.5 text-[12.5px] text-ink2 hover:border-stone hover:text-ink">
+              <button onClick={connect} className={PILL}>
                 Connect
               </button>
             </div>
@@ -69,10 +70,21 @@ export function CalendarsView({ external, mobile, onBack }: { external: External
             ))}
             {!calendars.length && <p className="px-3.5 py-2 text-[13px] text-muted">{syncing ? 'Reading your calendars…' : 'No calendars yet.'}</p>}
 
+            {/* Two different things, said differently. The sign-in ending leaves the connection where it
+                is, so the way back is to sign in: Google is not asked again. */}
+            {status === 'signin' && (
+              <div className={`${ROW} mt-3 text-[13px] text-ink2`}>
+                <span className="flex-1">Sign in again to keep Google Calendar up to date</span>
+                <button onClick={signIn} className={PILL}>
+                  Sign in
+                </button>
+              </div>
+            )}
+            {/* Only when Google itself has refused the permission. */}
             {status === 'reconnect' && (
               <div className={`${ROW} mt-3 text-[13px] text-ink2`}>
                 <span className="flex-1">Google Calendar needs reconnecting</span>
-                <button onClick={connect} className="h-8 rounded-full border border-line px-3.5 text-[12.5px] text-ink2 hover:border-stone hover:text-ink">
+                <button onClick={connect} className={PILL}>
                   Reconnect
                 </button>
               </div>

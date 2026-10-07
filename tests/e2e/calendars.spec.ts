@@ -1,175 +1,28 @@
-import { expect, test as base, type Page } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { check } from './contrast';
+import {
+  FAKE,
+  account,
+  allDay,
+  cached,
+  cell,
+  closeDrawer,
+  connect,
+  everythingStored,
+  external,
+  google,
+  ist,
+  openCalendars,
+  refresh,
+  start,
+  test,
+  toggle,
+  view,
+} from './connected';
 import { addEvent, columns, event, fits, open, plan, popover, reload, seed, stored } from './helpers';
 
-// Calendars connected from outside: Google, read-only. Everything here runs against stand-ins
-// for 6Away Auth and Google (tests/fakes/providers.mjs, started by playwright.config.ts). No
-// real account is involved, and what only a real one can show is listed in
-// docs/CALENDAR_CONNECTIONS.md under "Checking it against the real Google".
-
-const FAKE = 'http://localhost:4315';
-/** Wednesday 7 October 2026, 13:10 in Istanbul, where the calendar in most of these tests is. */
-const NOW = new Date('2026-10-07T10:10:00Z');
-const ist = (day: string, time: string) => `${day}T${time}:00+03:00`;
-
-/** A Google account with two calendars in use and one that is not ticked. */
-const account = () => ({
-  calendars: [
-    {
-      id: 'me@example.test',
-      summary: 'Personal',
-      primary: true,
-      selected: true,
-      events: [
-        {
-          id: 'dentist',
-          summary: 'Dentist',
-          htmlLink: 'https://www.google.com/calendar/event?eid=dentist',
-          updated: '2026-10-01T10:00:00.000Z',
-          start: { dateTime: ist('2026-10-07', '15:00'), timeZone: 'Europe/Istanbul' },
-          end: { dateTime: ist('2026-10-07', '16:00'), timeZone: 'Europe/Istanbul' },
-          // Things Koyomi has no business reading. None of it may reach the browser.
-          description: 'PRIVATE NOTES',
-          location: 'PRIVATE PLACE',
-          attendees: [{ email: 'someone@private.test' }, { self: true, responseStatus: 'accepted' }],
-        },
-        { id: 'trip', summary: 'Trip to Izmir', start: { date: '2026-10-08' }, end: { date: '2026-10-11' } },
-        { id: 'birthday', summary: 'Mum’s birthday', start: { date: '2026-10-07' }, end: { date: '2026-10-08' } },
-      ],
-    },
-    {
-      id: 'work@example.test',
-      summary: 'Work',
-      selected: true,
-      events: [
-        // One repeating meeting, as Google hands it over: an event per time it happens.
-        { id: 'sync_1', recurringEventId: 'sync', summary: 'Weekly sync', start: { dateTime: ist('2026-10-07', '10:00') }, end: { dateTime: ist('2026-10-07', '11:00') } },
-        { id: 'sync_2', recurringEventId: 'sync', summary: 'Weekly sync', start: { dateTime: ist('2026-10-14', '10:00') }, end: { dateTime: ist('2026-10-14', '11:00') } },
-        { id: 'declined', summary: 'Declined meeting', start: { dateTime: ist('2026-10-07', '12:00') }, end: { dateTime: ist('2026-10-07', '13:00') }, attendees: [{ self: true, responseStatus: 'declined' }] },
-      ],
-    },
-    {
-      id: 'holidays@example.test',
-      summary: 'Holidays',
-      selected: false,
-      events: [{ id: 'holiday', summary: 'Republic Day', start: { date: '2026-10-09' }, end: { date: '2026-10-10' } }],
-    },
-  ],
-});
-
-const post = (path: string, body: unknown, method = 'POST') => fetch(`${FAKE}/__fake/google/${path}`, { method, body: JSON.stringify(body) });
-const google = {
-  /** Sets up what this test's Google account holds. */
-  has: (id: string, data: unknown) => post(id, data, 'PUT'),
-  /** Something changes at Google after Koyomi last looked. */
-  changes: (id: string, change: { calendarId: string; upsert?: unknown[]; cancel?: string[] }) => post(`${id}/change`, change),
-  /** Google starts refusing, failing, or forgetting. */
-  becomes: (id: string, state: { revoked?: boolean; fail?: null | 'unavailable' | 'limited'; staleCursors?: boolean; removeCalendar?: string }) => post(`${id}/state`, state),
-  /** Everything the app has asked of this account. */
-  asked: async (id: string) => (await (await fetch(`${FAKE}/__fake/google/${id}`)).json()) as { log: Record<string, string>[]; revoked: boolean; liveTokens: number },
-};
-
-/** New on every run, so nothing a previous run left on the servers can be mistaken for this one's. */
-const RUN = Date.now().toString(36);
-
-/** Each test has a Google account and a 6Away identity of its own, chosen by cookies on the stand-in. */
-const test = base.extend<{ id: string }>({
-  id: [
-    async ({ context }, use, testInfo) => {
-      const id = `a${testInfo.testId.replace(/[^a-z0-9]/gi, '')}x${testInfo.repeatEachIndex}r${RUN}`;
-      await google.has(id, account());
-      await context.addCookies([
-        { name: 'fake_user', value: `user-${id}`, url: FAKE },
-        { name: 'fake_google', value: id, url: FAKE },
-      ]);
-      await use(id);
-    },
-    // Set up for every test, whether or not it asks for the id.
-    { auto: true },
-  ],
-});
-test.use({ timezoneId: 'Europe/Istanbul' });
-
-const view = (page: Page) => page.getByRole('region', { name: 'Calendars' });
-const toggle = (page: Page, name: string) => view(page).getByRole('switch', { name });
-const external = (page: Page, title: string) => page.locator('[data-event][data-external]', { hasText: title });
-const allDay = (page: Page, title: string) => page.locator('[data-all-day] [data-event]', { hasText: title });
-const mobile = (page: Page) => page.viewportSize()!.width < 760;
-/** A day's cell in the month, by its number and something on it. */
-const cell = (page: Page, day: number, has: string) => page.getByRole('button', { name: new RegExp(`^${day}\\D.*${has}`) });
-
-async function start(page: Page) {
-  await page.clock.setFixedTime(NOW);
-  await open(page);
-}
-
-async function openCalendars(page: Page) {
-  if (await view(page).isVisible()) return;
-  if (!(await plan(page).isVisible())) {
-    if (mobile(page)) await page.getByRole('button', { name: /^Plan/ }).tap();
-    else await page.keyboard.press('p');
-  }
-  await plan(page).getByRole('button', { name: /^Calendars/ }).click();
-  await expect(view(page)).toBeVisible();
-}
-
-async function closeDrawer(page: Page) {
-  if (mobile(page)) await page.mouse.click(195, 60);
-  else await page.keyboard.press('p');
-  await expect(view(page)).toBeHidden();
-}
-
-/** Presses Connect and comes back from the stand-ins signed in, with the calendars listed. */
-async function connect(page: Page) {
-  await openCalendars(page);
-  await view(page).getByRole('button', { name: 'Connect' }).click();
-  // Two round trips and a first reading: allow for a busy machine.
-  await expect(toggle(page, 'Personal')).toBeVisible({ timeout: 15_000 });
-  await expect(view(page).getByText(/^Read \d/)).toBeVisible();
-}
-
-async function refresh(page: Page) {
-  await openCalendars(page);
-  await view(page).getByRole('button', { name: 'Refresh' }).click();
-  await expect(view(page).getByText('Refreshing…')).toHaveCount(0);
-}
-
-/** This device's copy of the connected calendars, read straight from its own database. */
-const cached = (page: Page) =>
-  page.evaluate(
-    () =>
-      new Promise<{ calendars: any[]; events: any[] }>((resolve) => {
-        const open = indexedDB.open('koyomi-external');
-        open.onsuccess = () => {
-          const tx = open.result.transaction(['calendars', 'events']);
-          const calendars = tx.objectStore('calendars').getAll();
-          const events = tx.objectStore('events').getAll();
-          tx.oncomplete = () => {
-            open.result.close();
-            resolve({ calendars: calendars.result, events: events.result });
-          };
-        };
-      }),
-  );
-
-/** Everything page code can reach on this device: both kinds of storage, every database, every cache. */
-const everythingStored = (page: Page) =>
-  page.evaluate(async () => {
-    const cookies = document.cookie.split('; ').filter((cookie) => !cookie.startsWith('fake_'));
-    const out: string[] = [JSON.stringify({ ...localStorage }), JSON.stringify({ ...sessionStorage }), ...cookies];
-    for (const { name } of await indexedDB.databases()) {
-      const db = await new Promise<IDBDatabase>((resolve) => {
-        const open = indexedDB.open(name!);
-        open.onsuccess = () => resolve(open.result);
-      });
-      for (const store of db.objectStoreNames) {
-        out.push(JSON.stringify(await new Promise((resolve) => (db.transaction(store).objectStore(store).getAll().onsuccess = (e) => resolve((e.target as IDBRequest).result)))));
-      }
-      db.close();
-    }
-    for (const name of await caches.keys()) out.push(...(await (await caches.open(name)).keys()).map((request) => request.url));
-    return out.join('\n');
-  });
+// Calendars connected from outside: Google, read-only. What only a real account can show is
+// listed in docs/CALENDAR_CONNECTIONS.md under "Checking it against the real Google".
 
 test.describe('someone who only uses Koyomi', () => {
   test('is asked nothing, and nothing is asked of the server', async ({ page, context }) => {
@@ -673,20 +526,6 @@ test.describe('when Google or the connection fails', () => {
     await expect(event(page, 'My own event')).toBeVisible();
     await expect(event(page, 'Still works')).toBeVisible();
     expect((await google.asked(id)).log.filter((entry) => entry.type === 'consent')).toHaveLength(2);
-  });
-
-  test('if the Koyomi session has lapsed, signing in again is enough: Google is not asked twice', async ({ page, context, id }) => {
-    await start(page);
-    await connect(page);
-    await context.clearCookies({ name: 'koyomi_session' });
-    await refresh(page);
-    await expect(view(page)).toContainText('Google Calendar needs reconnecting');
-    await expect(external(page, 'Dentist')).toBeVisible();
-
-    await view(page).getByRole('button', { name: 'Reconnect' }).click();
-    await expect(view(page).getByRole('button', { name: 'Refresh' })).toBeVisible();
-    await expect(external(page, 'Dentist')).toBeVisible();
-    expect((await google.asked(id)).log.filter((entry) => entry.type === 'consent')).toHaveLength(1);
   });
 
   test('cancelling at Google, or giving only part of the permission, connects nothing', async ({ page, context, id }) => {

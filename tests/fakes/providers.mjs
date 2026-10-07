@@ -87,12 +87,14 @@ async function idp(req, res, url) {
  *   log        everything the app asked for, for the test to read back
  */
 const accounts = new Map();
-const blank = () => ({ calendars: new Map(), tokens: new Set(), revoked: false, fail: null, staleCursors: false, log: [] });
+const blank = () => ({ calendars: new Map(), tokens: new Set(), revoked: false, fail: null, staleCursors: false, delay: 0, log: [] });
 const account = (id) => {
   if (!accounts.has(id)) accounts.set(id, blank());
   return accounts.get(id);
 };
 const googleCodes = new Map();
+/** Every attempt to trade a code for tokens, by any account. */
+const exchanges = [];
 const ALL_SCOPES = ['https://www.googleapis.com/auth/calendar.calendarlist.readonly', 'https://www.googleapis.com/auth/calendar.events.readonly'];
 
 const cursor = (calendarId, version) => `cursor.${Buffer.from(calendarId).toString('base64url')}.${version}`;
@@ -128,14 +130,26 @@ async function google(req, res, url) {
 
     if (form.get('grant_type') === 'authorization_code') {
       const grant = googleCodes.get(form.get('code'));
+      // A code is good once, as it is at Google.
       googleCodes.delete(form.get('code'));
-      if (!grant || grant.redirect !== form.get('redirect_uri') || grant.challenge !== s256(form.get('code_verifier') ?? '')) return send(res, 400, { error: 'invalid_grant' });
+      const refused = !grant
+        ? 'unknown or used code'
+        : grant.client !== form.get('client_id')
+          ? 'another client'
+          : grant.redirect !== form.get('redirect_uri')
+            ? 'another redirect address'
+            : grant.challenge !== s256(form.get('code_verifier') ?? '')
+              ? 'wrong PKCE secret'
+              : null;
+      exchanges.push({ code: form.get('code'), refused });
+      if (refused) return send(res, 400, { error: 'invalid_grant' });
       const acct = account(grant.id);
       acct.revoked = false;
       const refresh = `rt.${grant.id}.${random()}`;
       const access = `at.${grant.id}.${random()}`;
       acct.tokens.add(refresh).add(access);
-      acct.log.push({ type: 'grant', scope: grant.scope.join(' ') });
+      // Reaching here means the secret sent now hashes to the challenge shown at consent.
+      acct.log.push({ type: 'grant', scope: grant.scope.join(' '), pkce: 'verified', client_id: form.get('client_id'), redirect_uri: form.get('redirect_uri') });
       return send(res, 200, { access_token: access, refresh_token: refresh, expires_in: 3599, scope: grant.scope.join(' '), token_type: 'Bearer' });
     }
 
@@ -170,6 +184,7 @@ async function google(req, res, url) {
     if (acct.revoked || !acct.tokens.has(token)) return send(res, 401, { error: { code: 401, status: 'UNAUTHENTICATED' } });
     if (acct.fail === 'unavailable') return send(res, 503, { error: { code: 503, status: 'UNAVAILABLE' } });
     if (acct.fail === 'limited') return send(res, 403, { error: { code: 403, errors: [{ reason: 'rateLimitExceeded' }] } });
+    if (acct.delay) await new Promise((resolve) => setTimeout(resolve, acct.delay));
     const q = url.searchParams;
 
     if (url.pathname === '/google/calendar/v3/users/me/calendarList') {
@@ -215,6 +230,7 @@ async function google(req, res, url) {
 
 async function control(req, res, url) {
   if (url.pathname === '/__fake/health') return send(res, 200, { ok: true });
+  if (url.pathname === '/__fake/exchanges') return send(res, 200, exchanges.filter((e) => e.code === url.searchParams.get('code')));
   const match = /^\/__fake\/google\/([^/]+)(\/change|\/state)?$/.exec(url.pathname);
   if (!match) return send(res, 404, {});
   const id = decodeURIComponent(match[1]);
@@ -244,13 +260,14 @@ async function control(req, res, url) {
     return send(res, 200, {});
   }
 
-  // POST .../state  { revoked?, fail?: null | 'unavailable' | 'limited', staleCursors?, removeCalendar? }
+  // POST .../state  { revoked?, fail?: null | 'unavailable' | 'limited', staleCursors?, delay?, removeCalendar? }
   if ('revoked' in data) {
     acct.revoked = data.revoked;
     if (data.revoked) acct.tokens.clear();
   }
   if ('fail' in data) acct.fail = data.fail;
   if ('staleCursors' in data) acct.staleCursors = data.staleCursors;
+  if ('delay' in data) acct.delay = data.delay;
   if (data.removeCalendar) acct.calendars.delete(data.removeCalendar);
   return send(res, 200, {});
 }
