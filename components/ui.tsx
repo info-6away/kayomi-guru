@@ -13,7 +13,7 @@ export const CAT: Record<Category, string> = {
   work: 'var(--indigo)',
   life: 'var(--matcha)',
   focus: 'var(--verm)',
-  misc: 'var(--stone)',
+  misc: 'var(--other)',
 };
 
 export const CATEGORIES: { id: Category; label: string }[] = [
