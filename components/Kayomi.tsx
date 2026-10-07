@@ -19,6 +19,7 @@ import {
   type Span,
 } from '@/lib/dates';
 import { moved, occurrenceKey, occurrencesByDay, type Occurrence } from '@/lib/occurrences';
+import { watchInstall } from '@/lib/install';
 import { addEvent, init, schedulePlanItem, updateEvent, useData, type Data } from '@/lib/store';
 import { registerServiceWorker } from '@/lib/sw-register';
 import { toggleTheme, watchTheme } from '@/lib/theme';
@@ -40,7 +41,12 @@ export default function Kayomi() {
   useEffect(() => {
     init();
     registerServiceWorker();
-    return watchTheme();
+    const stopInstall = watchInstall();
+    const stopTheme = watchTheme();
+    return () => {
+      stopInstall();
+      stopTheme();
+    };
   }, []);
 
   // Layout depends on the window and the calendar on this device's data, so there is nothing to draw before both are known.
@@ -223,13 +229,14 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
   });
 
   const themeButton = (size: string, dot: string) => (
-    <button onClick={toggleTheme} aria-label="Toggle ink mode" title="Ink mode" className={`grid place-items-center text-stone ${size}`}>
+    <button onClick={toggleTheme} aria-label="Toggle ink mode" title="Ink mode" className={`grid place-items-center text-muted ${size}`}>
       <span className={`${HALF_MOON} ${dot}`} />
     </button>
   );
 
   return (
-    <div data-app className="h-dvh">
+    // On a phone held sideways the notch eats into one side; the insets are zero everywhere else.
+    <div data-app className="h-dvh pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
       {/* overflow-clip, not hidden: the Plan drawer waits off-screen, and a clipped box cannot be scrolled sideways to it. */}
       <div className="relative flex h-full flex-col overflow-clip bg-bg pt-[env(safe-area-inset-top)]">
         {!mobile && (
@@ -287,7 +294,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
               <button onClick={quickAdd} aria-label="Add" className={`size-8 text-[20px] leading-none font-light text-ink2 ${ROUND}`}>
                 ＋
               </button>
-              {themeButton('-ml-1 h-8 w-6 transition-colors duration-150 hover:text-muted', 'size-[9px]')}
+              {themeButton('-ml-1 h-8 w-6 transition-colors duration-150 hover:text-ink2', 'size-[9px]')}
             </div>
           </header>
         )}
@@ -341,12 +348,12 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
                         <span className={`text-[10.5px] tracking-[.1em] ${isSel ? 'text-ink' : 'text-dow'}`}>{DOW[weekday(key)][0]}</span>
                         <span
                           className={`grid size-[34px] place-items-center rounded-full font-mincho text-[17px] leading-none transition-colors duration-200 ease-kayomi ${
-                            isSel ? (isToday ? 'bg-verm text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm' : 'text-ink'
+                            isSel ? (isToday ? 'bg-verm text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm-text' : 'text-ink'
                           }`}
                         >
                           {parts(key).d}
                         </span>
-                        <span className={`size-[3px] rounded-full ${byDay.get(key)?.length && !isSel ? 'bg-stone' : ''}`} />
+                        <span className={`size-[3px] rounded-full ${byDay.get(key)?.length && !isSel ? 'bg-muted' : ''}`} />
                       </button>
                     );
                   })}
@@ -384,7 +391,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
                   <button key={key} onClick={() => go(key)} className="flex h-[46px] flex-col items-center gap-1.5 rounded-[4px] py-1.5 hover:bg-wash">
                     <span className="text-[9.5px] tracking-[.1em] text-dow">{DOW[weekday(key)][0]}</span>
                     <span
-                      className={`border-b pb-[3px] font-mincho text-[15px] leading-none ${key === today ? 'text-verm' : 'text-ink'} ${
+                      className={`border-b pb-[3px] font-mincho text-[15px] leading-none ${key === today ? 'text-verm-text' : 'text-ink'} ${
                         key === date ? 'border-ink' : 'border-transparent'
                       }`}
                     >

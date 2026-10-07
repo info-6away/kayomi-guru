@@ -18,17 +18,21 @@
   --hover: rgba(37, 36, 33, .04);
   --shadow: rgba(37, 36, 33, .16);
 
-  /* Quiet structure, readable information. On paper the grid and the background stay faint, and
-     what a day is read by does not: the hour and weekday labels, and every event's block, bar,
-     title and time. A past event steps back with a half-strength bar and tint and slightly
-     lighter text, rather than by fading as a whole. */
+  /* Quiet structure, readable information. The grid and the background stay faint, and what a
+     day is read by does not: the hour and weekday labels, and every event's block, bar, title
+     and time. Text is set at one of a few levels (ink, ink2, muted, and the ones below) and is
+     never dimmed with opacity, so it keeps a contrast that was chosen. A past event steps back
+     with a half-strength bar and tint and slightly lighter text. */
   --hour: #4A4741;
   --dow: var(--ink2);
   --event-time: #4A4741;
   --past-title: #403E3A;
   --past-time: var(--ink2);
   --past-bar: .5;
-  --past-opacity: 1;
+  /* Vermilion for small text. The accent itself is 3.9:1 on paper, fine for a dot or a large
+     numeral but not for an 11px time, so small text uses this slightly deeper one: 4.9:1, and
+     still 4.6:1 on the shaded weekend. */
+  --verm-text: #B04836;
   /* How much of an event's colour its block takes: resting, past, and selected. */
   --tint: 10%;
   --past-tint: 5%;
@@ -55,16 +59,17 @@
   --hover: rgba(236, 232, 222, .045);
   --shadow: rgba(0, 0, 0, .5);
 
-  /* At night the muted text already reads well, and a past event simply fades. */
+  /* At night the muted labels already read well. Events follow the same levels as on paper, so
+     a past one keeps its contrast: fading the whole block would leave its time near 2:1. */
   --hour: var(--muted);
   --dow: var(--muted);
-  --event-time: var(--muted);
-  --past-title: var(--ink);
+  --event-time: #A39F95;
+  --past-title: var(--ink2);
   --past-time: var(--muted);
-  --past-bar: 1;
-  --past-opacity: .5;
+  --past-bar: .5;
+  --verm-text: #D4725F;
   --tint: 6%;
-  --past-tint: 6%;
+  --past-tint: 3%;
   --tint-selected: 16%;
   --other: var(--stone);
   color-scheme: dark;
@@ -88,6 +93,7 @@
   --color-event-time: var(--event-time);
   --color-past-title: var(--past-title);
   --color-past-time: var(--past-time);
+  --color-verm-text: var(--verm-text);
 
   --font-sans: var(--font-zen), system-ui, sans-serif;
   --font-mincho: var(--font-shippori), serif;

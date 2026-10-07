@@ -213,7 +213,7 @@ export function Timeline(p: Props) {
           ))}
           {todayShown && (
             <span
-              className="absolute text-[11px] leading-[14px] font-medium text-verm tabular-nums"
+              className="absolute text-[11px] leading-[14px] font-medium text-verm-text tabular-nums"
               style={{ top: nowTop - 7, right: mobile ? 10 : 12 }}
             >
               {hm(now)}
@@ -312,7 +312,7 @@ export function Timeline(p: Props) {
                       left: `calc(4px + ${eventW} * ${col / of})`,
                       width: of > 1 ? `calc(${eventW} / ${of} - 2px)` : eventW,
                       background: `color-mix(in oklab, ${CAT[o.event.category]} ${isSel ? 'var(--tint-selected)' : receded ? 'var(--past-tint)' : 'var(--tint)'}, transparent)`,
-                      opacity: moving ? 0.3 : receded ? 'var(--past-opacity)' : 1,
+                      opacity: moving ? 0.3 : 1,
                       zIndex: isSel ? 4 : 2,
                     }}
                   />
@@ -372,7 +372,7 @@ function EventBox({
 }: {
   o: Occurrence;
   mobile: boolean;
-  /** A past event: drawn quieter, but still easy to read. How much quieter is set per theme in globals.css. */
+  /** A past event: drawn quieter, but still easy to read. How much quieter is set in globals.css. */
   receded?: boolean;
   style: CSSProperties;
   onClick?: (e: ReactMouseEvent) => void;
@@ -449,7 +449,7 @@ function QuickAdd({
       className="absolute z-[6] flex animate-in items-start gap-2 rounded-[3px] border-l-2 border-verm bg-bg pt-[3px] pr-2.5 pl-3 shadow-[0_10px_28px_-14px_var(--shadow),0_0_0_1px_var(--line)] select-text"
       style={style}
     >
-      <span className="flex-none text-[12px] leading-[26px] tracking-[.03em] text-verm tabular-nums">{hm(slot.min)}</span>
+      <span className="flex-none text-[12px] leading-[26px] tracking-[.03em] text-verm-text tabular-nums">{hm(slot.min)}</span>
       <span className="mt-[5px] h-4 w-px flex-none bg-line" />
       <input
         ref={input}
