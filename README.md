@@ -31,7 +31,7 @@ The same build serves both sites and tells them apart by host name (see `next.co
 | Host | What it shows |
 | --- | --- |
 | `koyomi.guru` | The landing page (`app/home`), at `/` |
-| `www.koyomi.guru` | Redirects to `koyomi.guru` |
+| `www.koyomi.guru` | The landing page too. Which of the two redirects to the other is a Vercel domain setting, never the code's: a redirect in both places loops |
 | `app.koyomi.guru` | The calendar (`app/page.tsx`) |
 | Anything else (a Vercel address, `localhost`) | The calendar at `/`, the landing page at `/home` |
 

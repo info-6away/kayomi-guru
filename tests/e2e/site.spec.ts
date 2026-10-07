@@ -85,24 +85,34 @@ test.describe('host names', () => {
     }
   });
 
-  test('www.koyomi.guru redirects to koyomi.guru, keeping the path', async ({ request }) => {
-    const home = await get(request, 'www.koyomi.guru', '/');
-    expect(home.status()).toBe(308);
-    expect(home.headers().location).toMatch(/^https:\/\/koyomi\.guru\/?$/);
-    const deep = await get(request, 'www.koyomi.guru', '/anything');
-    expect([deep.status(), deep.headers().location]).toEqual([308, 'https://koyomi.guru/anything']);
+  test('www.koyomi.guru shows the landing page too; the code never redirects one to the other', async ({ request }) => {
+    // Which of the two is the main address is set in Vercel. A redirect here as well once sent
+    // visitors round in a loop, so both hosts must simply answer.
+    for (const host of ['koyomi.guru', 'www.koyomi.guru']) {
+      for (const path of ['/', '/anything']) {
+        const response = await get(request, host, path);
+        expect(response.headers().location, `${host}${path}`).toBeUndefined();
+      }
+      const home = await get(request, host, '/');
+      expect(home.status(), host).toBe(200);
+      expect(await home.text(), host).toContain(LANDING);
+    }
   });
 
   test('/open goes to app.koyomi.guru from the site, and to / anywhere else', async ({ request }) => {
-    const fromSite = await get(request, 'koyomi.guru', '/open');
-    expect([fromSite.status(), fromSite.headers().location]).toEqual([307, 'https://app.koyomi.guru/']);
+    for (const host of ['koyomi.guru', 'www.koyomi.guru']) {
+      const fromSite = await get(request, host, '/open');
+      expect([fromSite.status(), fromSite.headers().location], host).toEqual([307, 'https://app.koyomi.guru/']);
+    }
     const elsewhere = await get(request, 'kayomi-guru.vercel.app', '/open');
     expect([elsewhere.status(), elsewhere.headers().location]).toEqual([307, '/']);
   });
 
   test('/home is only an address on hosts that have no domain of their own', async ({ request }) => {
-    const onSite = await get(request, 'koyomi.guru', '/home');
-    expect([onSite.status(), onSite.headers().location]).toEqual([308, '/']);
+    for (const host of ['koyomi.guru', 'www.koyomi.guru']) {
+      const onSite = await get(request, host, '/home');
+      expect([onSite.status(), onSite.headers().location], host).toEqual([308, '/']);
+    }
     const onApp = await get(request, 'app.koyomi.guru', '/home');
     expect([onApp.status(), onApp.headers().location]).toEqual([308, 'https://koyomi.guru/']);
     const elsewhere = await get(request, 'kayomi-guru.vercel.app', '/home');
