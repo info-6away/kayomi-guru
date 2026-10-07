@@ -311,7 +311,7 @@ export function Timeline(p: Props) {
                       height: Math.max(minH, yOf(o.end - o.start) - 2),
                       left: `calc(4px + ${eventW} * ${col / of})`,
                       width: of > 1 ? `calc(${eventW} / ${of} - 2px)` : eventW,
-                      background: `color-mix(in oklab, ${CAT[o.event.category]} ${isSel ? '16%' : receded ? 'var(--past-tint)' : '6%'}, transparent)`,
+                      background: `color-mix(in oklab, ${CAT[o.event.category]} ${isSel ? 'var(--tint-selected)' : receded ? 'var(--past-tint)' : 'var(--tint)'}, transparent)`,
                       opacity: moving ? 0.3 : receded ? 'var(--past-opacity)' : 1,
                       zIndex: isSel ? 4 : 2,
                     }}
@@ -328,7 +328,7 @@ export function Timeline(p: Props) {
                     height: Math.max(minH, yOf(drag.end - drag.start) - 2),
                     left: 4,
                     width: eventW,
-                    background: `color-mix(in oklab, ${CAT[dragged.event.category]} 16%, var(--bg))`,
+                    background: `color-mix(in oklab, ${CAT[dragged.event.category]} var(--tint-selected), var(--bg))`,
                     zIndex: 5,
                     pointerEvents: 'none',
                   }}
