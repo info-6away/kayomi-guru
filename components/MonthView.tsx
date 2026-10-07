@@ -1,5 +1,6 @@
 'use client';
 
+import type { Showing } from '@/lib/calendars/showings';
 import { addDays, hm, monthGrid, parts } from '@/lib/dates';
 import type { Occurrence } from '@/lib/occurrences';
 import { CAT } from './ui';
@@ -13,13 +14,15 @@ interface Props {
   mobile: boolean;
   viewportH: number;
   byDay: Map<string, Occurrence[]>;
+  /** Events from connected calendars. */
+  external: Map<string, Showing[]>;
   label: string;
   year: string;
   onOpenDay: (date: string) => void;
   onStep: (dir: number) => void;
 }
 
-export function MonthView({ date, today, mobile, viewportH, byDay, label, year, onOpenDay, onStep }: Props) {
+export function MonthView({ date, today, mobile, viewportH, byDay, external, label, year, onOpenDay, onStep }: Props) {
   const { start, rows } = monthGrid(date);
   const month = parts(date).m;
   // How many events fit in a cell before the rest collapse into "+n more".
@@ -58,7 +61,11 @@ export function MonthView({ date, today, mobile, viewportH, byDay, label, year, 
           const day = parts(key);
           const inMonth = day.m === month;
           const isToday = key === today;
-          const list = byDay.get(key) ?? [];
+          // One list for the day: all-day first, then by time. External events are drawn a level quieter.
+          const list = [
+            ...(byDay.get(key) ?? []).map((o) => ({ key: o.key, title: o.event.title, allDay: o.event.allDay, start: o.start, color: CAT[o.event.category], done: o.done, quiet: false })),
+            ...(external.get(key) ?? []).map((s) => ({ key: s.key, title: s.event.title, allDay: s.allDay, start: s.start, color: 'var(--stone)', done: false, quiet: true })),
+          ].sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start - b.start);
 
           if (mobile) {
             const isSel = key === date;
@@ -78,7 +85,7 @@ export function MonthView({ date, today, mobile, viewportH, byDay, label, year, 
                 {list.length > 0 && (
                   <span className="flex h-1 justify-center gap-[3px]">
                     {list.slice(0, 3).map((o) => (
-                      <span key={o.key} className="size-1 rounded-full" style={{ background: CAT[o.event.category], opacity: inMonth ? undefined : 0.5 }} />
+                      <span key={o.key} className="size-1 rounded-full" style={{ background: o.color, opacity: inMonth ? undefined : 0.5 }} />
                     ))}
                   </span>
                 )}
@@ -99,9 +106,9 @@ export function MonthView({ date, today, mobile, viewportH, byDay, label, year, 
               <span className={`mb-1 font-mincho text-[17px] leading-none ${isToday ? 'text-verm-text' : inMonth ? 'text-ink' : 'text-muted'}`}>{day.d}</span>
               {list.slice(0, max).map((o) => (
                 <span key={o.key} className="flex min-w-0 items-center gap-[7px] text-[12px] leading-[1.35]">
-                  <span className="h-[11px] w-0.5 flex-none rounded-[1px]" style={{ background: CAT[o.event.category], opacity: inMonth ? undefined : 0.5 }} />
-                  <span className={`flex-none tabular-nums ${inMonth ? 'text-event-time' : 'text-muted'}`}>{hm(o.start)}</span>
-                  <span className={`min-w-0 truncate ${o.done ? 'text-muted line-through' : inMonth ? 'text-ink' : 'text-ink2'}`}>{o.event.title}</span>
+                  <span className="h-[11px] w-0.5 flex-none rounded-[1px]" style={{ background: o.color, opacity: inMonth ? undefined : 0.5 }} />
+                  {!o.allDay && <span className={`flex-none tabular-nums ${inMonth && !o.quiet ? 'text-event-time' : 'text-muted'}`}>{hm(o.start)}</span>}
+                  <span className={`min-w-0 truncate ${o.done ? 'text-muted line-through' : inMonth && !o.quiet ? 'text-ink' : 'text-ink2'}`}>{o.title}</span>
                 </span>
               ))}
               {list.length > max && <span className="pl-[9px] text-[11.5px] text-muted">+{list.length - max} more</span>}

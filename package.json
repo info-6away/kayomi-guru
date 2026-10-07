@@ -10,23 +10,29 @@
     "build": "next build",
     "start": "next start",
     "preview": "next build && next start -p 4310",
+    "preview:connected": "node scripts/preview-connected.mjs",
     "typecheck": "tsc --noEmit",
     "test": "playwright test --project=unit",
     "test:e2e": "playwright test --project=e2e",
     "icons": "node scripts/make-icons.mjs",
-    "screenshots": "node scripts/make-screenshots.mjs"
+    "screenshots": "node scripts/make-screenshots.mjs",
+    "db:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
+    "@6away/auth-connect": "github:info-6away/auth-connect#v1.0.6",
+    "@neondatabase/serverless": "^1.2.0",
     "next": "^16.3.8",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^24.19.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "jose": "^6.2.12",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"
   }

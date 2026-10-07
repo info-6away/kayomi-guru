@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
-export const PORT = 4310;
+// The ports, and the settings that switch calendar connections on against the stand-in
+// providers, are shared with `npm run preview:connected`. No test talks to the real services.
+import { FAKE_PORT, PORT, TEST_ENV } from './tests/fakes/env.mjs';
 
 // `npm test` runs the logic tests alone; they need neither a browser nor a server.
 const unitOnly = process.argv.includes('--project=unit');
@@ -27,10 +29,19 @@ export default defineConfig({
   ],
   webServer: unitOnly
     ? undefined
-    : {
-        command: `npm run build && npx next start -p ${PORT}`,
-        url: `http://localhost:${PORT}`,
-        reuseExistingServer: !process.env.CI,
-        timeout: 300_000,
-      },
+    : [
+        {
+          command: 'node tests/fakes/providers.mjs',
+          url: `http://localhost:${FAKE_PORT}/__fake/health`,
+          env: { FAKE_PORT: String(FAKE_PORT) },
+          reuseExistingServer: !process.env.CI,
+        },
+        {
+          command: `npm run build && npx next start -p ${PORT}`,
+          url: `http://localhost:${PORT}`,
+          env: TEST_ENV,
+          reuseExistingServer: !process.env.CI,
+          timeout: 300_000,
+        },
+      ],
 });

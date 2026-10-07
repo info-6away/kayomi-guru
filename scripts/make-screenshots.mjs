@@ -2,6 +2,10 @@
 // the manifest shows when someone installs the app.
 // Start `npm run preview` in another terminal, then run `npm run screenshots`. The files are committed.
 //
+// The pictures of connected calendars need a calendar to connect. For those, start
+// `npm run preview:connected` instead (it stands in for Google with a made-up account) and
+// run `npm run screenshots -- --connected`, which takes only those.
+//
 // Every picture is the production build with one neutral sample week, the clock stopped on
 // Monday 5 October 2026 at 14:25. The sample week exists only here; the app itself starts empty.
 
@@ -126,6 +130,38 @@ const DESKTOP = { viewport: { width: 1440, height: 900 } };
 const PHONE = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 };
 
 const browser = await chromium.launch({ channel: 'chrome' });
+
+/** Presses Connect, and comes back with the stand-in account's calendars listed. */
+async function connect(page, mobile) {
+  if (mobile) await page.getByRole('button', { name: /^Plan/ }).tap();
+  else await page.keyboard.press('p');
+  await page.getByRole('button', { name: 'Calendars' }).click();
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await page.getByRole('switch', { name: 'Personal' }).waitFor();
+  await page.getByText(/^Read \d/).waitFor();
+}
+
+if (process.argv.includes('--connected')) {
+  for (const theme of ['light', 'dark']) {
+    const desktop = await openApp(browser, { ...DESKTOP, colorScheme: theme });
+    await connect(desktop.page, false);
+    if (theme === 'light') await shot(desktop.page, 'docs/design/desktop-calendars-light.png');
+    await desktop.page.keyboard.press('p');
+    await shot(desktop.page, `docs/design/desktop-week-google-${theme}.png`);
+    if (theme === 'light') {
+      await desktop.page.locator('[data-event][data-external]', { hasText: 'Quarterly planning' }).click();
+      await shot(desktop.page, 'docs/design/desktop-google-event-light.png');
+    }
+    await desktop.context.close();
+  }
+  const phone = await openApp(browser, { ...PHONE, colorScheme: 'light' });
+  await connect(phone.page, true);
+  await phone.page.mouse.click(195, 60);
+  await shot(phone.page, 'docs/design/mobile-day-google-light.png');
+  await phone.context.close();
+  await browser.close();
+  process.exit(0);
+}
 
 for (const theme of ['light', 'dark']) {
   const desktop = await openApp(browser, { ...DESKTOP, colorScheme: theme });
