@@ -455,6 +455,9 @@ test.describe('when Google or the connection fails', () => {
     await closeDrawer(page);
     const before = await cached(page);
 
+    // The worker finishes saving the page a moment after the first visit, and until it has there
+    // is no offline. (Not offlineReady: with the clock fixed, the page cannot list what it loaded.)
+    await page.evaluate(async () => void (await navigator.serviceWorker.ready));
     await context.setOffline(true);
     await reload(page);
     await expect(external(page, 'Dentist')).toContainText('15:00 – 16:00');
