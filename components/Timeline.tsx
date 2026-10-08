@@ -10,16 +10,29 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
+import { timeLabel, type Showing } from '@/lib/calendars/showings';
 import { DAY_MIN, DOW, clamp, hm, pad, parts, weekday, type Span } from '@/lib/dates';
 import { layoutDay, type Occurrence } from '@/lib/occurrences';
 import type { PlanItem } from '@/lib/types';
 import { EventPopover } from './EventPopover';
+import { ExternalPopover } from './ExternalPopover';
 import { CAT, type Slot } from './ui';
 
 /** Room kept under a popover so it stays inside the grid late in the day. */
 const POPOVER_ROOM = 230;
 /** Moving and resizing snap to this many minutes. */
 const SNAP = 15;
+/** Rows of the all-day area shown before the rest fold into "+n". */
+const ALL_DAY_ROWS = 3;
+
+/** One thing in the all-day area, across the day columns it covers. */
+interface Bar {
+  key: string;
+  from: number;
+  to: number;
+  local?: Occurrence;
+  external?: Showing;
+}
 
 interface Props {
   /** One day, or the seven days of a week. */
@@ -28,6 +41,8 @@ interface Props {
   today: string;
   now: number;
   byDay: Map<string, Occurrence[]>;
+  /** Events from connected calendars: read, shown, never edited. */
+  external: Map<string, Showing[]>;
   /** Height of one hour, in pixels. */
   hourH: number;
   sel: string | null;
@@ -64,6 +79,11 @@ export function Timeline(p: Props) {
 
   const [hover, setHover] = useState<(Slot & { drag?: boolean }) | null>(null);
   const [drag, setDrag] = useState<(Span & { key: string }) | null>(null);
+  const [allDayOpen, setAllDayOpen] = useState(false);
+  /** Where the top of the visible grid is, for a popover that belongs to the all-day area. */
+  const [viewTop, setViewTop] = useState(0);
+  const head = useRef<HTMLDivElement>(null);
+  const grid = useRef<HTMLDivElement>(null);
   const columns = useRef(new Map<string, HTMLDivElement>());
   const justDragged = useRef(false);
   const touch = useRef({ x: 0, y: 0 });
@@ -74,6 +94,13 @@ export function Timeline(p: Props) {
     // Only when the timeline first appears; after that the scroll position is the user's.
     if (p.scroller.current) p.scroller.current.scrollTop = Math.round(7.6 * hourH);
   }, []);
+
+  useLayoutEffect(() => {
+    const scroller = p.scroller.current;
+    if (!sel || !scroller || !grid.current) return;
+    const under = head.current?.getBoundingClientRect().bottom ?? scroller.getBoundingClientRect().top;
+    setViewTop(Math.max(0, Math.round(under - grid.current.getBoundingClientRect().top) + 8));
+  }, [sel, p.scroller]);
 
   useEffect(() => {
     if (sel) p.scroller.current?.querySelector('[data-popover]')?.scrollIntoView({ block: 'nearest' });
@@ -135,9 +162,10 @@ export function Timeline(p: Props) {
     window.addEventListener('pointercancel', onUp);
   };
 
-  const popoverStyle = (o: Occurrence): CSSProperties => {
-    const top = yOf(o.start);
-    const h = Math.max(22, yOf(o.end - o.start) - 2);
+  const popoverStyle = (o: { date: string; start: number; end: number }, allDay: boolean): CSSProperties => {
+    // Something in the all-day area has no place on the grid: its details open at the top of what is on screen.
+    const top = allDay ? viewTop : yOf(o.start);
+    const h = allDay ? -8 : Math.max(22, yOf(o.end - o.start) - 2);
     const i = days.indexOf(o.date);
     if (mobile) return { top: Math.min(top + h + 8, totalH - POPOVER_ROOM), left: gutter + 8, right: 8, width: 'auto' };
     if (oneDay) return { top: Math.min(top, totalH - POPOVER_ROOM), left: `calc(${gutter}px + min(476px, 100% - 270px))` };
@@ -152,8 +180,41 @@ export function Timeline(p: Props) {
 
   const shown = days.flatMap((d) => p.byDay.get(d) ?? []);
   const selected = sel ? shown.find((o) => o.key === sel) : undefined;
+  const selectedExternal = sel && !selected ? days.flatMap((d) => p.external.get(d) ?? []).find((s) => s.key === sel) : undefined;
   const dragged = drag ? shown.find((o) => o.key === drag.key) : undefined;
   const incoming = hover?.drag ? p.dragPlan.current?.title : placing?.title;
+
+  // The all-day area: Koyomi's own all-day events, and external ones, which may run for days.
+  const bars: Bar[] = [];
+  const running = new Map<string, Bar>();
+  days.forEach((day, i) => {
+    for (const o of p.byDay.get(day) ?? []) if (o.event.allDay) bars.push({ key: o.key, from: i, to: i, local: o });
+    for (const s of p.external.get(day) ?? []) {
+      if (!s.allDay) continue;
+      const bar = running.get(s.event.id);
+      if (bar && bar.to === i - 1) bar.to = i;
+      else {
+        const started = { key: s.key, from: i, to: i, external: s };
+        running.set(s.event.id, started);
+        bars.push(started);
+      }
+    }
+  });
+  // Longer ones first, each on the highest row that is free for all of its days.
+  const rowEnds: number[] = [];
+  const rows = [...bars]
+    .sort((a, b) => a.from - b.from || b.to - b.from - (a.to - a.from))
+    .map((bar) => {
+      let row = rowEnds.findIndex((end) => end < bar.from);
+      if (row < 0) row = rowEnds.length;
+      rowEnds[row] = bar.to;
+      return { bar, row };
+    });
+  const folded = rowEnds.length > ALL_DAY_ROWS && !allDayOpen;
+  // Folded, the first row stays and the second says how many more each day has.
+  const more = days.map((_, i) => (folded ? rows.filter(({ bar, row }) => row >= ALL_DAY_ROWS - 1 && bar.from <= i && bar.to >= i).length : 0));
+  const barH = mobile ? 28 : 22;
+  const headings = !mobile && n === 7;
 
   return (
     <div
@@ -167,8 +228,10 @@ export function Timeline(p: Props) {
       }}
       className="relative h-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
     >
-      {!mobile && n === 7 && (
-        <div className="sticky top-0 z-[7] grid border-b border-line bg-bg pt-2.5 pb-3" style={{ gridTemplateColumns: cols }}>
+      {(headings || bars.length > 0) && (
+        <div ref={head} className="sticky top-0 z-[7] border-b border-line bg-bg">
+          {headings && (
+        <div className="grid pt-2.5 pb-3" style={{ gridTemplateColumns: cols }}>
           <div />
           {days.map((key) => {
             const isToday = key === today;
@@ -190,9 +253,88 @@ export function Timeline(p: Props) {
             );
           })}
         </div>
+          )}
+
+          {bars.length > 0 && (
+            <div
+              data-all-day
+              className={`grid items-center gap-y-0.5 pb-1.5 ${headings ? '' : 'pt-1.5'}`}
+              style={{ gridTemplateColumns: cols, gridAutoRows: barH, paddingRight: n === 7 ? 12 : oneDay && !mobile ? 40 : 0 }}
+            >
+              <span className="text-right text-[10px] tracking-[.04em] text-muted" style={{ gridColumn: 1, gridRow: 1, paddingRight: mobile ? 12 : 14 }}>
+                all day
+              </span>
+              {rows
+                .filter(({ row }) => !folded || row < ALL_DAY_ROWS - 1)
+                .map(({ bar, row }) => {
+                  const isSel = sel === bar.key;
+                  const o = bar.local;
+                  const date = days[bar.from];
+                  const past = days[bar.to] < today;
+                  return (
+                    <button
+                      key={bar.key}
+                      data-event={bar.key}
+                      data-external={bar.external ? '' : undefined}
+                      onClick={() => p.onSelect(isSel ? null : bar.key)}
+                      title={o ? o.event.title : bar.external!.event.title}
+                      className={`relative mx-1 flex min-w-0 items-center overflow-hidden rounded-[3px] pr-2 pl-3 text-left ${mobile ? 'text-[14px]' : 'text-[12px]'} ${
+                        o
+                          ? 'font-medium hover:shadow-[inset_0_0_0_1px_var(--line)]'
+                          : `bg-bg ${isSel ? 'shadow-[inset_0_0_0_1px_var(--stone)]' : 'shadow-[inset_0_0_0_1px_var(--line)] hover:shadow-[inset_0_0_0_1px_var(--stone)]'}`
+                      }`}
+                      style={{
+                        gridColumn: `${bar.from + 2} / ${bar.to + 3}`,
+                        gridRow: row + 1,
+                        height: barH - 2,
+                        maxWidth: oneDay && !mobile ? 460 : undefined,
+                        background: o
+                          ? `color-mix(in oklab, ${CAT[o.event.category]} ${isSel ? 'var(--tint-selected)' : past ? 'var(--past-tint)' : 'var(--tint)'}, transparent)`
+                          : undefined,
+                      }}
+                    >
+                      <span
+                        className="absolute top-[3px] bottom-[3px] left-0.5 w-0.5 rounded-[1px]"
+                        style={{ background: o && !o.done ? CAT[o.event.category] : 'var(--stone)', opacity: past && !isSel ? 'var(--past-bar)' : undefined }}
+                      />
+                      <span className={`min-w-0 truncate ${o ? (o.done ? 'text-muted line-through' : past && !isSel ? 'text-past-title' : 'text-ink') : past && !isSel ? 'text-muted' : 'text-ink2'}`}>
+                        {o ? o.event.title : bar.external!.event.title}
+                      </span>
+                      <span className="sr-only">{`, all day, ${date}`}</span>
+                    </button>
+                  );
+                })}
+              {folded &&
+                more.map(
+                  (count, i) =>
+                    count > 0 && (
+                      <button
+                        key={days[i]}
+                        onClick={() => setAllDayOpen(true)}
+                        aria-label={`${count} more all-day events`}
+                        className={`mx-1 rounded-[3px] px-3 text-left text-muted hover:bg-wash hover:text-ink2 ${mobile ? 'text-[13px]' : 'text-[11.5px]'}`}
+                        style={{ gridColumn: i + 2, gridRow: ALL_DAY_ROWS, height: barH - 2 }}
+                      >
+                        +{count}
+                      </button>
+                    ),
+                )}
+              {allDayOpen && rowEnds.length > ALL_DAY_ROWS && (
+                <button
+                  onClick={() => setAllDayOpen(false)}
+                  className="text-right text-[10px] tracking-[.04em] text-muted hover:text-ink2"
+                  style={{ gridColumn: 1, gridRow: rowEnds.length, paddingRight: mobile ? 12 : 14 }}
+                >
+                  less
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       <div
+        ref={grid}
         className="relative grid select-none"
         style={{
           gridTemplateColumns: cols,
@@ -223,7 +365,14 @@ export function Timeline(p: Props) {
 
         {days.map((key, i) => {
           const wkend = weekday(key) % 6 === 0;
-          const placed = layoutDay(p.byDay.get(key) ?? [], (minH / hourH) * 60);
+          // Koyomi's events and external ones share the day: where they overlap they sit side by side, and are never merged.
+          const placed = layoutDay(
+            [
+              ...(p.byDay.get(key) ?? []).filter((o) => !o.event.allDay).map((o) => ({ start: o.start, end: o.end, o, s: undefined })),
+              ...(p.external.get(key) ?? []).filter((s) => !s.allDay).map((s) => ({ start: s.start, end: s.end, o: undefined, s })),
+            ],
+            (minH / hourH) * 60,
+          );
           const ghost = hover && hover.date === key && !(qa && qa.date === key && qa.min === hover.min) ? hover : null;
           return (
             <div
@@ -238,7 +387,7 @@ export function Timeline(p: Props) {
                 const min = slotAt(e.clientY, e.currentTarget);
                 setHover(null);
                 if (placing) p.onPlace(placing.id, key, min);
-                else if (selected) p.onSelect(null);
+                else if (selected || selectedExternal) p.onSelect(null);
                 else p.onQa({ date: key, min });
               }}
               onPointerMove={(e) => {
@@ -288,7 +437,30 @@ export function Timeline(p: Props) {
                 </div>
               )}
 
-              {placed.map(({ item: o, col, cols: of }) => {
+              {placed.map(({ item: { o, s }, col, cols: of }) => {
+                if (!o) {
+                  const isSel = sel === s.key;
+                  return (
+                    <ExternalBox
+                      key={s.key}
+                      s={s}
+                      mobile={mobile}
+                      selected={isSel}
+                      receded={(s.date < today || (s.date === today && s.end <= now)) && !isSel}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!justDragged.current) p.onSelect(isSel ? null : s.key);
+                      }}
+                      style={{
+                        top: yOf(s.start) + 1,
+                        height: Math.max(minH, yOf(s.end - s.start) - 2),
+                        left: `calc(4px + ${eventW} * ${col / of})`,
+                        width: of > 1 ? `calc(${eventW} / ${of} - 2px)` : eventW,
+                        zIndex: isSel ? 4 : 2,
+                      }}
+                    />
+                  );
+                }
                 const isSel = sel === o.key;
                 const past = o.date < today || (o.date === today && o.end <= now);
                 const moving = drag?.key === o.key;
@@ -355,7 +527,12 @@ export function Timeline(p: Props) {
           );
         })}
 
-        {selected && <EventPopover key={selected.key} o={selected} mobile={mobile} style={popoverStyle(selected)} onSelect={p.onSelect} />}
+        {selected && (
+          <EventPopover key={selected.key} o={selected} mobile={mobile} style={popoverStyle(selected, selected.event.allDay)} onSelect={p.onSelect} />
+        )}
+        {selectedExternal && (
+          <ExternalPopover key={selectedExternal.key} s={selectedExternal} style={popoverStyle(selectedExternal, selectedExternal.allDay)} onClose={() => p.onSelect(null)} />
+        )}
       </div>
     </div>
   );
@@ -414,6 +591,55 @@ function EventBox({
         {tall ? `${hm(o.start)} – ${hm(o.end)}` : hm(o.start)}
       </span>
       {onResizeDown && <span onPointerDown={onResizeDown} className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize" />}
+    </div>
+  );
+}
+
+/**
+ * An event from a connected calendar. It is context, so it is drawn quieter than a Koyomi event:
+ * an outline where a Koyomi event has a tint, a grey bar where it has a colour, and text one
+ * level lighter. Quieter, but never faint: every word still meets the same contrast as the rest.
+ * It cannot be moved or resized; a click shows what it is.
+ */
+function ExternalBox({
+  s,
+  mobile,
+  selected,
+  receded,
+  style,
+  onClick,
+}: {
+  s: Showing;
+  mobile: boolean;
+  selected: boolean;
+  receded: boolean;
+  style: CSSProperties;
+  onClick: (e: ReactMouseEvent) => void;
+}) {
+  const tall = (style.height as number) >= 40;
+  const times = timeLabel(s.event);
+  return (
+    <div
+      data-event={s.key}
+      data-external
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && e.target === e.currentTarget) e.currentTarget.click();
+      }}
+      className={`absolute flex cursor-pointer overflow-hidden rounded-[3px] bg-bg pr-2 pl-3 transition-shadow duration-180 ease-kayomi ${
+        selected ? 'shadow-[inset_0_0_0_1px_var(--stone)]' : 'shadow-[inset_0_0_0_1px_var(--line)] hover:shadow-[inset_0_0_0_1px_var(--stone)]'
+      } ${tall ? 'flex-col items-start gap-px pt-[5px]' : 'items-center gap-2'}`}
+      style={style}
+    >
+      <span className="absolute top-1 bottom-1 left-0.5 w-0.5 rounded-[1px] bg-stone" style={{ opacity: receded ? 'var(--past-bar)' : undefined }} />
+      <span className={`max-w-full min-w-0 shrink truncate leading-[1.35] ${mobile ? 'text-[15px]' : 'text-[13px]'} ${receded ? 'text-muted' : 'text-ink2'}`}>
+        {s.event.title}
+      </span>
+      <span className={`flex-none tracking-[.02em] whitespace-nowrap text-muted tabular-nums ${mobile ? 'text-[12.5px]' : 'text-[11.5px]'}`}>
+        {tall ? times : times.split(' – ')[0]}
+      </span>
     </div>
   );
 }

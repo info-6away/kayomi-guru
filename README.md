@@ -5,7 +5,12 @@ Koyomi (暦, Japanese for calendar) is a calm, local-first planning calendar.
 - **Calendar** is scheduled time.
 - **Plan** is what is still waiting for time.
 
-Everything is stored on the device, in the browser's IndexedDB. There is no account, no server and no sync yet.
+Everything you put in Koyomi is stored on the device, in the browser's IndexedDB. It needs no
+account, and none of it is sent anywhere.
+
+Calendars from elsewhere can be shown beside it: Google Calendar, read-only, for anyone who
+chooses to connect one. That is the only part with a server behind it. See
+[Calendar connections](docs/CALENDAR_CONNECTIONS.md).
 
 The product was first written "Kayomi". That spelling survives in the repository name, in the
 `Kayomi` component, and in the names the app uses inside the browser (the `kayomi` database, caches
@@ -17,8 +22,9 @@ Needs Node 20.9 or newer.
 
 ```sh
 npm install
-npm run dev        # http://localhost:3000, no service worker
-npm run preview    # production build on http://localhost:4310, installable, works offline
+npm run dev                 # http://localhost:3000, no service worker
+npm run preview             # production build on http://localhost:4310, installable, works offline
+npm run preview:connected   # the same, with a stand-in Google account to connect (no credentials needed)
 ```
 
 `npm run preview` uses its own port on purpose: the production build registers a service worker for
@@ -75,22 +81,33 @@ npm test           # date, recurrence and layout logic
 npm run test:e2e   # the real app in Google Chrome: builds, serves and drives the production build
 ```
 
-The browser tests are in three files: `kayomi.spec.ts` (the calendar: quick-add, editing, drag and
-resize, Plan, search, Day/Week/Month, phone layout, dark mode), `pwa.spec.ts` (the installed app, as
-above) and `readability.spec.ts` (the contrast of every piece of text, in both themes, at three
-sizes). `site.spec.ts` covers the landing page and the host names.
+The browser tests: `kayomi.spec.ts` (the calendar: quick-add, editing, drag and resize, Plan,
+search, Day/Week/Month, phone layout, dark mode), `pwa.spec.ts` (the installed app, as above),
+`calendars.spec.ts` (connected calendars and the all-day row), `connection-security.spec.ts`
+(sign-in, the round trip to Google, requests from other sites, and how much one person may ask),
+`readability.spec.ts` (the contrast of every piece of text, in both themes, at three sizes) and
+`site.spec.ts` (the landing page and the host names).
+
+No test touches a real account. Signing in and Google are played by stand-ins
+(`tests/fakes/providers.mjs`) that Playwright starts with the app, and connections are kept in
+memory, never in a database, whatever `DATABASE_URL` the machine happens to have.
 
 ## How it is built
 
 - `app/`: the Next.js shell: fonts, theme and icons. `app/page.tsx` is the calendar and
-  `app/home/page.tsx` is the landing page.
+  `app/home/page.tsx` is the landing page. `app/api/` is the server side of calendar
+  connections, and the only code that runs on a server.
 - `components/`: the calendar itself. `Kayomi.tsx` holds the screen; `Timeline`, `MonthView`,
-  `PlanPanel`, `EventPopover` and `SearchPanel` are its parts.
+  `PlanPanel`, `EventPopover` and `SearchPanel` are its parts. `CalendarsView` and
+  `ExternalPopover` are for connected calendars.
 - `lib/`: no React. `types.ts` is the data model, `db.ts` and `store.ts` persist it, and
   `dates.ts`, `recurrence.ts` and `occurrences.ts` are the calendar arithmetic.
+- `lib/calendars/`: connected calendars in the browser: their own local database, reading them,
+  and where their events land on the calendar. `lib/server/`: the server's part: sealing tokens,
+  the connection table, and everything said to Google.
 - `public/sw.js`: the service worker that keeps the app shell available offline.
 - `scripts/`: `make-icons.mjs` draws the icons and `make-screenshots.mjs` takes the pictures in
-  `docs/design` and the manifest.
+  `docs/design` and the manifest. `migrate.mjs` applies `migrations/` (one table).
 - `docs/design/`: the approved visual baseline, with screenshots. Read
   [DESIGN_BASELINE.md](docs/design/DESIGN_BASELINE.md) before changing how anything looks.
 
@@ -98,12 +115,16 @@ sizes). `site.spec.ts` covers the landing page and the host names.
 
 Two record types, each with a UUID and `createdAt` / `updatedAt` timestamps:
 
-- `CalendarEvent`: title, `start` and `end` (UTC instants), category, optional recurrence, and
-  `planItemId` when it was scheduled from Plan.
+- `CalendarEvent`: title, `start` and `end` (UTC instants, or the day itself for an all-day
+  event), category, optional recurrence, and `planItemId` when it was scheduled from Plan.
 - `PlanItem`: title and `status` (`open` or `completed`).
 
 Whether a Plan item is scheduled is not stored: it is scheduled exactly when an event points at it.
 Likewise an event is "done" only through its Plan item. An ordinary event is never a task.
+
+Events from a connected calendar are a third kind of record, `ExternalEvent`
+(`lib/calendars/types.ts`), kept in a database of their own. They are never mixed with, merged
+into or converted to Koyomi's events.
 
 ## License
 

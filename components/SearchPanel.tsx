@@ -39,7 +39,7 @@ export function SearchPanel({ mobile, events, plan, today, onClose, onEvent, onP
         event,
         date,
         start: spanOf(event).start,
-        when: `${DOW3[weekday(date)]} ${day.d} ${MON3[day.m - 1]}${day.y === year ? '' : ` ${day.y}`} · ${hm(spanOf(event).start)}`,
+        when: `${DOW3[weekday(date)]} ${day.d} ${MON3[day.m - 1]}${day.y === year ? '' : ` ${day.y}`} · ${event.allDay ? 'All day' : hm(spanOf(event).start)}`,
       };
     });
     // What is coming up first, soonest first; then the past, most recent first.

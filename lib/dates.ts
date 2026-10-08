@@ -59,7 +59,9 @@ export interface Span {
 }
 
 /** Where a stored event sits on the local calendar. Events are kept within one day. */
-export function spanOf(ev: { start: string; end: string }): Span {
+export function spanOf(ev: { start: string; end: string; allDay?: boolean }): Span {
+  // An all-day event is stored as its day, and covers all of it.
+  if (ev.allDay) return { date: ev.start, start: 0, end: DAY_MIN };
   const s = new Date(ev.start);
   const start = s.getHours() * 60 + s.getMinutes();
   const minutes = Math.round((Date.parse(ev.end) - s.getTime()) / 60000);

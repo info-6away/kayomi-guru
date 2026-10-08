@@ -5,6 +5,7 @@
 // - Files under /_next/static/ have content-hashed names and never change: cache first.
 // - Anything else from this origin (icons, manifest) is served from the cache and
 //   refreshed in the background.
+// - Requests under /api/ are not handled at all.
 //
 // The calendar's data is not here. It lives in IndexedDB and never leaves the device. Nothing in
 // this file reads, writes or clears IndexedDB: the caches below can be thrown away at any time
@@ -79,6 +80,10 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== location.origin) return;
+  // Signing in and connected calendars go straight to the network, and nothing of theirs is
+  // kept here: an answer about someone's calendar must never be served again from a cache, and
+  // a sign-in redirect must never fall back to the saved page.
+  if (url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') event.respondWith(page(event));
   else if (url.pathname.startsWith(STATIC_PATH)) event.respondWith(cacheFirst(request));

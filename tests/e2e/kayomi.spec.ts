@@ -242,7 +242,7 @@ test.describe('calendar', () => {
     await event(page, 'Gym').click();
     await expect(popover(page).getByLabel('Repeat')).toHaveValue('weekly');
     await popover(page).getByRole('button', { name: 'Delete' }).click();
-    await popover(page).getByRole('button', { name: 'All' }).click();
+    await popover(page).getByRole('button', { name: 'All', exact: true }).click();
     await expect.poll(() => storedTitles(page)).toEqual([]);
   });
 

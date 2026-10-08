@@ -18,6 +18,8 @@ import {
   weekday,
   type Span,
 } from '@/lib/dates';
+import { showingsByDay } from '@/lib/calendars/showings';
+import { connected, finishDisconnect, initExternal, resume, say, useExternal } from '@/lib/calendars/store';
 import { moved, occurrenceKey, occurrencesByDay, type Occurrence } from '@/lib/occurrences';
 import { watchInstall } from '@/lib/install';
 import { addEvent, init, schedulePlanItem, updateEvent, useData, type Data } from '@/lib/store';
@@ -34,12 +36,14 @@ const ROUND = 'rounded-full transition-colors duration-150 hover:bg-wash hover:t
 const TAB = 'relative h-8 px-2.5 text-[13px] tracking-[.03em] transition-colors duration-150 hover:text-ink';
 const HALF_MOON = 'rounded-full border border-current bg-[linear-gradient(90deg,currentColor_50%,transparent_50%)]';
 
-export default function Kayomi() {
+/** @param calendars Whether this deployment can connect calendars from outside. Off, nothing below changes. */
+export default function Kayomi({ calendars = false }: { calendars?: boolean }) {
   const viewport = useViewport();
   const data = useData();
 
   useEffect(() => {
     init();
+    initExternal(calendars);
     registerServiceWorker();
     const stopInstall = watchInstall();
     const stopTheme = watchTheme();
@@ -47,7 +51,7 @@ export default function Kayomi() {
       stopInstall();
       stopTheme();
     };
-  }, []);
+  }, [calendars]);
 
   // Layout depends on the window and the calendar on this device's data, so there is nothing to draw before both are known.
   if (!viewport || !data.ready) return <div data-app className="h-dvh bg-bg" />;
@@ -94,6 +98,8 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
   const [date, setDate] = useState(today);
   const [monthOnPhone, setMonthOnPhone] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  const [planView, setPlanView] = useState<'plan' | 'calendars'>('plan');
+  const external = useExternal();
   const [sel, setSel] = useState<string | null>(null);
   const [qa, setQa] = useState<Slot | null>(null);
   const [placingId, setPlacingId] = useState<string | null>(null);
@@ -117,6 +123,40 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     const grid = monthGrid(date);
     return occurrencesByDay(data.events, data.plan, grid.start, addDays(grid.start, grid.rows * 7 - 1));
   }, [data.events, data.plan, v, date, monday]);
+
+  const externalByDay = useMemo(() => {
+    if (v !== 'month') return showingsByDay(external.events, external.calendars, monday, addDays(monday, 6));
+    const grid = monthGrid(date);
+    return showingsByDay(external.events, external.calendars, grid.start, addDays(grid.start, grid.rows * 7 - 1));
+  }, [external.events, external.calendars, v, date, monday]);
+
+  const openCalendars = () => {
+    setPlanOpen(true);
+    setPlanView('calendars');
+    setSel(null);
+  };
+
+  // The drawer opens on Plan. Calendars is one step further in, and never the first thing seen.
+  useEffect(() => {
+    if (!planOpen) setPlanView('plan');
+  }, [planOpen]);
+
+  // Back from signing in or from Google's consent screen: the address says how it went. An
+  // address can also be a link from anywhere, so none of these words can do anything on its own:
+  // each only prompts a question to the server, or needs something this tab left behind.
+  useEffect(() => {
+    const outcome = new URLSearchParams(location.search).get('calendars');
+    if (!outcome) return;
+    history.replaceState(null, '', location.pathname);
+    if (outcome === 'disconnect') return void finishDisconnect();
+    // Signed in to 6Away again: nothing to show, the calendars simply carry on.
+    if (outcome === 'resume') return void resume();
+    openCalendars();
+    if (outcome === 'connected') void connected();
+    else if (outcome === 'cancelled') say('Google Calendar was not connected.');
+    else if (outcome === 'declined') say('Koyomi needs both permissions to show your calendars, so nothing was connected.');
+    else say('Couldn’t connect to Google Calendar. Try again in a moment.');
+  }, []);
 
   // Plan shows what is still waiting for a time; a scheduled item lives on the calendar instead.
   const { waiting, done } = useMemo(() => {
@@ -353,7 +393,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
                         >
                           {parts(key).d}
                         </span>
-                        <span className={`size-[3px] rounded-full ${byDay.get(key)?.length && !isSel ? 'bg-muted' : ''}`} />
+                        <span className={`size-[3px] rounded-full ${(byDay.get(key)?.length || externalByDay.get(key)?.length) && !isSel ? 'bg-muted' : ''}`} />
                       </button>
                     );
                   })}
@@ -410,6 +450,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
               today={today}
               now={now}
               byDay={byDay}
+              external={externalByDay}
               hourH={hourH}
               sel={sel}
               qa={qa}
@@ -443,6 +484,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
               mobile={mobile}
               viewportH={h}
               byDay={byDay}
+              external={externalByDay}
               label={rangeLabel}
               year={rangeYear}
               onOpenDay={openDay}
@@ -499,6 +541,9 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
           done={done}
           placingId={placingId}
           dragPlan={dragPlan}
+          external={external}
+          view={planView}
+          onView={setPlanView}
           onClose={() => setPlanOpen(false)}
           onPlace={startPlacing}
         />
@@ -516,6 +561,19 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
               setPlanOpen(true);
             }}
           />
+        )}
+
+        {/* Koyomi carries on as it is; what was read before stays on screen. One quiet line says what is needed. */}
+        {(external.status === 'reconnect' || external.status === 'signin') && !planOpen && (
+          <button
+            onClick={openCalendars}
+            className={`absolute z-[24] h-7 rounded-full border border-line bg-bg px-3 text-[12px] text-ink2 shadow-[0_6px_18px_-10px_var(--shadow)] hover:border-stone hover:text-ink ${
+              mobile ? 'left-4' : 'bottom-4 left-7'
+            }`}
+            style={mobile ? { bottom: 'calc(76px + env(safe-area-inset-bottom))' } : undefined}
+          >
+            {external.status === 'reconnect' ? 'Google Calendar needs reconnecting' : 'Sign in again to update Google Calendar'}
+          </button>
         )}
 
         {data.saveFailed && (

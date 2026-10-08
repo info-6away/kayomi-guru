@@ -71,6 +71,44 @@ Month and the phone Plan sheet are shown in light only: dark changes their palet
   opens just after 07:30, so about 08:00 to 20:00 is visible without scrolling.
 - **Creation is one line.** Click a time, type, Enter: `14:00 │ What are you doing?`
 
+## Connected calendars
+
+Added in v1.2. Nothing above changes for someone who connects nothing; these are the additions
+for someone who does. Taken with `npm run screenshots -- --connected` against
+`npm run preview:connected`, which stands in for Google with a made-up account.
+
+| View | |
+| --- | --- |
+| Desktop Week with Google events | [light](desktop-week-google-light.png), [dark](desktop-week-google-dark.png) |
+| A Google event open | [desktop-google-event-light.png](desktop-google-event-light.png) |
+| Calendars | [desktop-calendars-light.png](desktop-calendars-light.png) |
+| Phone Day with Google events | [mobile-day-google-light.png](mobile-day-google-light.png) |
+
+![Desktop Week with Google events, light](desktop-week-google-light.png)
+
+- **Outline for theirs, tint for yours.** An event from a connected calendar is drawn on plain
+  paper with a hairline outline and a grey bar; a Koyomi event keeps its tint and its colour.
+  Its title is one text level lighter (`ink2`, regular weight) and its time is `muted`. Quieter,
+  never faint: both still meet the same contrast as everything else. No provider logo and no
+  provider colours.
+- **It can be looked at, not changed.** Opening one shows its title, time, and "Google Calendar ·"
+  with the calendar's name, beside a ring where a Koyomi event has a coloured dot. The only
+  action is Open in Google Calendar. It cannot be dragged, resized, completed or deleted.
+- **The all-day row.** A slim row under the day headings, there only when the days in view have
+  something in it. Koyomi's all-day events are tinted, external ones outlined, and one that runs
+  for several days is a single bar across them. Two rows show; more fold into "+n", which opens
+  the rest. An event of Koyomi's own moves in and out of the row with "All day" and "Set a time"
+  in its details.
+- **Calendars lives inside Plan.** One quiet line at the foot of Plan opens it in the same drawer:
+  Koyomi, always shown, then the connected account's calendars, each a row that is on or off.
+  Refresh and Disconnect are text at the foot. There is no settings page, no avatar, no account
+  screen.
+- **Trouble is one line, and says which trouble.** If the Koyomi sign-in has ended: "Sign in
+  again to update Google Calendar". If Google itself has refused the permission: "Google
+  Calendar needs reconnecting". Either appears as a small pill at the bottom of the calendar and
+  in Calendars, and the two are never confused. Being offline, or Google being slow, shows
+  nothing at all.
+
 ## Differences from the prototype
 
 Each of these was needed for a real calendar and was kept as small as possible:

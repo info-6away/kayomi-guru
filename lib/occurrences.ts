@@ -52,6 +52,7 @@ export function nearestDay(event: CalendarEvent, today: string): string {
 export function moved(o: Occurrence, to: { date: string; start: number; end: number }) {
   const days = diffDays(to.date, o.date);
   const first = addDays(spanOf(o.event).date, days);
+  if (o.event.allDay) return { start: first, end: first, recurrence: shiftRecurrence(o.event.recurrence, days) };
   return {
     start: toInstant(first, to.start),
     end: toInstant(first, to.end),

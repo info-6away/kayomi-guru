@@ -16,10 +16,14 @@ export interface Recurrence {
 export interface CalendarEvent {
   id: string;
   title: string;
-  /** ISO 8601 UTC instants. For a series, the first occurrence. */
+  /**
+   * Timed: ISO 8601 UTC instants. All-day: the calendar day, 'YYYY-MM-DD', in both: a day is a
+   * day wherever it is read, so it is never converted through a time zone.
+   * For a series, the first occurrence.
+   */
   start: string;
   end: string;
-  /** Reserved. Always false until the design has an all-day row. */
+  /** Shown in the all-day row rather than at a time. */
   allDay: boolean;
   category: Category;
   /** Set when the event was scheduled from Plan. Such an event never repeats. */

@@ -114,7 +114,7 @@ export function addEvent(input: {
 
 export function updateEvent(
   id: string,
-  patch: Partial<Pick<CalendarEvent, 'title' | 'start' | 'end' | 'category' | 'recurrence'>>,
+  patch: Partial<Pick<CalendarEvent, 'title' | 'start' | 'end' | 'allDay' | 'category' | 'recurrence'>>,
 ) {
   const current = eventById(id);
   if (!current) return;

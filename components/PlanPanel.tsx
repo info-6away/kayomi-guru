@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
+import type { External } from '@/lib/calendars/store';
 import { install, useCanInstall } from '@/lib/install';
 import { addPlanItem, setPlanStatus } from '@/lib/store';
 import type { PlanItem } from '@/lib/types';
+import { CalendarsView } from './CalendarsView';
 import { things } from './ui';
 
 interface Props {
@@ -16,11 +18,15 @@ interface Props {
   done: PlanItem[];
   placingId: string | null;
   dragPlan: RefObject<PlanItem | null>;
+  /** Connected calendars, and whether the drawer is showing them instead of Plan. */
+  external: External;
+  view: 'plan' | 'calendars';
+  onView: (view: 'plan' | 'calendars') => void;
   onClose: () => void;
   onPlace: (item: PlanItem) => void;
 }
 
-export function PlanPanel({ mobile, open, pushes, waiting, done, placingId, dragPlan, onClose, onPlace }: Props) {
+export function PlanPanel({ mobile, open, pushes, waiting, done, placingId, dragPlan, external, view, onView, onClose, onPlace }: Props) {
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState('');
   const [doneOpen, setDoneOpen] = useState(false);
@@ -41,7 +47,7 @@ export function PlanPanel({ mobile, open, pushes, waiting, done, placingId, drag
 
   return (
     <section
-      aria-label="Plan"
+      aria-label={view === 'calendars' ? 'Calendars' : 'Plan'}
       className={
         mobile
           ? 'absolute inset-x-0 bottom-0 z-30 flex h-[74%] flex-col rounded-t-2xl bg-paper pb-[env(safe-area-inset-bottom)] shadow-[0_-20px_50px_-24px_var(--shadow)]'
@@ -60,6 +66,11 @@ export function PlanPanel({ mobile, open, pushes, waiting, done, placingId, drag
           <span className="h-1 w-9 rounded-[2px] bg-line" />
         </div>
       )}
+
+      {view === 'calendars' ? (
+        <CalendarsView external={external} mobile={mobile} onBack={() => onView('plan')} />
+      ) : (
+        <>
 
       <div className="flex flex-none items-baseline gap-3 pt-5 pr-3.5 pb-3.5 pl-[26px]">
         <span className="font-mincho text-[24px] leading-none">Plan</span>
@@ -175,6 +186,12 @@ export function PlanPanel({ mobile, open, pushes, waiting, done, placingId, drag
 
       <div className="flex-none px-[26px] pt-2.5 pb-[22px] text-[12px] leading-[1.6] text-muted">
         {mobile ? 'Tap a thing, then tap a time to schedule it.' : 'Drag onto your week, or click a thing and choose a time.'}
+        {/* Only where the server is set up for it. The way to calendars from elsewhere, kept out of the way. */}
+        {external.available && (
+          <button onClick={() => onView('calendars')} className="mt-1 block underline decoration-line underline-offset-4 hover:text-ink2">
+            {external.status === 'reconnect' ? 'Calendars · needs reconnecting' : external.status === 'signin' ? 'Calendars · sign in again' : 'Calendars'}
+          </button>
+        )}
         {/* Only while the browser offers it: never in Safari or Firefox, and never once installed. */}
         {canInstall && (
           <button onClick={install} className="mt-1 block underline decoration-line underline-offset-4 hover:text-ink2">
@@ -182,6 +199,8 @@ export function PlanPanel({ mobile, open, pushes, waiting, done, placingId, drag
           </button>
         )}
       </div>
+        </>
+      )}
     </section>
   );
 }

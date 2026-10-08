@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { DAY_MIN, DOWL, MON, hm, parseTime, parts, toInstant, weekday, type Span } from '@/lib/dates';
+import { DAY_MIN, DOWL, MON, hm, parseTime, parts, spanOf, toInstant, weekday, type Span } from '@/lib/dates';
 import { moved, occurrenceKey, type Occurrence } from '@/lib/occurrences';
 import { backToPlan, deleteEvent, endSeriesBefore, setPlanStatus, skipOccurrence, updateEvent } from '@/lib/store';
 import type { Frequency } from '@/lib/types';
@@ -33,10 +33,19 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
   const setRepeat = (freq: string) => {
     if (freq) {
       updateEvent(ev.id, { recurrence: { freq: freq as Frequency, until: ev.recurrence?.until ?? null, except: ev.recurrence?.except ?? [] } });
+    } else if (ev.allDay) {
+      updateEvent(ev.id, { start: o.date, end: o.date, recurrence: null });
     } else {
       // No longer repeating: what remains is the day being looked at.
       updateEvent(ev.id, { start: toInstant(o.date, o.start), end: toInstant(o.date, o.end), recurrence: null });
     }
+  };
+
+  /** Moves the event between the all-day row and a time. A series keeps the day it started on. */
+  const setAllDay = (allDay: boolean) => {
+    const first = spanOf(ev).date;
+    if (allDay) updateEvent(ev.id, { allDay: true, start: first, end: first });
+    else updateEvent(ev.id, { allDay: false, start: toInstant(first, 9 * 60), end: toInstant(first, 10 * 60) });
   };
 
   const close = () => onSelect(null);
@@ -89,27 +98,37 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
       />
 
       <div className={`flex items-center gap-1 text-ink2 tabular-nums ${mobile ? 'text-[16px]' : 'text-[13px]'}`}>
-        <TimeField
-          label="Start"
-          value={o.start}
-          wide={mobile}
-          onCommit={(min) => {
-            if (min > DAY_MIN - 15) return false;
-            reschedule({ start: min, end: Math.min(DAY_MIN, min + (o.end - o.start)) });
-            return true;
-          }}
-        />
-        <span>–</span>
-        <TimeField
-          label="End"
-          value={o.end}
-          wide={mobile}
-          onCommit={(min) => {
-            if (min <= o.start) return false;
-            reschedule({ end: min });
-            return true;
-          }}
-        />
+        {ev.allDay ? (
+          <span>All day</span>
+        ) : (
+          <>
+            <TimeField
+              label="Start"
+              value={o.start}
+              wide={mobile}
+              onCommit={(min) => {
+                if (min > DAY_MIN - 15) return false;
+                reschedule({ start: min, end: Math.min(DAY_MIN, min + (o.end - o.start)) });
+                return true;
+              }}
+            />
+            <span>–</span>
+            <TimeField
+              label="End"
+              value={o.end}
+              wide={mobile}
+              onCommit={(min) => {
+                if (min <= o.start) return false;
+                reschedule({ end: min });
+                return true;
+              }}
+            />
+          </>
+        )}
+        {/* The one way an event of Koyomi's own gets into the all-day row, and back out. */}
+        <button onClick={() => setAllDay(!ev.allDay)} className="ml-auto text-[12px] text-muted hover:text-ink focus-visible:text-ink">
+          {ev.allDay ? 'Set a time' : 'All day'}
+        </button>
       </div>
 
       <div className="-ml-1.5 flex items-center">
