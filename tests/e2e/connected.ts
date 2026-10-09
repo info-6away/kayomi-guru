@@ -120,6 +120,15 @@ export async function closeDrawer(page: Page) {
   if (mobile(page)) await page.mouse.click(195, 60);
   else await page.keyboard.press('p');
   await expect(view(page)).toBeHidden();
+  // The drawer is gone at once, but the calendar takes a moment more to slide back to its full
+  // width, and every column moves while it does. Wait for that slide itself to end, so that
+  // positions read next are where things stay.
+  await page.evaluate(async () => {
+    // Two frames first: the slide begins with the frame after the change that causes it.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const sliding = document.getAnimations().filter((animation) => (animation as CSSTransition).transitionProperty === 'padding-right');
+    await Promise.all(sliding.map((animation) => animation.finished.catch(() => {})));
+  });
 }
 
 /** Presses Connect and comes back from the stand-ins signed in, with the calendars listed. */

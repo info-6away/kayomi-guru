@@ -355,26 +355,33 @@ records are untouched throughout; what the server refuses; and contrast in both 
   the round trip under tampering (replay, wrong state, another browser, another person),
   redirects, cookies, requests from other sites, other people's connections, and the allowance.
 
-### Checking it against the real Google
+### Checked against the real Google
 
-The stand-in behaves as Google's documentation says Google does. These need a real account once
-the settings above are in place, and have **not** been done:
+The stand-in behaves as Google's documentation says Google does. On 9 October 2026 the same
+things were checked on production against Google itself: a real account, a person signing in
+and consenting, and Koyomi's Google Cloud app in "Testing".
 
-1. Connect with a real Google account. The consent screen names Koyomi and lists exactly two
-   read-only permissions.
-2. Your calendars are listed, with the ones ticked in Google Calendar shown.
-3. A timed event, an all-day event, a multi-day event and a repeating event each appear correctly.
-4. Change, add and delete an event in Google Calendar, then press Refresh: Koyomi follows.
-5. Decline an invitation: it disappears from Koyomi.
-6. Open in Google Calendar leads to the right event.
-7. Remove Koyomi's access at `myaccount.google.com/permissions`, then Refresh: "needs
-   reconnecting" appears, and Reconnect works.
-8. Disconnect: Koyomi is gone from `myaccount.google.com/permissions`, and the row is gone from
-   the database.
-9. Leave it connected for more than an hour, then Refresh (a new access token is needed by then).
-10. Sign in with 6Away as a second person: they see no connection.
-11. Clear the site's cookies while connected, then Refresh: it asks to sign in, not to reconnect,
-    and after signing in the events update without Google's consent screen appearing.
+| | What was seen |
+| --- | --- |
+| Consent | Google named the app as it is named in the Cloud console and listed exactly two permissions: "See the list of Google calendars you're subscribed to" and "View events on all your calendars" |
+| Granted | Exactly the two read-only scopes. The server held one row: the sealed token, the scopes and a status |
+| On the device | No token of any kind in storage, cookies page code can read, or anything the server sent. An event's description and location never arrived |
+| Calendars | The primary calendar, a second calendar and a subscribed one were listed. Hiding one removed its events from the device; showing it read it again; the choice survived a reload |
+| Events | Timed, all-day, three-day and repeating events were right in Day, Week and Month. An occurrence removed at Google was absent. An event written at 18:00 in Los Angeles showed at 05:00 the next day in Dubai |
+| The span | The first reading asked for exactly five weeks back to twenty-seven ahead. Events either side of it never arrived |
+| What changed | After an event was added at Google, Refresh sent each calendar's cursor and Google answered with that one event |
+| Offline | With no network the events already read were shown, with when they were read, and Koyomi's own calendar and Plan stayed fully usable |
+| Sign-in ended | "Sign in again to keep Google Calendar up to date". Signing in as the same person carried on with the same stored token and no consent screen |
+| Another person | Signed in as a second 6Away identity: the server said not connected, and the device let go of the first person's events. The first person's row was untouched |
+| Revoked at Google | The next Refresh said "Google Calendar needs reconnecting", not "sign in". Reconnect showed Google's consent screen again and reading resumed |
+| Disconnect | The permission was gone from the Google account, the row was gone from the database, the device's copy was gone, and Koyomi's own database was byte for byte unchanged |
+| Open in Google Calendar | Opened that event at Google |
+
+Not yet checked against the real Google:
+
+- declining an invitation, and changing or deleting (rather than adding) an event;
+- a connection left for more than an hour, by when a new access token is needed;
+- the seven days after which Google ends a grant given to an app in "Testing".
 
 ## Known limits
 

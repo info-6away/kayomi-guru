@@ -22,7 +22,7 @@ import {
 import { addEvent, columns, event, fits, open, plan, popover, reload, seed, stored } from './helpers';
 
 // Calendars connected from outside: Google, read-only. What only a real account can show is
-// listed in docs/CALENDAR_CONNECTIONS.md under "Checking it against the real Google".
+// listed in docs/CALENDAR_CONNECTIONS.md under "Checked against the real Google".
 
 test.describe('someone who only uses Koyomi', () => {
   test('is asked nothing, and nothing is asked of the server', async ({ page, context }) => {
