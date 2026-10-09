@@ -190,6 +190,18 @@ async function google(req, res, url) {
     if (acct.revoked || !acct.tokens.has(token)) return send(res, 401, { error: { code: 401, status: 'UNAUTHENTICATED' } });
     if (acct.fail === 'unavailable') return send(res, 503, { error: { code: 503, status: 'UNAVAILABLE' } });
     if (acct.fail === 'limited') return send(res, 403, { error: { code: 403, errors: [{ reason: 'rateLimitExceeded' }] } });
+    // The Calendar API is not enabled in the app's own Google Cloud project: Google's words for it.
+    if (acct.fail === 'disabled') {
+      return send(res, 403, {
+        error: {
+          code: 403,
+          status: 'PERMISSION_DENIED',
+          message: 'Google Calendar API has not been used in project 0 before or it is disabled.',
+          errors: [{ domain: 'usageLimits', reason: 'accessNotConfigured' }],
+          details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'SERVICE_DISABLED' }],
+        },
+      });
+    }
     if (acct.delay) await new Promise((resolve) => setTimeout(resolve, acct.delay));
     const q = url.searchParams;
 
@@ -266,7 +278,7 @@ async function control(req, res, url) {
     return send(res, 200, {});
   }
 
-  // POST .../state  { revoked?, fail?: null | 'unavailable' | 'limited', staleCursors?, delay?, removeCalendar? }
+  // POST .../state  { revoked?, fail?: null | 'unavailable' | 'limited' | 'disabled', staleCursors?, delay?, removeCalendar? }
   if ('revoked' in data) {
     acct.revoked = data.revoked;
     if (data.revoked) acct.tokens.clear();

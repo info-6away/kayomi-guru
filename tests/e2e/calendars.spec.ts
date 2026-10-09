@@ -494,6 +494,52 @@ test.describe('when Google or the connection fails', () => {
     await expect(event(page, 'Dentist')).toHaveCount(0);
   });
 
+  // Found against the real Google: the Calendar API was not enabled in the app's own Google Cloud
+  // project. That is the operator's to mend, not the person's, and consenting again cannot.
+  test('if the Calendar API is switched off for the app itself, nobody is asked to reconnect', async ({ page, id }) => {
+    const consents = async () => (await google.asked(id)).log.filter((entry) => entry.type === 'consent').length;
+    await start(page);
+    await connect(page);
+    await google.becomes(id, { fail: 'disabled' });
+    await refresh(page);
+    // What was read stays, nothing is said, and the connection is not marked as needing the person.
+    await expect(external(page, 'Dentist')).toBeVisible();
+    await expect(page.getByText(/reconnect|couldn’t/i)).toHaveCount(0);
+    await expect(view(page).getByRole('button', { name: 'Refresh' })).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem('koyomi-calendars'))).toBe('connected');
+
+    // The operator switches it on: reading simply carries on, with no visit to Google's consent screen.
+    await google.becomes(id, { fail: null });
+    await google.changes(id, { calendarId: 'me@example.test', cancel: ['dentist'] });
+    await refresh(page);
+    await expect(event(page, 'Dentist')).toHaveCount(0);
+    await expect(page.getByText(/reconnect/i)).toHaveCount(0);
+    expect(await consents()).toBe(1);
+  });
+
+  test('connecting while the Calendar API is switched off says to try again, and trying again needs no second consent', async ({ page, id }) => {
+    const consents = async () => (await google.asked(id)).log.filter((entry) => entry.type === 'consent').length;
+    await google.becomes(id, { fail: 'disabled' });
+    await start(page);
+    await openCalendars(page);
+    await view(page).getByRole('button', { name: 'Connect', exact: true }).click();
+
+    // Consent was given and kept. Only the first reading failed, and the person is told what to do.
+    await expect(view(page)).toContainText('Your calendars couldn’t be read just now. Press Connect again in a moment.', { timeout: 15_000 });
+    await expect(view(page).getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    await expect(page.getByText(/reconnect/i)).toHaveCount(0);
+    expect(await consents()).toBe(1);
+    expect(await page.evaluate(() => localStorage.getItem('koyomi-calendars'))).toBeNull();
+
+    // Switched on: Connect finds the permission already given and goes straight to the calendars.
+    await google.becomes(id, { fail: null });
+    await view(page).getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(toggle(page, 'Personal')).toBeVisible({ timeout: 15_000 });
+    await closeDrawer(page);
+    await expect(external(page, 'Dentist')).toBeVisible();
+    expect(await consents()).toBe(1);
+  });
+
   test('if the permission is withdrawn at Google, one quiet line says so and reconnecting mends it', async ({ page, id }) => {
     await start(page);
     await connect(page);
