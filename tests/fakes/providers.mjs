@@ -74,6 +74,12 @@ async function idp(req, res, url) {
     return sub ? send(res, 200, { sub, email: `${sub}@example.test`, name: 'Test Person' }) : send(res, 401, { error: 'invalid_token' });
   }
 
+  // Signing out: 6Away ends its own session, then sends the browser back where the app asked.
+  if (url.pathname === '/idp/oauth/logout') {
+    const back = url.searchParams.get('post_logout_redirect_uri');
+    return back ? redirect(res, back) : send(res, 200, { signed_out: true });
+  }
+
   send(res, 404, { error: 'not_found' });
 }
 

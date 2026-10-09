@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { expect, test } from '@playwright/test';
 import { memoryStore, sqlStore, type ConnectionStore, type Sql } from '../../lib/server/connections';
-import { connectionsConfig } from '../../lib/server/env';
+import { connectionsConfig, signInConfigured } from '../../lib/server/env';
 import { FLOW_SECONDS, beginFlow, finishFlow } from '../../lib/server/flow';
 import { GoogleError, MAX_CALENDAR_PAGES, MAX_EVENT_PAGES, SCOPES, authorizeUrl, googleEndpoints, listCalendars, listEvents, pkce, refreshAccess } from '../../lib/server/google';
 import { describe } from '../../lib/server/log';
@@ -102,7 +102,7 @@ test('Koyomi asks Google for two read-only permissions and no others', () => {
   for (const scope of SCOPES) expect(scope).toMatch(/\.readonly$/);
 });
 
-test('calendar connections are off unless every setting is there', () => {
+test('calendar connections are off unless every setting is there, and sign-in needs only its own', () => {
   const full: Record<string, string> = {
     NEXT_PUBLIC_APP_URL: 'https://app.koyomi.guru/',
     NEXT_PUBLIC_AUTH_URL: 'https://auth.6away.ai',
@@ -142,6 +142,24 @@ test('calendar connections are off unless every setting is there', () => {
     // ...and are ignored on a deployment, whatever its settings say.
     expect(withEnv({ ...noDatabase, KOYOMI_TEST_STORE: 'memory', VERCEL: '1' })).toBeNull();
     expect(withEnv({ ...full, KOYOMI_TEST_GOOGLE_URL: 'http://localhost:9/google', VERCEL: '1' })!.google.endpoints.token).toBe('https://oauth2.googleapis.com/token');
+
+    // Signing in needs five of the nine and nothing of Google's, so it can be on, and be checked,
+    // while connections themselves are still off.
+    const signIn = ['NEXT_PUBLIC_APP_URL', 'NEXT_PUBLIC_AUTH_URL', 'AUTH_CLIENT_ID', 'AUTH_CLIENT_SECRET', 'SESSION_SECRET'];
+    const five = Object.fromEntries(signIn.map((name) => [name, full[name]]));
+    expect(withEnv(five)).toBeNull();
+    expect(signInConfigured()).toBe(true);
+    for (const missing of signIn) {
+      const { [missing]: _, ...rest } = five;
+      withEnv(rest);
+      expect(signInConfigured(), `without ${missing}`).toBe(false);
+    }
+    // A setting left blank is a setting that is missing.
+    withEnv({ ...five, AUTH_CLIENT_SECRET: '   ' });
+    expect(signInConfigured()).toBe(false);
+    // Google's settings alone switch nothing on.
+    withEnv(Object.fromEntries(Object.entries(full).filter(([name]) => !signIn.includes(name))));
+    expect(signInConfigured()).toBe(false);
   } finally {
     for (const name of names) {
       if (before[name] === undefined) delete process.env[name];

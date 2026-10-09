@@ -65,7 +65,7 @@ There are two different things that can lapse, and Koyomi keeps them apart.
 | --- | --- | --- |
 | **What it is** | A session cookie on one device | The row above, on the server |
 | **Belongs to** | That browser | The person: their 6Away identity |
-| **Ends when** | Thirty days pass, or cookies are cleared | The person disconnects, or Google refuses the token |
+| **Ends when** | Thirty days pass, cookies are cleared, or you sign out | The person disconnects, or Google refuses the token |
 | **What you see** | "Sign in again to keep Google Calendar up to date" · **Sign in** | "Google Calendar needs reconnecting" · **Reconnect** |
 | **What mends it** | Signing in to 6Away. Google is not involved | Google's consent screen |
 
@@ -83,6 +83,12 @@ are signed in, the reading finds that Google has refused, and only then asks to 
 If a *different* person signs in on the device, they have no connection of their own. The device
 lets go of the first person's events, and the first person's connection is untouched: it is
 there when they sign in again, here or anywhere.
+
+**Signing out** is `/api/auth/signout`. It ends the Koyomi session on that device, then passes
+the browser to 6Away to end the session there, and 6Away sends it back to the calendar. It is the
+sign-in that ends, so everything above applies: the connection stays, what was read stays, and
+Google is told nothing. To take the permission away, use Disconnect. No button leads to
+sign-out yet; the address is there for the 6Away ecosystem and for whoever wants it.
 
 ## What Koyomi asks Google for
 
@@ -188,9 +194,10 @@ nothing, and means a stolen code is useless on its own.
 
 **Redirects.** Every redirect goes to an address the server builds from its own settings: the
 app's address with one of four fixed words (`connected`, `cancelled`, `declined`, `failed`),
-6Away's sign-in, or Google's consent screen. Nothing in a request (a parameter, a `Host` header)
-can choose it. The one caller-supplied destination, sign-in's `returnTo`, is accepted only if it
-is a path on this site; anything else is replaced with `/`.
+6Away's sign-in or sign-out, or Google's consent screen. Nothing in a request (a parameter, a
+`Host` header) can choose it. The one caller-supplied destination, sign-in's `returnTo`, is
+accepted only if it is a path on this site; anything else is replaced with `/`. Sign-out names
+one place to come back to, the app's own address, and takes none from the request.
 
 **Words in the app's own address.** The app reads how a round trip went from `?calendars=…`. An
 address can be a link from anywhere, so no word does anything by itself. `connected` and
@@ -206,6 +213,11 @@ identity, never anything of Google's.
 `/disconnect`), protected twice. The session cookie is SameSite Lax, so a browser does not send
 it with a POST from another site. And the server refuses any POST whose `Origin` is not the
 app's own address, cookie or no cookie. A GET to either is a 405.
+
+Sign-out is the exception, and a deliberate one: it answers a GET as well as a POST, as
+`@6away/auth-connect` provides it, so that a plain link can sign someone out. A link on another
+site could therefore do the same. All it costs is signing in again: nothing is read, changed,
+disconnected or deleted by it.
 
 **Other people's connections.** Who is asking comes from the session cookie and from nowhere
 else. No route takes a person's id from the address, the body or a header, so there is no way to
@@ -248,6 +260,13 @@ Calendar connections are **off until all of this is in place**. With any of it m
 Calendars entry does not appear and the app is exactly as it was, so it is safe to deploy first
 and configure afterwards.
 
+**Signing in is the one part that can be on by itself.** With the five sign-in settings
+(`NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_AUTH_URL`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET`,
+`SESSION_SECRET`), the three addresses under `/api/auth` answer, so sign-in can be checked
+against the real 6Away before a Google client exists. Nothing in the app leads to them until
+the rest is there, every `/api/google` address is still a 404, and a session opens nothing by
+itself.
+
 1. **A database.** Any Postgres; the ecosystem uses Neon. Create the table (both files in `migrations/`):
 
    ```sh
@@ -257,15 +276,17 @@ and configure afterwards.
 
    It waits for `--yes` because a machine can have `DATABASE_URL` set for another project.
 
-2. **A 6Away Auth client** for Koyomi, created at `auth.6away.ai/admin`, with sign-up open and
-   these redirect addresses:
+2. **A 6Away Auth client** for Koyomi. It exists: client id `koyomi-guru`, created at
+   `auth.6away.ai/admin` with sign-up open and exactly two redirect addresses:
    `https://app.koyomi.guru/api/auth/callback/6away` and
-   `http://localhost:4310/api/auth/callback/6away`.
+   `http://localhost:3000/api/auth/callback/6away`.
+   6Away refuses any other address, so real sign-in works on the production host and on
+   port 3000 of your own machine, and nowhere else: not on a Vercel preview, and not on port 4310.
 
 3. **A Google Cloud OAuth client** (type: web application) in a project with the Google Calendar
    API enabled:
    - Authorised redirect URIs: `https://app.koyomi.guru/api/google/callback` and
-     `http://localhost:4310/api/google/callback`.
+     `http://localhost:3000/api/google/callback`.
    - On the consent screen, add the two scopes above.
    - While the consent screen is in "Testing", only the test users you list can connect, and
      **Google expires their refresh tokens after seven days**. To open it to everyone, Google has
@@ -297,6 +318,20 @@ npm run preview:connected   # http://localhost:4310, then Plan → Calendars →
 This runs Koyomi against stand-ins for 6Away Auth and Google (`tests/fakes/providers.mjs`) with a
 made-up account. No real credentials, no real calendar, and nothing kept once it stops.
 
+## Signing in for real on your own machine
+
+The real 6Away knows this machine only as `http://localhost:3000`, so the app has to be on that
+port. `.env.local` (never committed) holds the five sign-in settings, with
+`NEXT_PUBLIC_APP_URL=http://localhost:3000`:
+
+```sh
+npm run build && npm run start   # http://localhost:3000
+```
+
+Those five are enough for sign-in alone: `/api/auth/signin`, staying signed in across a reload
+and `/api/auth/signout` all work, and the Calendars entry stays hidden. Connecting a calendar
+needs the Google and database settings in `.env.local` as well.
+
 ## Tests
 
 The automated tests use the same stand-ins, never a real account. They cover: a local-only
@@ -313,9 +348,9 @@ records are untouched throughout; what the server refuses; and contrast in both 
   real migrations in an in-process Postgres), the consent round trip, what may be logged, the
   bounds on what is asked of Google, the permissions asked for, and when the feature is off.
 - `tests/e2e/calendars.spec.ts`: the feature itself, in the real app.
-- `tests/e2e/connection-security.spec.ts`: sign-in ending against Google refusing, the round
-  trip under tampering (replay, wrong state, another browser, another person), redirects,
-  cookies, requests from other sites, other people's connections, and the allowance.
+- `tests/e2e/connection-security.spec.ts`: sign-in ending against Google refusing, signing out,
+  the round trip under tampering (replay, wrong state, another browser, another person),
+  redirects, cookies, requests from other sites, other people's connections, and the allowance.
 
 ### Checking it against the real Google
 

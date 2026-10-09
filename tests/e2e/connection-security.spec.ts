@@ -121,6 +121,59 @@ test.describe('a sign-in that has ended is not a connection that is lost', () =>
   });
 });
 
+test.describe('signing out', () => {
+  test('ends the session here, by way of 6Away, and leaves the Google connection where it was', async ({ page, id }) => {
+    await start(page);
+    await connect(page);
+    const askedBefore = (await google.asked(id)).log.length;
+
+    await page.goto('/api/auth/signout');
+    // To 6Away and back to the calendar, with nobody signed in.
+    await expect(page.getByText('koyomi', { exact: true })).toBeVisible();
+    expect(page.url()).toBe(`${APP}/`);
+    expect(await session(page)).toBeUndefined();
+    expect((await page.request.get('/api/google/calendars')).status()).toBe(401);
+
+    // It is the sign-in that ended. What was read is still here, and Google heard nothing of it.
+    await expect(external(page, 'Dentist')).toBeVisible();
+    await refresh(page);
+    await expect(view(page)).toContainText('Sign in again to keep Google Calendar up to date');
+    await expect(page.getByText(/reconnect/i)).toHaveCount(0);
+    const after = await google.asked(id);
+    expect(after.revoked).toBe(false);
+    expect(after.log.length).toBe(askedBefore);
+
+    // Signing in again finds the connection as it was: no consent screen.
+    await view(page).getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByText(/sign in again/i)).toHaveCount(0, { timeout: 15_000 });
+    await openCalendars(page);
+    await expect(view(page).getByRole('button', { name: 'Refresh' })).toBeVisible();
+    expect(await consents(id)).toBe(1);
+  });
+
+  test('goes only to 6Away, and back only to the app, whatever the request says', async ({ page }) => {
+    const out = async (path: string, method: 'get' | 'post' = 'get', headers?: Record<string, string>) => {
+      const response = await page.request[method](path, { maxRedirects: 0, headers });
+      expect(response.status(), path).toBe(303);
+      return new URL(response.headers().location);
+    };
+
+    await signInOnly(page);
+    const signedIn = await out('/api/auth/signout?post_logout_redirect_uri=https://evil.example&returnTo=//evil.example', 'get', { host: 'evil.example' });
+    expect(signedIn.origin + signedIn.pathname).toBe(`${FAKE}/idp/oauth/logout`);
+    expect(signedIn.searchParams.get('post_logout_redirect_uri')).toBe(APP);
+    // 6Away is told whose session to end, and nothing else is added.
+    expect([...signedIn.searchParams.keys()]).toEqual(['client_id', 'post_logout_redirect_uri', 'id_token_hint']);
+    expect(await session(page)).toBeUndefined();
+
+    // With nobody signed in it answers the same way, with nobody to name.
+    const nobody = await out('/api/auth/signout', 'post');
+    expect(nobody.origin + nobody.pathname).toBe(`${FAKE}/idp/oauth/logout`);
+    expect([...nobody.searchParams.keys()]).toEqual(['client_id', 'post_logout_redirect_uri']);
+    expect(nobody.searchParams.get('post_logout_redirect_uri')).toBe(APP);
+  });
+});
+
 /** The steps of the consent round trip, taken one at a time so each can be tampered with. */
 const flow = {
   /** Presses Connect as far as the redirect to Google. The sealed cookie is now in the browser. */

@@ -12,6 +12,15 @@ const env = (name: string) => process.env[name]?.trim() || undefined;
  */
 const testOnly = (name: string) => (env('VERCEL') ? undefined : env(name));
 
+const SIGN_IN = ['NEXT_PUBLIC_APP_URL', 'NEXT_PUBLIC_AUTH_URL', 'AUTH_CLIENT_ID', 'AUTH_CLIENT_SECRET', 'SESSION_SECRET'];
+
+/**
+ * Whether the sign-in addresses (/api/auth/...) answer. Signing in needs nothing of Google's, so
+ * it can be switched on, and checked, before a Google client exists. A session opens nothing by
+ * itself: everything it could be used for is behind `connectionsConfig`.
+ */
+export const signInConfigured = () => SIGN_IN.every(env);
+
 export interface ConnectionsConfig {
   /** This app's own origin, e.g. https://app.koyomi.guru. Every redirect is built from it. */
   appUrl: string;
@@ -31,8 +40,7 @@ export function connectionsConfig(): ConnectionsConfig | null {
   // real database, even on a machine that has one set for some other project.
   const database = testOnly('KOYOMI_TEST_STORE') === 'memory' ? 'memory' : env('DATABASE_URL');
   // Signing in is part of connecting, so its settings are required as well.
-  const signIn = ['AUTH_CLIENT_ID', 'AUTH_CLIENT_SECRET', 'SESSION_SECRET', 'NEXT_PUBLIC_AUTH_URL'].every(env);
-  if (!appUrl || !clientId || !clientSecret || !tokenKey || !database || !signIn) return null;
+  if (!appUrl || !clientId || !clientSecret || !tokenKey || !database || !signInConfigured()) return null;
   return {
     appUrl,
     google: { clientId, clientSecret, redirectUri: `${appUrl}/api/google/callback`, endpoints: googleEndpoints(testOnly('KOYOMI_TEST_GOOGLE_URL')) },
