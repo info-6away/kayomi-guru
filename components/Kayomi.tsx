@@ -148,6 +148,8 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     const outcome = new URLSearchParams(location.search).get('calendars');
     if (!outcome) return;
     history.replaceState(null, '', location.pathname);
+    // Where this deployment connects no calendars, the word means nothing and shows nothing.
+    if (!external.available) return;
     if (outcome === 'disconnect') return void finishDisconnect();
     // Signed in to 6Away again: nothing to show, the calendars simply carry on.
     if (outcome === 'resume') return void resume();

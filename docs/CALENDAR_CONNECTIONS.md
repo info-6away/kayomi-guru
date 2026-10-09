@@ -260,6 +260,13 @@ Calendar connections are **off until all of this is in place**. With any of it m
 Calendars entry does not appear and the app is exactly as it was, so it is safe to deploy first
 and configure afterwards.
 
+**Signing in is the one part that can be on by itself.** With the five sign-in settings
+(`NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_AUTH_URL`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET`,
+`SESSION_SECRET`), the three addresses under `/api/auth` answer, so sign-in can be checked
+against the real 6Away before a Google client exists. Nothing in the app leads to them until
+the rest is there, every `/api/google` address is still a 404, and a session opens nothing by
+itself.
+
 1. **A database.** Any Postgres; the ecosystem uses Neon. Create the table (both files in `migrations/`):
 
    ```sh
@@ -315,18 +322,15 @@ made-up account. No real credentials, no real calendar, and nothing kept once it
 
 The real 6Away knows this machine only as `http://localhost:3000`, so the app has to be on that
 port. `.env.local` (never committed) holds the five sign-in settings, with
-`NEXT_PUBLIC_APP_URL=http://localhost:3000`. The feature also wants the Google and database
-settings before any of its addresses exist. With all nine in `.env.local`:
+`NEXT_PUBLIC_APP_URL=http://localhost:3000`:
 
 ```sh
 npm run build && npm run start   # http://localhost:3000
 ```
 
-To check sign-in alone before the Google client exists, give the other four for that one run
-only, in the shell rather than in a file: `KOYOMI_TEST_STORE=memory`, any 64 hexadecimal
-characters as `TOKEN_ENCRYPTION_KEY`, and placeholders for the two Google settings. Signing in,
-staying signed in across a reload and signing out all work; pressing Connect would reach Google
-with a client it does not know.
+Those five are enough for sign-in alone: `/api/auth/signin`, staying signed in across a reload
+and `/api/auth/signout` all work, and the Calendars entry stays hidden. Connecting a calendar
+needs the Google and database settings in `.env.local` as well.
 
 ## Tests
 
