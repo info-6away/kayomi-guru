@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { EVENT_FIELDS, type GoogleEvent } from '../calendars/normalize';
 import type { CalendarInfo } from '../calendars/types';
+import { report } from './log';
 
 // Everything Koyomi says to Google, and nothing more: the consent screen, the token exchange,
 // and two read-only calls. Plain fetch, so there is no SDK between this file and the wire.
@@ -163,10 +164,15 @@ async function api<T>(g: GoogleClient, accessToken: string, path: string, query:
   if (response.status === 404) throw new GoogleError('not_found');
   if (response.status === 410) throw new GoogleError('gone');
   if (response.status === 403) {
-    const body = (await response.json().catch(() => ({}))) as { error?: { status?: string; errors?: { reason?: string }[] } };
-    const reason = body.error?.errors?.[0]?.reason ?? '';
-    // A scope that was not granted cannot be fixed by waiting. Rate limits can.
-    if (reason === 'insufficientPermissions' || body.error?.status === 'PERMISSION_DENIED') throw new GoogleError('reconnect');
+    const body = (await response.json().catch(() => ({}))) as { error?: { errors?: { reason?: string }[]; details?: { reason?: string }[] } };
+    const reasons = [...(body.error?.errors ?? []), ...(body.error?.details ?? [])].map((entry) => entry.reason ?? '');
+    const says = (...names: string[]) => reasons.some((reason) => names.includes(reason));
+    // A scope the person did not grant cannot be fixed by waiting: only they can grant it.
+    if (says('insufficientPermissions', 'ACCESS_TOKEN_SCOPE_INSUFFICIENT')) throw new GoogleError('reconnect');
+    // Anything else Google forbids is not theirs to mend by consenting again. One of them is the
+    // operator's: the Calendar API switched off for this app's own Google Cloud project. Their
+    // connection is as good as it was, so it is left alone, and the log says what to switch on.
+    if (says('accessNotConfigured', 'SERVICE_DISABLED')) report('google', new Error('the Google Calendar API is not enabled for this app’s Google Cloud project'));
   }
   throw new GoogleError('busy');
 }

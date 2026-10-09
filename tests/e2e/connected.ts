@@ -63,7 +63,7 @@ export const google = {
   /** Something changes at Google after Koyomi last looked. */
   changes: (id: string, change: { calendarId: string; upsert?: unknown[]; cancel?: string[] }) => post(`${id}/change`, change),
   /** Google starts refusing, failing, or forgetting. */
-  becomes: (id: string, state: { revoked?: boolean; fail?: null | 'unavailable' | 'limited'; staleCursors?: boolean; delay?: number; removeCalendar?: string }) =>
+  becomes: (id: string, state: { revoked?: boolean; fail?: null | 'unavailable' | 'limited' | 'disabled'; staleCursors?: boolean; delay?: number; removeCalendar?: string }) =>
     post(`${id}/state`, state),
   /** Everything the app has asked of this account. */
   asked: async (id: string) => (await (await fetch(`${FAKE}/__fake/google/${id}`)).json()) as { log: Record<string, string>[]; revoked: boolean; liveTokens: number },

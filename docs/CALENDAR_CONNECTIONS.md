@@ -152,6 +152,7 @@ Koyomi's own calendar never depends on any of this.
 | --- | --- |
 | No connection | Nothing. Events already read stay on screen |
 | Google is failing or limiting requests | Nothing. Koyomi tries again later |
+| The Calendar API is switched off for Koyomi's own Google Cloud project | Nothing, for someone already connected: their connection is left as it is. Someone connecting for the first time is told "Your calendars couldn’t be read just now. Press Connect again in a moment." Nobody is asked to reconnect, because consenting again cannot mend it. The server's log says what to switch on |
 | Your Koyomi sign-in has ended | One quiet line: "Sign in again to update Google Calendar". Events already read stay. Signing in carries on where it left off |
 | Permission withdrawn or expired at Google | One quiet line: "Google Calendar needs reconnecting". Events already read stay until you do |
 | You pressed Refresh many times in a minute | Nothing. The extra requests are not sent on to Google |
@@ -284,7 +285,9 @@ itself.
    port 3000 of your own machine, and nowhere else: not on a Vercel preview, and not on port 4310.
 
 3. **A Google Cloud OAuth client** (type: web application) in a project with the Google Calendar
-   API enabled:
+   API enabled. Enabling the API is a step of its own (APIs & Services → Library), and it is easy
+   to miss: without it Google still shows the consent screen and still grants the permission,
+   and then refuses every reading.
    - Authorised redirect URIs: `https://app.koyomi.guru/api/google/callback` and
      `http://localhost:3000/api/google/callback`.
    - On the consent screen, add the two scopes above.

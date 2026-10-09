@@ -370,6 +370,34 @@ test('nothing a browser sends can change where Koyomi asks: only Google, only th
   );
 });
 
+test('only a missing permission asks the person to reconnect: the API switched off for the project does not', async () => {
+  // Google's own words for each, as the Calendar API sends them with a 403.
+  const forbidden = (reason: string, detail: string) =>
+    Response.json({ error: { code: 403, status: 'PERMISSION_DENIED', errors: [{ domain: 'global', reason }], details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: detail }] } }, { status: 403 });
+  const kind = (answer: Response) => withGoogle(() => answer, async () => (await listCalendars(CLIENT, 'token').catch((e) => e)).kind);
+  const logged: string[] = [];
+  const real = console.error;
+  console.error = (line: string) => void logged.push(line);
+  try {
+    // The Calendar API is not enabled in the app's own Google Cloud project. Consenting again
+    // cannot mend that, so the connection must not be marked as needing it.
+    expect(await kind(forbidden('accessNotConfigured', 'SERVICE_DISABLED'))).toBe('busy');
+    // It is the operator's to mend, so the log says what to switch on, and nothing else.
+    expect(logged).toEqual(['[calendars] google: Error: the Google Calendar API is not enabled for this app’s Google Cloud project']);
+    // Limits pass by themselves.
+    expect(await kind(forbidden('rateLimitExceeded', 'RATE_LIMIT_EXCEEDED'))).toBe('busy');
+    expect(await kind(Response.json({ error: { code: 403, status: 'PERMISSION_DENIED' } }, { status: 403 }))).toBe('busy');
+    expect(logged).toHaveLength(1);
+    // A permission that was never granted is the one thing here only the person can mend.
+    expect(await kind(forbidden('insufficientPermissions', 'ACCESS_TOKEN_SCOPE_INSUFFICIENT'))).toBe('reconnect');
+    expect(await kind(Response.json({ error: { code: 403, errors: [{ reason: 'insufficientPermissions' }] } }, { status: 403 }))).toBe('reconnect');
+    // And a token Google no longer honours, as before.
+    expect(await kind(Response.json({ error: { code: 401, status: 'UNAUTHENTICATED' } }, { status: 401 }))).toBe('reconnect');
+  } finally {
+    console.error = real;
+  }
+});
+
 test('a request Google does not answer is given up on', async () => {
   // A network that never answers, but lets go when told to.
   const silent = (_: URL, init: RequestInit) =>
