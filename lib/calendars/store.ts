@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { dayKey } from '../dates';
 import { deleteExternal, loadExternal, saveExternal, type ExternalChange } from './db';
-import type { ApiError, CalendarInfo, EventsRequest, EventsResponse, ExternalCalendar, ExternalEvent } from './types';
+import type { ApiError, CalendarInfo, CalendarResult, EventsRequest, EventsResponse, ExternalCalendar, ExternalEvent } from './types';
 import { covers, spanOfWindow, syncWindow, within } from './window';
 
 // Connected calendars on this device: what is known about them, kept in memory and written
@@ -175,6 +175,26 @@ async function failed(error: ApiError | 'offline') {
   else set({ syncing: false });
 }
 
+/**
+ * The provider's list of calendars, laid over what this device remembers of each. The name and
+ * the like are the provider's. Whether a calendar is shown, and how far it has been read, are
+ * this device's and are kept. One new to this device starts as it is ticked in Google's own app.
+ */
+const listedOver = (remembered: ExternalCalendar[], listed: CalendarInfo[]): ExternalCalendar[] => {
+  const known = new Map(remembered.map((c) => [c.calendarId, c]));
+  return listed.map((info) => ({
+    id: `google:${info.calendarId}`,
+    provider: 'google',
+    visible: info.selected,
+    syncToken: null,
+    windowFrom: null,
+    windowTo: null,
+    fetchedAt: null,
+    ...known.get(info.calendarId),
+    ...info,
+  }));
+};
+
 const lastRead = () => state.calendars.reduce<string | null>((latest, c) => (c.fetchedAt && (!latest || c.fetchedAt > latest) ? c.fetchedAt : latest), null);
 const stale = () => {
   const read = lastRead();
@@ -199,56 +219,61 @@ export async function sync(only?: string): Promise<void> {
   }
   set({ syncing: true, note: null });
 
-  let calendars = state.calendars;
-  const dropCalendars: string[] = [];
+  let listed: CalendarInfo[] | null = null;
   if (!only) {
-    const listed = await call<{ calendars: CalendarInfo[] }>('/api/google/calendars');
-    if (!listed.ok) return failed(listed.error);
-    const known = new Map(state.calendars.map((c) => [c.calendarId, c]));
-    calendars = listed.data.calendars.map((info) => ({
-      id: `google:${info.calendarId}`,
-      provider: 'google',
-      // New to this device: shown if it is ticked in Google's own app.
-      visible: info.selected,
-      syncToken: null,
-      windowFrom: null,
-      windowTo: null,
-      fetchedAt: null,
-      ...known.get(info.calendarId),
-      ...info,
-    }));
-    dropCalendars.push(...[...known.keys()].filter((id) => !calendars.some((c) => c.calendarId === id)));
+    const answer = await call<{ calendars: CalendarInfo[] }>('/api/google/calendars');
+    if (!answer.ok) return failed(answer.error);
+    listed = answer.data.calendars;
   }
 
   const today = dayKey(new Date());
   const window = syncWindow(today);
-  const shown = calendars.filter((c) => c.visible && (!only || c.calendarId === only));
-  const change: ExternalChange = { dropCalendars, clearEvents: [], putEvents: [], removeEvents: [] };
+  // What is asked for is what is shown at this moment. What comes back is kept apart until all
+  // of it is in: while it is on its way, the person can still show or hide a calendar.
+  const shown = (listed ? listedOver(state.calendars, listed) : state.calendars).filter((c) => c.visible && (!only || c.calendarId === only));
+  const readings: { result: CalendarResult; since: string | null; fetchedAt: string }[] = [];
 
   for (let i = 0; i < shown.length; i += BATCH) {
-    const request: EventsRequest = {
-      ...spanOfWindow(window),
-      calendars: shown.slice(i, i + BATCH).map((c) => ({ calendarId: c.calendarId, syncToken: covers(c, today) ? c.syncToken : null })),
-    };
+    const asked = shown.slice(i, i + BATCH).map((c) => ({ calendarId: c.calendarId, syncToken: covers(c, today) ? c.syncToken : null }));
+    const request: EventsRequest = { ...spanOfWindow(window), calendars: asked };
     const read = await call<EventsResponse>('/api/google/events', request);
     if (!read.ok) return failed(read.error);
 
     const fetchedAt = new Date().toISOString();
     for (const result of read.data.calendars) {
-      if ('gone' in result) {
-        dropCalendars.push(result.calendarId);
-        calendars = calendars.filter((c) => c.calendarId !== result.calendarId);
-        continue;
-      }
-      if (result.full) change.clearEvents!.push(result.calendarId);
-      change.putEvents!.push(...result.events.filter((event) => within(event, window)));
-      change.removeEvents!.push(...result.removed.map((id) => `google:${result.calendarId}:${id}`));
-      calendars = calendars.map((c) =>
-        c.calendarId === result.calendarId
-          ? { ...c, syncToken: result.syncToken, fetchedAt, ...(result.full ? { windowFrom: window.from, windowTo: window.to } : {}) }
-          : c,
-      );
+      readings.push({ result, since: asked.find((c) => c.calendarId === result.calendarId)?.syncToken ?? null, fetchedAt });
     }
+  }
+
+  // Everything is in, and nothing below waits. So this starts from the calendars as they are
+  // now, not as they were when the reading began, and adds to them only what was read. Which
+  // calendars are shown is the person's choice, and is never put back to what it was.
+  let calendars = listed ? listedOver(state.calendars, listed) : state.calendars;
+  const dropCalendars = listed ? state.calendars.map((c) => c.calendarId).filter((id) => !listed.some((info) => info.calendarId === id)) : [];
+  const change: ExternalChange = { dropCalendars, clearEvents: [], putEvents: [], removeEvents: [] };
+
+  for (const { result, since, fetchedAt } of readings) {
+    if ('gone' in result) {
+      dropCalendars.push(result.calendarId);
+      calendars = calendars.filter((c) => c.calendarId !== result.calendarId);
+      continue;
+    }
+    const now = calendars.find((c) => c.calendarId === result.calendarId);
+    // Hidden since it was asked for: a hidden calendar's events are not kept.
+    if (!now?.visible) continue;
+    // Only what changed since a reading this device no longer holds (the calendar was hidden
+    // and shown again, or read in another tab). There is nothing here to add it to, and its
+    // cursor would say otherwise. The calendar keeps the cursor it has, and is read from there.
+    if (!result.full && now.syncToken !== since) continue;
+
+    if (result.full) change.clearEvents!.push(result.calendarId);
+    change.putEvents!.push(...result.events.filter((event) => within(event, window)));
+    change.removeEvents!.push(...result.removed.map((id) => `google:${result.calendarId}:${id}`));
+    calendars = calendars.map((c) =>
+      c.calendarId === result.calendarId
+        ? { ...c, syncToken: result.syncToken, fetchedAt, ...(result.full ? { windowFrom: window.from, windowTo: window.to } : {}) }
+        : c,
+    );
   }
 
   change.calendars = calendars;

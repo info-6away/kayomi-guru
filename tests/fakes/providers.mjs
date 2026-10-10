@@ -93,7 +93,7 @@ async function idp(req, res, url) {
  *   log        everything the app asked for, for the test to read back
  */
 const accounts = new Map();
-const blank = () => ({ calendars: new Map(), tokens: new Set(), revoked: false, fail: null, staleCursors: false, delay: 0, log: [] });
+const blank = () => ({ calendars: new Map(), tokens: new Set(), revoked: false, fail: null, staleCursors: false, delay: 0, hold: null, waiting: [], log: [] });
 const account = (id) => {
   if (!accounts.has(id)) accounts.set(id, blank());
   return accounts.get(id);
@@ -203,6 +203,11 @@ async function google(req, res, url) {
       });
     }
     if (acct.delay) await new Promise((resolve) => setTimeout(resolve, acct.delay));
+    // A test is keeping this kind of question waiting. It is answered when the test lets go, so
+    // whatever the test does in between happens while the reading is under way, however fast or
+    // slow the machine is.
+    const asks = url.pathname === '/google/calendar/v3/users/me/calendarList' ? 'calendars' : 'events';
+    if (acct.hold === asks) await new Promise((resolve) => acct.waiting.push(resolve));
     const q = url.searchParams;
 
     if (url.pathname === '/google/calendar/v3/users/me/calendarList') {
@@ -258,7 +263,7 @@ async function control(req, res, url) {
   const data = req.method === 'GET' ? null : JSON.parse((await body(req)) || '{}');
 
   // What the app has asked of this account so far.
-  if (req.method === 'GET') return send(res, 200, { log: acct.log, revoked: acct.revoked, liveTokens: acct.tokens.size });
+  if (req.method === 'GET') return send(res, 200, { log: acct.log, revoked: acct.revoked, liveTokens: acct.tokens.size, held: acct.waiting.length });
 
   // PUT /__fake/google/:account  { calendars: [{ id, summary, primary?, selected?, events: [...] }] }
   if (!match[2]) {
@@ -278,7 +283,8 @@ async function control(req, res, url) {
     return send(res, 200, {});
   }
 
-  // POST .../state  { revoked?, fail?: null | 'unavailable' | 'limited' | 'disabled', staleCursors?, delay?, removeCalendar? }
+  // POST .../state  { revoked?, fail?: null | 'unavailable' | 'limited' | 'disabled', staleCursors?, delay?,
+  //                   hold?: null | 'calendars' | 'events', removeCalendar? }
   if ('revoked' in data) {
     acct.revoked = data.revoked;
     if (data.revoked) acct.tokens.clear();
@@ -286,6 +292,11 @@ async function control(req, res, url) {
   if ('fail' in data) acct.fail = data.fail;
   if ('staleCursors' in data) acct.staleCursors = data.staleCursors;
   if ('delay' in data) acct.delay = data.delay;
+  if ('hold' in data) {
+    acct.hold = data.hold;
+    // Letting go answers everything that was kept waiting.
+    if (!data.hold) acct.waiting.splice(0).forEach((answer) => answer());
+  }
   if (data.removeCalendar) acct.calendars.delete(data.removeCalendar);
   return send(res, 200, {});
 }

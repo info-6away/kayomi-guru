@@ -63,10 +63,12 @@ export const google = {
   /** Something changes at Google after Koyomi last looked. */
   changes: (id: string, change: { calendarId: string; upsert?: unknown[]; cancel?: string[] }) => post(`${id}/change`, change),
   /** Google starts refusing, failing, or forgetting. */
-  becomes: (id: string, state: { revoked?: boolean; fail?: null | 'unavailable' | 'limited' | 'disabled'; staleCursors?: boolean; delay?: number; removeCalendar?: string }) =>
-    post(`${id}/state`, state),
-  /** Everything the app has asked of this account. */
-  asked: async (id: string) => (await (await fetch(`${FAKE}/__fake/google/${id}`)).json()) as { log: Record<string, string>[]; revoked: boolean; liveTokens: number },
+  becomes: (
+    id: string,
+    state: { revoked?: boolean; fail?: null | 'unavailable' | 'limited' | 'disabled'; staleCursors?: boolean; delay?: number; hold?: null | 'calendars' | 'events'; removeCalendar?: string },
+  ) => post(`${id}/state`, state),
+  /** Everything the app has asked of this account, and how many questions Google is keeping waiting. */
+  asked: async (id: string) => (await (await fetch(`${FAKE}/__fake/google/${id}`)).json()) as { log: Record<string, string>[]; revoked: boolean; liveTokens: number; held: number },
   /** Every attempt to trade one code for tokens, and why it was refused if it was. */
   exchanges: async (code: string) => (await (await fetch(`${FAKE}/__fake/exchanges?code=${encodeURIComponent(code)}`)).json()) as { code: string; refused: string | null }[],
 };
@@ -153,6 +155,19 @@ export async function refresh(page: Page) {
   await openCalendars(page);
   await view(page).getByRole('button', { name: 'Refresh' }).click();
   await expect(view(page).getByText('Refreshing…')).toHaveCount(0);
+}
+
+/**
+ * Presses Refresh with Google keeping one kind of answer back, and returns once Google has been
+ * asked. From then until `google.becomes(id, { hold: null })` the reading is under way, and stays
+ * so: what a test does in between does not depend on how fast anything is.
+ */
+export async function refreshAndHold(page: Page, id: string, hold: 'calendars' | 'events') {
+  await openCalendars(page);
+  await google.becomes(id, { hold });
+  await view(page).getByRole('button', { name: 'Refresh' }).click();
+  await expect.poll(async () => (await google.asked(id)).held, { timeout: 15_000 }).toBeGreaterThan(0);
+  await expect(view(page).getByText('Refreshing…')).toBeVisible();
 }
 
 /** This device's copy of the connected calendars, read straight from its own database. */
