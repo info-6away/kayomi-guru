@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { dayKey } from '../dates';
-import { deleteExternal, loadExternal, saveExternal, type ExternalChange } from './db';
+import { endExternal, epochNow, loadExternal, renewExternal, saveExternal, whenDeleted, type ExternalChange } from './db';
 import type { ApiError, CalendarInfo, CalendarResult, EventsRequest, EventsResponse, ExternalCalendar, ExternalEvent } from './types';
 import { covers, spanOfWindow, syncWindow, within } from './window';
 
@@ -97,6 +97,28 @@ let ready: Promise<void> = Promise.resolve();
 let again = false;
 /** The address says a connection was just made, and the server has not yet confirmed it. */
 let unconfirmed = false;
+/**
+ * Which connection this tab is showing a copy of: the copy's epoch (db.ts), or null while there
+ * is none. The copy itself is what decides, in the transaction that writes to it. This is only
+ * what the tab last knew, used to stop early and to say what a reading was for.
+ */
+let epoch: string | null = null;
+/** Goes up each time this tab's copy is ended or replaced, so that a reading begun before can tell. */
+let era = 0;
+/** This tab's copy has ended or been replaced. Whatever was being read for the old one stands down. */
+function turn(next: string | null) {
+  epoch = next;
+  era++;
+  again = false;
+}
+const STATUSES: unknown[] = ['off', 'connected', 'signin', 'reconnect'];
+/** Whether nothing is connected here at this moment. Asked afresh after waiting: `state` moves on meanwhile. */
+const off = () => state.status === 'off';
+/**
+ * Lets other tabs know something has changed here, and what this tab now takes the status to
+ * be. A prompt to look and nothing more: what a tab does next is decided by the copy itself.
+ */
+const tell = () => channel?.postMessage(state.status);
 
 /**
  * Remembers, for this tab only, that the person asked to disconnect and had to sign in first.
@@ -123,39 +145,98 @@ const intent = {
   },
 };
 
-async function load() {
-  const status = flag.get();
-  if (status === 'off') return set({ status, calendars: [], events: [] });
-  const { calendars, events } = await loadExternal();
-  set({ status, calendars: order(calendars), events });
+/**
+ * Takes up what this device holds. The note in storage, or another tab's word, says whether to
+ * look at all, so that someone with nothing connected never has a copy opened for them. Both
+ * can be out of date. What is found in the copy is what counts.
+ *
+ * @param hint What to take the status to be, where that is known better than the note in storage.
+ */
+async function load(hint?: External['status']): Promise<void> {
+  const status = hint ?? flag.get();
+  const none = () => {
+    const had = epoch !== null;
+    if (had) turn(null);
+    set({ status: 'off', calendars: [], events: [], ...(had ? { syncing: false } : {}) });
+  };
+  if (status === 'off') return none();
+  const copy = await loadExternal();
+  // Said to be connected, and there is no copy: it was ended while this tab was not looking.
+  if (copy.epoch === null && !copy.calendars.length) {
+    flag.set('off');
+    return none();
+  }
+  // A copy from before epochs has none. It is given one now, unless another tab has just done it.
+  const now = copy.epoch ?? (await saveExternal({}, null).catch(() => null));
+  if (now === false) return load(hint);
+  const taken = now !== epoch;
+  if (taken) turn(now);
+  // There is a copy, so a connection is no longer only the address's word for it.
+  unconfirmed = false;
+  set({ status, calendars: order(copy.calendars), events: copy.events, ...(taken ? { syncing: false } : {}) });
 }
 
 const order = (calendars: ExternalCalendar[]) => [...calendars].sort((a, b) => Number(b.primary) - Number(a.primary) || a.name.localeCompare(b.name));
 
-async function save(change: ExternalChange) {
-  await saveExternal(change);
-  channel?.postMessage('changed');
+/**
+ * What this tab was doing was for a copy the device no longer holds: ended, or another
+ * connection's now. It takes up what the device does hold, looking whatever the note in
+ * storage says, because the note may not have caught up with another tab.
+ */
+async function adopt() {
+  again = false;
+  unconfirmed = false;
+  await load(flag.get() === 'off' ? 'connected' : undefined).catch(() => {});
+  set({ syncing: false });
 }
+
+/** Whether the copy on this device is still the one a reading was for: by the copy itself, and by what this tab has heard since. */
+const holds = (mine: string | null) => epochNow().then((now) => now === mine && epoch === mine, () => epoch === mine);
 
 function become(status: 'connected' | 'signin' | 'reconnect') {
   flag.set(status);
   set({ status, syncing: false });
-  channel?.postMessage('changed');
+  tell();
 }
 
-/** Forgets the connection on this device: the flag, and the whole copy of its events. */
-async function forget(note: string | null = null) {
+/**
+ * Ends the connection on this device. The copy goes first, whole and at once (db.ts); then the
+ * note in storage; and only then are other tabs told. Koyomi's own calendar is not involved.
+ *
+ * @param only End it only if the copy is still this connection's. A reading that learns its
+ *   connection is gone must not end a newer one that has taken its place meanwhile.
+ */
+async function forget(note: string | null = null, only?: string | null) {
+  const ended = await endExternal(only).catch(() => true);
+  if (!ended) return adopt();
+  turn(null);
   flag.set('off');
   set({ status: 'off', calendars: [], events: [], syncing: false, note });
-  await deleteExternal();
-  channel?.postMessage('changed');
+  tell();
+}
+
+/**
+ * The person has just been to 6Away or to Google and back. Who is signed in, or which account
+ * is connected, may not be what it was. So the copy is given a new epoch: whatever was asked
+ * for before they went, in any tab, was for the old one, and will not be kept when it arrives.
+ */
+async function renew() {
+  if (epoch === null) return;
+  const next = await renewExternal(epoch).catch(() => undefined);
+  if (next === false) return adopt();
+  if (!next) return;
+  turn(next);
+  set({ syncing: false });
+  tell();
 }
 
 /**
  * What to do when the server could not answer. Each reason is kept apart: a sign-in that has
  * ended is not a connection that is lost, and neither is Google being slow.
+ *
+ * @param mine The copy the reading was for.
  */
-async function failed(error: ApiError | 'offline') {
+async function failed(error: ApiError | 'offline', mine: string | null) {
   again = false;
   // Only the address claimed there was a connection, and the server does not bear it out.
   // Nothing was connected before, so nothing is now: no state to mend, nothing to show.
@@ -165,12 +246,16 @@ async function failed(error: ApiError | 'offline') {
     const passing = error === 'busy' || error === 'offline' || error === 'slow_down';
     return set({ status: 'off', syncing: false, note: passing ? 'Your calendars couldn’t be read just now. Press Connect again in a moment.' : null });
   }
-  // This device is no longer signed in to Koyomi. The connection is untouched on the server.
-  if (error === 'signed_out') become('signin');
-  // Google has refused the stored permission.
-  else if (error === 'reconnect') become('reconnect');
+  if (error === 'signed_out' || error === 'reconnect') {
+    // Said of a connection this device no longer has, ended or replaced in another tab: it is
+    // not news about the copy that is here now.
+    if (!(await holds(mine))) return adopt();
+    // This device is no longer signed in to Koyomi (the connection is untouched on the server),
+    // or Google has refused the stored permission.
+    become(error === 'signed_out' ? 'signin' : 'reconnect');
+  }
   // Signed in, and there is no connection: it was ended somewhere else. This device follows.
-  else if (error === 'not_connected') await forget();
+  else if (error === 'not_connected') await forget(null, mine);
   // Offline, Google busy, or asked too often: what was read before is still good. Try again later.
   else set({ syncing: false });
 }
@@ -218,11 +303,18 @@ export async function sync(only?: string): Promise<void> {
     return;
   }
   set({ syncing: true, note: null });
+  // The copy this reading is for. If that copy is ended or replaced while the reading is on its
+  // way, the reading has nothing to say to this device any more: it stops where it is, asks for
+  // nothing further, and leaves no trace. `era` catches it early, in this tab; the copy itself
+  // has the last word when the reading is written, whatever this tab has or has not heard.
+  const mine = epoch;
+  const began = era;
 
   let listed: CalendarInfo[] | null = null;
   if (!only) {
     const answer = await call<{ calendars: CalendarInfo[] }>('/api/google/calendars');
-    if (!answer.ok) return failed(answer.error);
+    if (era !== began) return;
+    if (!answer.ok) return failed(answer.error, mine);
     listed = answer.data.calendars;
   }
 
@@ -237,7 +329,8 @@ export async function sync(only?: string): Promise<void> {
     const asked = shown.slice(i, i + BATCH).map((c) => ({ calendarId: c.calendarId, syncToken: covers(c, today) ? c.syncToken : null }));
     const request: EventsRequest = { ...spanOfWindow(window), calendars: asked };
     const read = await call<EventsResponse>('/api/google/events', request);
-    if (!read.ok) return failed(read.error);
+    if (era !== began) return;
+    if (!read.ok) return failed(read.error, mine);
 
     const fetchedAt = new Date().toISOString();
     for (const result of read.data.calendars) {
@@ -245,47 +338,61 @@ export async function sync(only?: string): Promise<void> {
     }
   }
 
-  // Everything is in, and nothing below waits. So this starts from the calendars as they are
-  // now, not as they were when the reading began, and adds to them only what was read. Which
-  // calendars are shown is the person's choice, and is never put back to what it was.
-  let calendars = listed ? listedOver(state.calendars, listed) : state.calendars;
-  const dropCalendars = listed ? state.calendars.map((c) => c.calendarId).filter((id) => !listed.some((info) => info.calendarId === id)) : [];
-  const change: ExternalChange = { dropCalendars, clearEvents: [], putEvents: [], removeEvents: [] };
+  // Everything is in. What was read is added to the calendars as they are at the moment of
+  // asking, not as they were when the reading began. Which calendars are shown is the person's
+  // choice, and is never put back to what it was.
+  const settled = () => {
+    let calendars = listed ? listedOver(state.calendars, listed) : state.calendars;
+    const dropCalendars = listed ? state.calendars.map((c) => c.calendarId).filter((id) => !listed.some((info) => info.calendarId === id)) : [];
+    const change: ExternalChange = { dropCalendars, clearEvents: [], putEvents: [], removeEvents: [] };
 
-  for (const { result, since, fetchedAt } of readings) {
-    if ('gone' in result) {
-      dropCalendars.push(result.calendarId);
-      calendars = calendars.filter((c) => c.calendarId !== result.calendarId);
-      continue;
+    for (const { result, since, fetchedAt } of readings) {
+      if ('gone' in result) {
+        dropCalendars.push(result.calendarId);
+        calendars = calendars.filter((c) => c.calendarId !== result.calendarId);
+        continue;
+      }
+      const now = calendars.find((c) => c.calendarId === result.calendarId);
+      // Hidden since it was asked for: a hidden calendar's events are not kept.
+      if (!now?.visible) continue;
+      // Only what changed since a reading this device no longer holds (the calendar was hidden
+      // and shown again, or read in another tab). There is nothing here to add it to, and its
+      // cursor would say otherwise. The calendar keeps the cursor it has, and is read from there.
+      if (!result.full && now.syncToken !== since) continue;
+
+      if (result.full) change.clearEvents!.push(result.calendarId);
+      change.putEvents!.push(...result.events.filter((event) => within(event, window)));
+      change.removeEvents!.push(...result.removed.map((id) => `google:${result.calendarId}:${id}`));
+      calendars = calendars.map((c) =>
+        c.calendarId === result.calendarId
+          ? { ...c, syncToken: result.syncToken, fetchedAt, ...(result.full ? { windowFrom: window.from, windowTo: window.to } : {}) }
+          : c,
+      );
     }
-    const now = calendars.find((c) => c.calendarId === result.calendarId);
-    // Hidden since it was asked for: a hidden calendar's events are not kept.
-    if (!now?.visible) continue;
-    // Only what changed since a reading this device no longer holds (the calendar was hidden
-    // and shown again, or read in another tab). There is nothing here to add it to, and its
-    // cursor would say otherwise. The calendar keeps the cursor it has, and is read from there.
-    if (!result.full && now.syncToken !== since) continue;
 
-    if (result.full) change.clearEvents!.push(result.calendarId);
-    change.putEvents!.push(...result.events.filter((event) => within(event, window)));
-    change.removeEvents!.push(...result.removed.map((id) => `google:${result.calendarId}:${id}`));
-    calendars = calendars.map((c) =>
-      c.calendarId === result.calendarId
-        ? { ...c, syncToken: result.syncToken, fetchedAt, ...(result.full ? { windowFrom: window.from, windowTo: window.to } : {}) }
-        : c,
-    );
-  }
+    change.calendars = calendars;
+    const gone = new Set([...dropCalendars, ...change.clearEvents!]);
+    const removed = new Set(change.removeEvents);
+    const put = new Map(change.putEvents!.map((event) => [event.id, event]));
+    const events = [...state.events.filter((e) => !gone.has(e.calendarId) && !removed.has(e.id) && !put.has(e.id)), ...put.values()];
+    return { change, calendars, events };
+  };
 
-  change.calendars = calendars;
-  const gone = new Set([...dropCalendars, ...change.clearEvents!]);
-  const removed = new Set(change.removeEvents);
-  const put = new Map(change.putEvents!.map((event) => [event.id, event]));
-  const events = [...state.events.filter((e) => !gone.has(e.calendarId) && !removed.has(e.id) && !put.has(e.id)), ...put.values()];
+  // Written first, and shown only once it is written. The copy decides, in the one transaction
+  // that writes to it: if it is no longer the copy this was read for (Disconnect, someone else
+  // signing in, a different account connected, in any tab), nothing is written and nothing is
+  // shown. Where there is no way to keep a copy at all, it is shown for this visit as before.
+  const kept = await saveExternal(settled().change, mine).catch(() => undefined);
+  if (kept === false) return adopt();
+  if (era !== began) return;
+  if (kept) epoch = kept;
 
+  // Asked again, from now: a calendar shown or hidden while that was being written stays so.
+  const { calendars, events } = settled();
   unconfirmed = false;
   flag.set('connected');
   set({ status: 'connected', calendars: order(calendars), events, syncing: false });
-  await save(change).catch(() => {});
+  tell();
 
   if (again) {
     again = false;
@@ -298,8 +405,14 @@ export async function showCalendar(calendarId: string, visible: boolean) {
   const calendars = state.calendars.map((c) =>
     c.calendarId === calendarId ? { ...c, visible, ...(visible ? {} : { syncToken: null, windowFrom: null, windowTo: null, fetchedAt: null }) } : c,
   );
+  const began = era;
   set({ calendars, events: visible ? state.events : state.events.filter((e) => e.calendarId !== calendarId) });
-  await save({ calendars, clearEvents: visible ? [] : [calendarId] }).catch(() => {});
+  // The choice is shown at once. It is kept only if the copy is still this connection's.
+  const kept = await saveExternal({ calendars, clearEvents: visible ? [] : [calendarId] }, epoch).catch(() => undefined);
+  if (kept === false) return adopt();
+  if (era !== began) return;
+  if (kept) epoch = kept;
+  tell();
   // Only the calendar that has just been shown needs reading.
   if (visible) await sync(calendarId);
 }
@@ -311,6 +424,7 @@ export async function showCalendar(calendarId: string, visible: boolean) {
  */
 export async function connected() {
   await ready;
+  await renew();
   unconfirmed = state.status === 'off';
   set({ status: 'connected', note: null });
   await sync();
@@ -326,7 +440,10 @@ export const signIn = () => location.assign(`/api/auth/signin?returnTo=${encodeU
  */
 export async function resume() {
   await ready;
-  if (state.status === 'off') return;
+  if (off()) return;
+  await renew();
+  // The copy turned out to have been ended in another tab while they were away.
+  if (off()) return;
   flag.set('connected');
   set({ status: 'connected', note: null });
   await sync();
@@ -337,9 +454,14 @@ export async function resume() {
  * this device deletes its copy of the events. Koyomi's own events are not involved.
  */
 export async function disconnect(): Promise<void> {
+  // Whatever is being read is no longer wanted, and must not be what this ends on.
+  const mine = epoch;
+  era++;
+  again = false;
   set({ syncing: true, note: null });
   const done = await call<{ ok: true }>('/api/google/disconnect', {});
-  if (done.ok || done.error === 'not_connected') return forget();
+  // If another tab has connected again meanwhile, that newer copy is not this Disconnect's to end.
+  if (done.ok || done.error === 'not_connected') return forget(null, mine);
   if (done.error === 'signed_out') {
     // The server no longer knows this device, so it cannot be told. Sign in, then finish.
     intent.leave('disconnect');
@@ -366,8 +488,15 @@ export function initExternal(available: boolean) {
 
   if (typeof BroadcastChannel !== 'undefined') {
     channel = new BroadcastChannel('koyomi-external');
-    channel.onmessage = () => void load().catch(() => {});
+    // Another tab's word is a prompt to look, and says what that tab takes the status to be.
+    channel.onmessage = (event) => void load(STATUSES.includes(event.data) ? event.data : undefined).catch(() => {});
   }
+  // The copy itself says when another tab has deleted it, sooner and more surely than any
+  // message: the deletion cannot finish until this tab has let go of it.
+  whenDeleted(() => {
+    turn(null);
+    set({ status: 'off', calendars: [], events: [], syncing: false });
+  });
   // Only a working connection is read on its own. One that needs the person waits for them.
   const refresh = () => {
     if (document.visibilityState === 'visible' && state.status === 'connected' && stale()) void sync();

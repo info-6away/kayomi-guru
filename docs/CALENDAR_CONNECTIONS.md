@@ -90,6 +90,43 @@ sign-in that ends, so everything above applies: the connection stays, what was r
 Google is told nothing. To take the permission away, use Disconnect. No button leads to
 sign-out yet; the address is there for the 6Away ecosystem and for whoever wants it.
 
+## One copy, one connection
+
+The device's copy of Google's calendars (`koyomi-external`) is for one connection, and several
+tabs share it. A reading takes a moment, and in that moment another tab can disconnect, someone
+else can sign in, or a different Google account can be connected. Whatever the reading brings
+back then is for a connection this device no longer has, and none of it may be kept.
+
+No tab can know for certain what another has just done. Word between tabs travels by more than
+one route (a message, and a note in the browser's storage), and the routes do not arrive
+together. So nothing rests on them. **The copy itself is what decides** (`lib/calendars/db.ts`):
+
+- The copy carries an **epoch**: a made-up word, written when the copy begins and gone when it
+  ends. It names nobody and nothing outside the device.
+- A reading remembers the epoch it began from. **Every write to the copy is one transaction that
+  first reads the epoch, and goes ahead only if it is that one.** If it is another, or there is
+  none, nothing is written and nothing is shown, and the tab takes up what the device holds now.
+- **Disconnect** removes the epoch, the calendars and the events in one transaction, then deletes
+  the emptied database, then clears the note in storage, and only then tells other tabs. A tab
+  that had the copy open hears of the deletion from the database itself, which cannot finish
+  deleting until that tab has let go.
+- **Coming back from 6Away or from Google** gives the copy a new epoch before anything is read,
+  because who is signed in, or which account is connected, may not be what it was. Anything asked
+  for before, in any tab, is for the old epoch and is not kept.
+- The server saying "no connection" ends the copy only if it is still the one the question was
+  about. A reading that is late cannot end a newer connection either.
+- A reading whose copy has ended **stops where it is**: it asks for nothing further and reports
+  nothing. Otherwise its next request, now signed out, would be taken for the sign-in ending.
+
+A message between tabs is only a prompt to look, and "off" needs no looking. A tab told that
+something is connected opens the copy and believes what it finds: with no copy there, it is off,
+whatever the note in storage says. Opening never makes a copy: only the first reading of a new
+connection does, so a device with nothing connected has no such database at all.
+
+A copy made before epochs existed has none. It is given one the first time it is opened. A tab
+still running the release before this one cannot write to the copy any more until it is
+reloaded; it goes on showing what it had.
+
 ## What Koyomi asks Google for
 
 Two permissions, both read-only, and narrower than the usual `calendar.readonly`:
@@ -109,7 +146,7 @@ ask for descriptions, locations, guest lists or meeting links, and Google does n
 | | |
 | --- | --- |
 | **What is read** | The list of your calendars, and for the ones you choose to show: event titles and times, about five weeks back and six months ahead |
-| **What is kept on your device** | Those titles and times, in a database of their own (`koyomi-external`), so they are still there offline. Which calendars you show. No credential of any kind |
+| **What is kept on your device** | Those titles and times, in a database of their own (`koyomi-external`), so they are still there offline. Which calendars you show. A note that a calendar is connected, and with the copy a made-up mark for which connection it belongs to, which names nobody. No credential of any kind |
 | **What the server keeps** | The one row above. It keeps no events: they pass through on their way to your device |
 | **What Disconnect removes** | The permission, at Google. The row, on the server. Your Koyomi sign-in on that device. The local copy of the events. Your Koyomi events are in a different database and are not touched |
 | **What is never done** | Event contents are not sent to any AI service, not used for analytics, and not logged |
@@ -355,7 +392,10 @@ under way (the stand-in for Google can keep an answer back until a test lets go)
 repeating events in Day, Week and Month; time zones (three device zones, and all-day events on
 both sides of the date line); overlapping events; that an external event cannot be edited, moved
 or deleted; the all-day row; reading only what changed; offline use; Google failing; permission
-withdrawn; an expired sign-in; cancelled and partial consent; disconnecting; that Koyomi's own
+withdrawn; an expired sign-in; cancelled and partial consent; disconnecting; a reading that comes
+back after its connection has ended (Disconnect in another tab, however that tab hears of it;
+another account connected; someone else signing in; a Disconnect finished while the copy is
+being refreshed); that Koyomi's own
 records are untouched throughout; what the server refuses; and contrast in both themes.
 
 - `tests/unit/calendars.test.ts`: Google events becoming Koyomi's record of them, and where they
