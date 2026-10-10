@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { ThemeToggle } from '@/components/ThemeToggle';
+import { SiteFooter } from '@/components/SiteFooter';
 import { CAT } from '@/components/ui';
 import type { Category } from '@/lib/types';
 
@@ -134,10 +134,7 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className={`${WRAP} flex items-center justify-between gap-4 border-t border-line pt-[22px] pb-8 text-[12px] tracking-[.03em] text-muted`}>
-        <span>koyomi.guru</span>
-        <ThemeToggle />
-      </footer>
+      <SiteFooter className={WRAP} />
     </div>
   );
 }

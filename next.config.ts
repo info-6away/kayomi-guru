@@ -32,6 +32,9 @@ const nextConfig: NextConfig = {
       // Each site stays on its own host.
       { source: '/home', has: [{ type: 'host', value: SITE_HOST }], destination: '/', permanent: true },
       { source: '/home', has: [{ type: 'host', value: APP_HOST }], destination: `${SITE_URL}/`, permanent: true },
+      // Privacy and Terms are pages of the site. Asked of the calendar's host, they are over there.
+      { source: '/privacy', has: [{ type: 'host', value: APP_HOST }], destination: `${SITE_URL}/privacy`, permanent: true },
+      { source: '/terms', has: [{ type: 'host', value: APP_HOST }], destination: `${SITE_URL}/terms`, permanent: true },
     ];
   },
 

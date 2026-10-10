@@ -54,6 +54,14 @@ test.describe('someone who only uses Koyomi', () => {
     await expect(view(page)).toContainText('Koyomi');
     await expect(view(page).getByRole('button', { name: 'Connect' })).toBeVisible();
     await expect(view(page)).toContainText('It can never change them.');
+    // One quiet link to the policy, in the sentence that says what connecting means. It is a page
+    // of the site, so it opens beside the calendar rather than in place of it.
+    const privacy = view(page).locator('p', { hasText: 'It can never change them.' }).getByRole('link', { name: 'Privacy' });
+    await expect(privacy).toBeVisible();
+    await expect(privacy).toHaveAttribute('href', 'https://koyomi.guru/privacy');
+    await expect(privacy).toHaveAttribute('target', '_blank');
+    await expect(privacy).toHaveAttribute('rel', /noopener/);
+    await expect(view(page).getByRole('link')).toHaveCount(1);
     await view(page).getByRole('button', { name: 'Back to Plan' }).click();
     await expect(plan(page)).toContainText('Nothing waiting.');
     expect(asked).toEqual([]);

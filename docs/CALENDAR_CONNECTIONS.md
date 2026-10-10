@@ -117,6 +117,11 @@ ask for descriptions, locations, guest lists or meeting links, and Google does n
 If Google cannot be reached at the moment of disconnecting, Koyomi still deletes its token, which
 makes the permission useless. It stays listed in your Google account until you remove it there.
 
+The public version of this section is the Privacy page, `https://koyomi.guru/privacy`
+(`app/privacy/page.tsx`), with the Terms beside it at `/terms`. The two must say the same thing:
+a change to what Koyomi reads, keeps or sends changes that page in the same commit, with a new
+date. `tests/e2e/site.spec.ts` holds the page to the scopes, the span and the fields in the code.
+
 ## What is read, and how often
 
 Not the whole history: **five weeks back and twenty-seven weeks ahead** of today

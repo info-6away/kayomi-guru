@@ -6,6 +6,9 @@ import { hm } from '@/lib/dates';
 const QUIET = 'underline decoration-line underline-offset-4 hover:text-ink2 disabled:no-underline disabled:opacity-60';
 const ROW = 'flex min-h-11 items-center gap-3 rounded-[4px] px-3.5';
 
+/** What Koyomi reads from a connected calendar, where it is kept and what it is used for. */
+const PRIVACY = 'https://koyomi.guru/privacy';
+
 /** Leaves the calendar for 6Away's sign-in (if needed) and Google's own consent screen. */
 const connect = () => location.assign('/api/google/connect');
 const PILL = 'h-8 flex-none rounded-full border border-line px-3.5 text-[12.5px] text-ink2 hover:border-stone hover:text-ink';
@@ -50,7 +53,11 @@ export function CalendarsView({ external, mobile, onBack }: { external: External
             </div>
             <p className="mx-3.5 mt-3 text-[12px] leading-[1.6] text-pretty text-muted">
               Koyomi can show your Google calendars beside your own, to read only. Connecting asks you to sign in with 6Away, then to let Koyomi read
-              them. It can never change them.
+              them. It can never change them.{' '}
+              {/* The policy is a page of the site, not of the calendar, so it opens beside it. */}
+              <a href={PRIVACY} target="_blank" rel="noopener noreferrer" className="underline decoration-line underline-offset-4 hover:text-ink2">
+                Privacy
+              </a>
             </p>
           </>
         ) : (
