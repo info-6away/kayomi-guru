@@ -139,6 +139,13 @@ than five minutes old, every fifteen minutes while it is in front, and when Refr
 
 A calendar you hide is not read at all, and its events are removed from your device.
 
+A refresh takes a moment, and a calendar can be shown or hidden while one is under way. So a
+refresh ends by adding what it read to the calendars as they are then, not as they were when it
+began (`sync` in `lib/calendars/store.ts`). A calendar hidden meanwhile stays hidden and nothing
+read of it is kept; one shown meanwhile stays shown and is read next; one hidden and shown again
+is read whole, because what changed since a reading the device no longer holds has nothing to be
+added to.
+
 ## Time zones
 
 - A timed event is stored as its instant, with the zone it was written in kept beside it. It is
@@ -343,7 +350,8 @@ needs the Google and database settings in `.env.local` as well.
 ## Tests
 
 The automated tests use the same stand-ins, never a real account. They cover: a local-only
-visitor being asked nothing; connecting; listing and choosing calendars; timed, all-day and
+visitor being asked nothing; connecting; listing and choosing calendars, also while a refresh is
+under way (the stand-in for Google can keep an answer back until a test lets go); timed, all-day and
 repeating events in Day, Week and Month; time zones (three device zones, and all-day events on
 both sides of the date line); overlapping events; that an external event cannot be edited, moved
 or deleted; the all-day row; reading only what changed; offline use; Google failing; permission

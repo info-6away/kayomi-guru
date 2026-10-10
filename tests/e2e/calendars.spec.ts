@@ -14,6 +14,7 @@ import {
   ist,
   openCalendars,
   refresh,
+  refreshAndHold,
   start,
   test,
   toggle,
@@ -280,6 +281,109 @@ test.describe('choosing calendars', () => {
 
     await toggle(page, 'Work').click();
     await expect(external(page, 'Weekly sync')).toBeVisible();
+  });
+});
+
+// Which calendars are shown is the person's own choice, and a refresh takes a moment. In each of
+// these Google is asked and keeps its answer back until the test lets go (refreshAndHold), so the
+// choice is made while the refresh is under way, every time, on any machine.
+test.describe('choosing calendars while a refresh is under way', () => {
+  // Each connects, refreshes and reloads. Among the first tests after the server starts, that
+  // alone can take most of the usual half minute; every wait below keeps its own short limit.
+  test.describe.configure({ timeout: 60_000 });
+  /** For an answer on its way back through the server: allow for a busy machine, as `connect` does. */
+  const BACK = { timeout: 15_000 };
+
+  /** This device's copy, as far as one calendar goes. */
+  const kept = async (page: Parameters<typeof cached>[0], name: string) => {
+    const { calendars, events } = await cached(page);
+    const calendar = calendars.find((c) => c.name === name);
+    return { shown: calendar.visible, cursor: calendar.syncToken ? 'yes' : 'none', events: events.filter((e) => e.calendarId === calendar.calendarId).map((e) => e.title).sort() };
+  };
+  const asked = async (id: string, calendarId: string) => (await google.asked(id)).log.filter((entry) => entry.calendarId === calendarId).map((entry) => entry.mode);
+
+  test('a calendar hidden meanwhile stays hidden, and what the refresh read of it is not kept', async ({ page, id }) => {
+    await start(page);
+    await connect(page);
+    await expect(external(page, 'Weekly sync')).toBeVisible();
+    // Something new at Google on each calendar, for the refresh to bring.
+    await google.changes(id, { calendarId: 'me@example.test', upsert: [{ id: 'haircut', summary: 'Haircut', start: { dateTime: ist('2026-10-08', '09:00') }, end: { dateTime: ist('2026-10-08', '09:30') } }] });
+    await google.changes(id, { calendarId: 'work@example.test', upsert: [{ id: 'standup', summary: 'Standup', start: { dateTime: ist('2026-10-08', '11:00') }, end: { dateTime: ist('2026-10-08', '11:30') } }] });
+
+    await refreshAndHold(page, id, 'events');
+    await toggle(page, 'Work').click();
+    await expect(toggle(page, 'Work')).toHaveAttribute('aria-checked', 'false');
+    await expect(event(page, 'Weekly sync')).toHaveCount(0);
+
+    // Google answers, with Work among the rest: Work was shown when the question was put.
+    await google.becomes(id, { hold: null });
+    await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
+    // The rest of the refresh arrived.
+    await expect(external(page, 'Haircut')).toBeVisible();
+    // Work is as the person left it: hidden, and nothing of it is shown or kept.
+    await expect(toggle(page, 'Work')).toHaveAttribute('aria-checked', 'false');
+    await expect(event(page, 'Weekly sync')).toHaveCount(0);
+    await expect(event(page, 'Standup')).toHaveCount(0);
+    await expect.poll(() => kept(page, 'Personal')).toEqual({ shown: true, cursor: 'yes', events: ['Dentist', 'Haircut', 'Mum’s birthday', 'Trip to Izmir'] });
+    expect(await kept(page, 'Work')).toEqual({ shown: false, cursor: 'none', events: [] });
+
+    // It is still their choice after a reload.
+    await reload(page);
+    await expect(external(page, 'Haircut')).toBeVisible();
+    await expect(event(page, 'Weekly sync')).toHaveCount(0);
+    await openCalendars(page);
+    await expect(toggle(page, 'Work')).toHaveAttribute('aria-checked', 'false');
+
+    // Shown again, it is read whole: nothing of it was left half-kept.
+    await toggle(page, 'Work').click();
+    await expect(external(page, 'Weekly sync')).toBeVisible(BACK);
+    await expect(external(page, 'Standup')).toBeVisible();
+    expect((await asked(id, 'work@example.test')).at(-1)).toBe('everything');
+  });
+
+  test('a calendar shown meanwhile stays shown, and is read as soon as the refresh is done', async ({ page, id }) => {
+    await start(page);
+    await connect(page);
+    await expect(event(page, 'Republic Day')).toHaveCount(0);
+
+    await refreshAndHold(page, id, 'events');
+    await toggle(page, 'Holidays').click();
+    await expect(toggle(page, 'Holidays')).toHaveAttribute('aria-checked', 'true');
+
+    // Google answers for the calendars that were shown when it was asked. Holidays was not one.
+    await google.becomes(id, { hold: null });
+    await expect(allDay(page, 'Republic Day')).toBeVisible(BACK);
+    await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
+    await expect(toggle(page, 'Holidays')).toHaveAttribute('aria-checked', 'true');
+    await expect.poll(() => kept(page, 'Holidays')).toEqual({ shown: true, cursor: 'yes', events: ['Republic Day'] });
+    // Read once, whole, by the one reading that follows the refresh.
+    expect(await asked(id, 'holidays@example.test')).toEqual(['everything']);
+
+    await reload(page);
+    await expect(allDay(page, 'Republic Day')).toBeVisible();
+    await openCalendars(page);
+    await expect(toggle(page, 'Holidays')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('a calendar hidden and shown again meanwhile has its events again', async ({ page, id }) => {
+    await start(page);
+    await connect(page);
+    await expect(external(page, 'Weekly sync')).toBeVisible();
+
+    await refreshAndHold(page, id, 'events');
+    await toggle(page, 'Work').click();
+    await expect(event(page, 'Weekly sync')).toHaveCount(0);
+    await toggle(page, 'Work').click();
+    await expect(toggle(page, 'Work')).toHaveAttribute('aria-checked', 'true');
+
+    // The answer on its way holds only what changed at Google since the last reading: nothing.
+    // Hiding Work dropped its events, so that answer has nothing to be added to, and its cursor
+    // would say this device is up to date. Work has to be read whole instead.
+    await google.becomes(id, { hold: null });
+    await expect(external(page, 'Weekly sync')).toBeVisible(BACK);
+    await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
+    await expect.poll(() => kept(page, 'Work')).toEqual({ shown: true, cursor: 'yes', events: ['Weekly sync', 'Weekly sync'] });
+    expect((await asked(id, 'work@example.test')).slice(-2)).toEqual(['changes', 'everything']);
   });
 });
 

@@ -1,5 +1,5 @@
 import { expect, type Page } from '@playwright/test';
-import { FAKE, actAs, cached, closeDrawer, connect, external, google, ist, openCalendars, refresh, signInOnly, start, test, toggle, view } from './connected';
+import { FAKE, actAs, cached, closeDrawer, connect, external, google, ist, openCalendars, refresh, refreshAndHold, signInOnly, start, test, toggle, view } from './connected';
 import { addEvent, event, plan, stored } from './helpers';
 
 // The parts of a calendar connection that are about trust rather than calendars: who is signed
@@ -598,20 +598,27 @@ test.describe('how much one person may ask', () => {
   test('in the app, asking again while a reading is under way adds one reading, not many', async ({ page, id }) => {
     await start(page);
     await connect(page);
-    await google.becomes(id, { delay: 400 });
     const lists = (await google.asked(id)).log.filter((entry) => entry.type === 'calendars').length;
 
     // Refresh, then show another calendar several times over before the first reading is back.
-    await view(page).getByRole('button', { name: 'Refresh' }).click();
+    // Google keeps that reading's first answer until all of it has been asked for.
+    await refreshAndHold(page, id, 'calendars');
     await page.evaluate(() => {
       for (let i = 0; i < 5; i++) document.dispatchEvent(new Event('visibilitychange'));
       window.dispatchEvent(new Event('online'));
     });
     await toggle(page, 'Holidays').click();
+    // The choice is saved first and the reading asked for after, so once it is saved it has been asked.
+    await expect.poll(async () => (await cached(page)).calendars.find((c) => c.name === 'Holidays').visible).toBe(true);
+    await google.becomes(id, { hold: null });
     await expect(external(page, 'Republic Day')).toBeVisible({ timeout: 15_000 });
-    await expect(view(page).getByText('Refreshing…')).toHaveCount(0);
     // The reading that was running, and one more after it: two, however many times it was asked.
-    expect((await google.asked(id)).log.filter((entry) => entry.type === 'calendars').length - lists).toBe(2);
+    // The second begins a moment after the first ends, so it is waited for by what it asks, not
+    // by the word on the button, which is briefly "Refresh" in between.
+    const readings = async () => (await google.asked(id)).log.filter((entry) => entry.type === 'calendars').length - lists;
+    await expect.poll(readings, { timeout: 15_000 }).toBe(2);
+    await expect(view(page).getByText('Refreshing…')).toHaveCount(0, { timeout: 15_000 });
+    expect(await readings()).toBe(2);
   });
 
   test('showing one more calendar reads that calendar and nothing else', async ({ page, id }) => {
