@@ -560,6 +560,89 @@ test.describe('keeping up with Google', () => {
     // From the start of 2 September to the end of 14 April, on this device's clock.
     expect(read).toMatchObject({ timeMin: '2026-09-01T21:00:00.000Z', timeMax: '2027-04-14T21:00:00.000Z' });
   });
+
+  // A calendar is read again from scratch when Google lets its cursor lapse, and when the span
+  // has moved on a week. What is on screen was never the question: these look at this device's
+  // own copy, which is what is there after a reload and with no connection.
+  const copy = async (page: Parameters<typeof cached>[0]) => {
+    const { calendars, events } = await cached(page);
+    return calendars.map((c) => `${c.name}${c.syncToken ? '' : ' (no cursor)'}: ${events.filter((e) => e.calendarId === c.calendarId).map((e) => e.title).sort().join(', ')}`).sort();
+  };
+  const WHOLE = ['Holidays (no cursor): ', 'Personal: Dentist, Mum’s birthday, Trip to Izmir', 'Work: Weekly sync, Weekly sync'];
+  const modes = async (id: string, last: number) => (await google.asked(id)).log.filter((entry) => entry.type === 'events').slice(-last).map((entry) => `${entry.calendarId} ${entry.mode}`).sort();
+
+  test('a calendar read again from scratch is still all there on this device afterwards', async ({ page, context, id }) => {
+    await start(page);
+    await connect(page);
+    expect(await copy(page)).toEqual(WHOLE);
+
+    // Google lets every cursor lapse: each calendar is read again whole, over what is already here.
+    await google.becomes(id, { staleCursors: true });
+    await refresh(page);
+    expect(await modes(id, 4)).toEqual(['me@example.test everything', 'me@example.test stale cursor', 'work@example.test everything', 'work@example.test stale cursor']);
+    expect(await copy(page)).toEqual(WHOLE);
+    // And once more, the same way: reading over a copy that was itself just read whole.
+    await refresh(page);
+    expect(await copy(page)).toEqual(WHOLE);
+    await google.becomes(id, { staleCursors: false });
+
+    // So it is all there after a reload, and with no connection at all.
+    await closeDrawer(page);
+    await page.evaluate(async () => void (await navigator.serviceWorker.ready));
+    await context.setOffline(true);
+    await reload(page);
+    await expect(external(page, 'Dentist')).toContainText('15:00 – 16:00');
+    await expect(external(page, 'Weekly sync')).toBeVisible();
+    await expect(allDay(page, 'Trip to Izmir')).toBeVisible();
+    await context.setOffline(false);
+
+    // And what changes at Google afterwards still arrives as a change, on top of it.
+    await google.changes(id, { calendarId: 'work@example.test', upsert: [{ id: 'standup', summary: 'Standup', start: { dateTime: ist('2026-10-08', '11:00') }, end: { dateTime: ist('2026-10-08', '11:30') } }], cancel: ['sync_2'] });
+    await refresh(page);
+    expect(await modes(id, 2)).toEqual(['me@example.test changes', 'work@example.test changes']);
+    expect(await copy(page)).toEqual(['Holidays (no cursor): ', 'Personal: Dentist, Mum’s birthday, Trip to Izmir', 'Work: Standup, Weekly sync']);
+  });
+
+  test('when the span has moved on a week, everything is read again and is still all there', async ({ page, id }) => {
+    await start(page);
+    await connect(page);
+    expect(await copy(page)).toEqual(WHOLE);
+
+    // Eight days later the copy no longer reaches far enough, so nothing is asked from a cursor.
+    await page.clock.setFixedTime(new Date(NOW.getTime() + 8 * 864e5));
+    await refresh(page);
+    expect(await modes(id, 2)).toEqual(['me@example.test everything', 'work@example.test everything']);
+    expect(await copy(page)).toEqual(WHOLE);
+
+    // The day after, it is a matter of what changed again, and nothing has gone missing meanwhile.
+    await page.clock.setFixedTime(new Date(NOW.getTime() + 9 * 864e5));
+    await refresh(page);
+    expect(await modes(id, 2)).toEqual(['me@example.test changes', 'work@example.test changes']);
+    expect(await copy(page)).toEqual(WHOLE);
+    await reload(page);
+    await page.keyboard.press('m');
+    await expect(cell(page, 7, 'Dentist')).toBeVisible();
+  });
+
+  test('a calendar hidden, or removed at Google, still takes its events with it', async ({ page, id }) => {
+    await start(page);
+    await connect(page);
+    // Read whole twice over, so that there is something a careless clearing could leave behind.
+    await google.becomes(id, { staleCursors: true });
+    await refresh(page);
+    await google.becomes(id, { staleCursors: false });
+    expect(await copy(page)).toEqual(WHOLE);
+
+    await toggle(page, 'Work').click();
+    await expect(toggle(page, 'Work')).toHaveAttribute('aria-checked', 'false');
+    await expect.poll(() => copy(page)).toEqual(['Holidays (no cursor): ', 'Personal: Dentist, Mum’s birthday, Trip to Izmir', 'Work (no cursor): ']);
+
+    await google.becomes(id, { removeCalendar: 'me@example.test' });
+    await refresh(page);
+    await expect(toggle(page, 'Personal')).toHaveCount(0);
+    expect(await copy(page)).toEqual(['Holidays (no cursor): ', 'Work (no cursor): ']);
+    expect((await cached(page)).events).toEqual([]);
+  });
 });
 
 test.describe('when Google or the connection fails', () => {

@@ -174,6 +174,11 @@ sync token). Once the span has slipped a week, or Google lets the token lapse, e
 span is read again. Koyomi looks when it is opened or returned to if the last reading is more
 than five minutes old, every fifteen minutes while it is in front, and when Refresh is pressed.
 
+A calendar read again in full replaces what the device held of it: the old events are cleared
+and the new ones put, in that order, in the one transaction (`saveExternal` in
+`lib/calendars/db.ts`). The order matters because most of the new events have the ids of the
+old ones, so clearing afterwards would take them all away again.
+
 A calendar you hide is not read at all, and its events are removed from your device.
 
 A refresh takes a moment, and a calendar can be shown or hidden while one is under way. So a
@@ -391,7 +396,8 @@ visitor being asked nothing; connecting; listing and choosing calendars, also wh
 under way (the stand-in for Google can keep an answer back until a test lets go); timed, all-day and
 repeating events in Day, Week and Month; time zones (three device zones, and all-day events on
 both sides of the date line); overlapping events; that an external event cannot be edited, moved
-or deleted; the all-day row; reading only what changed; offline use; Google failing; permission
+or deleted; the all-day row; reading only what changed, and reading everything again (a lapsed
+cursor, the span moving on a week) without losing the device's copy; offline use; Google failing; permission
 withdrawn; an expired sign-in; cancelled and partial consent; disconnecting; a reading that comes
 back after its connection has ended (Disconnect in another tab, however that tab hears of it;
 another account connected; someone else signing in; a Disconnect finished while the copy is
