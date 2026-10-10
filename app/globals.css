@@ -26,6 +26,10 @@
   --hour: #4A4741;
   --dow: var(--ink2);
   --event-time: #4A4741;
+  /* The landing page's sample week. On paper its times stay at the muted level they were drawn
+     at. At night that level is 4.3:1 on a tinted event in the shaded weekend, so there they take
+     the level the calendar itself gives an event's time (5.4:1). */
+  --sample-time: var(--muted);
   --past-title: #403E3A;
   --past-time: var(--ink2);
   --past-bar: .5;
@@ -65,6 +69,7 @@
   --hour: var(--muted);
   --dow: var(--muted);
   --event-time: #A39F95;
+  --sample-time: var(--event-time);
   --past-title: var(--ink2);
   --past-time: var(--muted);
   --past-bar: .5;
@@ -92,6 +97,7 @@
   --color-hour: var(--hour);
   --color-dow: var(--dow);
   --color-event-time: var(--event-time);
+  --color-sample-time: var(--sample-time);
   --color-past-title: var(--past-title);
   --color-past-time: var(--past-time);
   --color-verm-text: var(--verm-text);

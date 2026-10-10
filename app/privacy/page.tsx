@@ -87,8 +87,8 @@ export default function Privacy() {
       <H2>What your Google data is never used for</H2>
       <P>
         Your Google Calendar data is not sold. It is not used for advertising, not used for analytics or to build a profile of you, and not used
-        to train artificial-intelligence or machine-learning models. It is shared with no one except the providers named below, who handle it
-        only to run Koyomi.
+        to train artificial-intelligence or machine-learning models. It is not given to anyone for purposes of their own. The only companies
+        that handle any of it are the three named below, and each handles only what is said there.
       </P>
       <P>
         Koyomi’s use of information received from Google APIs adheres to the{' '}
@@ -97,11 +97,20 @@ export default function Privacy() {
       </P>
 
       <H2>Who helps us run Koyomi</H2>
-      <P>Koyomi runs on services from three companies:</P>
+      <P>Koyomi runs on services from three companies. What each one handles is different:</P>
       <List>
-        <li>Vercel hosts the website and the server.</li>
-        <li>Neon hosts the database that holds the connection record described above, in the United States.</li>
-        <li>6Away provides sign-in.</li>
+        <li>
+          Vercel hosts the website and the server. Your Google Calendar events and calendar names pass through that server on their way from
+          Google to your device. They are not stored there.
+        </li>
+        <li>
+          Neon hosts the database, in the United States. It stores only the connection record described above. It receives no events and no
+          calendar names.
+        </li>
+        <li>
+          6Away provides sign-in. It learns that you signed in to Koyomi. It does not receive your Google Calendar events, your calendar names
+          or Google’s tokens.
+        </li>
       </List>
       <P>
         As infrastructure providers they process technical information, such as IP addresses and request logs, in order to deliver and protect the

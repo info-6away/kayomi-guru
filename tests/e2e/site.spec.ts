@@ -152,13 +152,23 @@ test.describe('privacy and terms', () => {
     expect(said).toContain('Your Google Calendar data is not sold.');
     expect(said).toContain('not used for advertising, not used for analytics or to build a profile of you, and not used to train artificial-intelligence or machine-learning models');
     expect(said).toContain(LIMITED_USE);
-    await expect(page.getByRole('link', { name: 'Google API Services User Data Policy' })).toHaveAttribute('href', 'https://developers.google.com/terms/api-services-user-data-policy');
+    // The policy it names is a link to Google's own page, inside that very sentence.
+    const policy = page.locator('p', { hasText: 'Limited Use requirements' }).getByRole('link', { name: 'Google API Services User Data Policy', exact: true });
+    await expect(policy).toBeVisible();
+    await expect(policy).toHaveAttribute('href', 'https://developers.google.com/terms/api-services-user-data-policy');
 
-    // Who else handles it, disconnecting, and deleting.
+    // Who else handles it: each of the three, and exactly what reaches it.
+    expect(said).toContain('It is not given to anyone for purposes of their own.');
     for (const part of [
-      'Vercel hosts the website and the server.',
-      'Neon hosts the database that holds the connection record described above, in the United States.',
-      '6Away provides sign-in.',
+      'Vercel hosts the website and the server. Your Google Calendar events and calendar names pass through that server on their way from Google to your device. They are not stored there.',
+      'Neon hosts the database, in the United States. It stores only the connection record described above. It receives no events and no calendar names.',
+      '6Away provides sign-in. It learns that you signed in to Koyomi. It does not receive your Google Calendar events, your calendar names or Google’s tokens.',
+    ]) {
+      expect(said, part).toContain(part);
+    }
+
+    // Disconnecting, and deleting.
+    for (const part of [
       'The connection record is kept until you disconnect or ask us to delete it.',
       'asks Google to revoke Koyomi’s access, deletes the record from our server, signs that device out and deletes its copy of your Google calendars',
       'Your Koyomi calendar is not touched.',
@@ -251,23 +261,29 @@ for (const theme of ['light', 'dark'] as const) {
       [1440, 900],
       [390, 844],
     ]) {
-      test(`privacy and terms are easy to read from top to bottom on a ${width}×${height} screen, and so is the footer that leads to them`, async ({ page }) => {
+      test(`privacy, terms and the landing page are easy to read from top to bottom on a ${width}×${height} screen`, async ({ page }) => {
         await page.setViewportSize({ width, height });
-        for (const path of ['/privacy', '/terms']) {
+        for (const path of ['/privacy', '/terms', '/home']) {
           await page.goto(path);
           await readable(page, `${path} at ${width}`);
           // Nothing runs off the side.
           expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), `${path}: sideways scroll`).toBe(false);
         }
 
-        // The landing page gained one thing: two links in its last line.
-        await page.goto('/home');
-        await page.evaluate(() => document.fonts.ready);
+        // Two places by name. The landing page's last line, which gained its two links...
         await page.getByRole('contentinfo').scrollIntoViewIfNeeded();
         const footer = (await read(page)).filter((r) => ['koyomi.guru', 'Privacy', 'Terms'].includes(r.text));
         expect(footer.map((r) => r.text).sort()).toEqual(['Privacy', 'Terms', 'koyomi.guru']);
         expect(footer.filter((r) => r.ratio < 4.5 || r.faded).map((r) => `"${r.text}" ${r.ratio}:1`)).toEqual([]);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), '/home: sideways scroll').toBe(false);
+
+        // ...and the sample week's times. The one on Sunday sits on a tinted event in the shaded
+        // weekend, and at night it used to be 4.3:1.
+        if (width >= 680) {
+          await page.getByRole('region', { name: 'A sample week' }).scrollIntoViewIfNeeded();
+          const times = (await read(page)).filter((r) => /^\d\d:\d\d$/.test(r.text));
+          expect(times.map((r) => r.text)).toContain('18:00');
+          expect(times.filter((r) => r.ratio < 4.5).map((r) => `"${r.text}" ${r.ratio}:1`)).toEqual([]);
+        }
       });
     }
   });
