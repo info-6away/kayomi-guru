@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { ThemeToggle } from '@/components/ThemeToggle';
+import { SiteFooter } from '@/components/SiteFooter';
 import { CAT } from '@/components/ui';
 import type { Category } from '@/lib/types';
 
@@ -105,7 +105,7 @@ export default function Home() {
                     >
                       <span className="absolute top-1 bottom-1 left-0.5 w-0.5 rounded-[1px]" style={{ background: CAT[category] }} />
                       <span className="max-w-full min-w-0 truncate text-[13px] leading-[1.35] font-medium">{title}</span>
-                      <span className="text-[11.5px] text-muted tabular-nums">{time}</span>
+                      <span className="text-[11.5px] text-sample-time tabular-nums">{time}</span>
                     </div>
                   );
                 })}
@@ -134,10 +134,7 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className={`${WRAP} flex items-center justify-between gap-4 border-t border-line pt-[22px] pb-8 text-[12px] tracking-[.03em] text-muted`}>
-        <span>koyomi.guru</span>
-        <ThemeToggle />
-      </footer>
+      <SiteFooter className={WRAP} />
     </div>
   );
 }
