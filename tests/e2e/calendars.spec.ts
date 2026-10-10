@@ -2,7 +2,9 @@ import { expect } from '@playwright/test';
 import { check } from './contrast';
 import {
   FAKE,
+  NOW,
   account,
+  actAs,
   allDay,
   cached,
   cell,
@@ -768,6 +770,356 @@ test.describe('disconnecting', () => {
     await expect.poll(async () => (await google.asked(id)).revoked).toBe(true);
     expect(new URL(page.url()).search).toBe('');
     await expect.poll(() => page.evaluate(() => localStorage.getItem('koyomi-calendars'))).toBeNull();
+  });
+});
+
+// A reading takes a moment, and the connection it was for can end or be replaced meanwhile: in
+// another tab, by someone else signing in, by connecting a different account. Whatever comes
+// back afterwards is for a connection this device no longer has, and none of it may be kept. In
+// each of these Google keeps its answer back until the test lets go (refreshAndHold), so the
+// answer arrives after the ending, every time.
+test.describe('a reading that comes back after its connection has ended', () => {
+  test.describe.configure({ timeout: 90_000 });
+  /** For an answer on its way back through the server: allow for a busy machine, as `connect` does. */
+  const BACK = { timeout: 15_000 };
+
+  const OWN = {
+    events: [{ id: 'mine', title: 'My own event', start: '2026-10-07T14:00:00.000Z', end: '2026-10-07T15:00:00.000Z', allDay: false, category: 'work' as const, planItemId: 'p1', recurrence: null, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' }],
+    planItems: [
+      { id: 'p1', title: 'My own event', status: 'open' as const, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' },
+      { id: 'p2', title: 'Still waiting', status: 'open' as const, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' },
+    ],
+  };
+  type Tab = Parameters<typeof cached>[0];
+  const connectButton = (page: Tab) => view(page).getByRole('button', { name: 'Connect', exact: true });
+  /** The device holds nothing of Google's: no copy at all, and no note that anything is connected. */
+  const nothingKept = async (page: Tab) => {
+    await expect.poll(() => page.evaluate(() => indexedDB.databases())).toEqual([{ name: 'kayomi', version: 1 }]);
+    // Read as the browser holds it, whatever a test has done to this page's own way of asking.
+    await expect.poll(() => page.evaluate(() => (Object.keys(localStorage).includes('koyomi-calendars') ? 'kept' : null))).toBeNull();
+  };
+  /** The answer the first tab was waiting for has arrived, in full. */
+  const answerOf = (page: Tab) => page.waitForResponse((response) => response.url().endsWith('/api/google/events'));
+
+  // What a tab hears of another tab's Disconnect comes by more than one route, and the routes
+  // do not arrive together. None of them may be what keeps the late answer out.
+  const HEARING = {
+    'as tabs usually hear of it': async () => {},
+    // The message between tabs never arrives.
+    'when the other tab’s message never arrives': async (page: Tab) => {
+      await page.addInitScript(() => {
+        (window as unknown as { BroadcastChannel: unknown }).BroadcastChannel = class {
+          postMessage() {}
+          close() {}
+          set onmessage(_: unknown) {}
+        };
+      });
+    },
+    // The message arrives, but the note in the browser's storage still says "connected".
+    'when the note in storage has not caught up': async (page: Tab) => {
+      await page.addInitScript(() => {
+        const real = Storage.prototype.getItem;
+        let seen = false;
+        Storage.prototype.getItem = function (key: string) {
+          const value = real.call(this, key);
+          if (key !== 'koyomi-calendars') return value;
+          // Once it has said "connected", it goes on saying so.
+          if (value === 'connected') seen = true;
+          return seen ? 'connected' : value;
+        };
+      });
+    },
+  };
+
+  for (const [how, arrange] of Object.entries(HEARING)) {
+    test(`Disconnect in another tab: a refresh still under way brings nothing back, ${how}`, async ({ page, context, id }) => {
+      await seed(page, OWN);
+      await arrange(page);
+      await start(page);
+      const mine = JSON.stringify(await stored(page));
+      await connect(page);
+      const other = await context.newPage();
+      await start(other);
+      await openCalendars(other);
+      await expect(toggle(other, 'Personal')).toBeVisible();
+
+      // The first tab is refreshing, and Google is keeping its answer back.
+      await refreshAndHold(page, id, 'events');
+      const answered = answerOf(page);
+
+      // The other tab disconnects, and that is finished: the copy is gone from the device.
+      await view(other).getByRole('button', { name: 'Disconnect', exact: true }).click();
+      await expect(connectButton(other)).toBeVisible(BACK);
+      await nothingKept(other);
+      // The first tab knows, however it came to hear.
+      await expect(connectButton(page)).toBeVisible();
+      await expect(page.locator('[data-external]')).toHaveCount(0);
+
+      // Now the answer it was waiting for arrives, events and all.
+      await google.becomes(id, { hold: null });
+      expect((await answered).status()).toBe(200);
+      await (await answered).finished();
+
+      // It is not connected again, and nothing of Google's is shown or kept.
+      await nothingKept(page);
+      await expect(connectButton(page)).toBeVisible();
+      await expect(page.locator('[data-external]')).toHaveCount(0);
+      await expect(connectButton(other)).toBeVisible();
+      await expect(other.locator('[data-external]')).toHaveCount(0);
+      // At Google the permission stays withdrawn, and the server has no connection to answer for.
+      const { revoked, liveTokens } = await google.asked(id);
+      expect([revoked, liveTokens]).toEqual([true, 0]);
+      expect((await page.request.get('/api/google/calendars')).status()).toBe(401);
+      // Koyomi's own calendar and Plan are, to the letter, what they were before connecting.
+      expect(JSON.stringify(await stored(page))).toBe(mine);
+      await expect(event(page, 'My own event')).toBeVisible();
+
+      // And that is how it stays.
+      await reload(page);
+      await expect(event(page, 'My own event')).toBeVisible();
+      await expect(page.locator('[data-external]')).toHaveCount(0);
+      await page.keyboard.press('p');
+      await expect(plan(page).getByRole('button', { name: 'Still waiting', exact: true })).toBeVisible();
+      await nothingKept(page);
+      expect(JSON.stringify(await stored(page))).toBe(mine);
+    });
+  }
+
+  test('connecting a different account meanwhile: the old account’s answer does not touch the new connection', async ({ page, context, id }) => {
+    const second = `${id}b`;
+    await google.has(second, { calendars: [{ id: 'elsewhere@example.test', summary: 'Elsewhere', primary: true, selected: true, events: [{ id: 'visit', summary: 'Site visit', start: { dateTime: ist('2026-10-07', '17:00') }, end: { dateTime: ist('2026-10-07', '18:00') } }] }] });
+    await start(page);
+    await connect(page);
+    const other = await context.newPage();
+    await start(other);
+    await openCalendars(other);
+    await expect(toggle(other, 'Personal')).toBeVisible();
+
+    await refreshAndHold(page, id, 'events');
+    const answered = answerOf(page);
+
+    // In the other tab: disconnect, then connect again, this time allowing a different Google account.
+    await view(other).getByRole('button', { name: 'Disconnect', exact: true }).click();
+    await expect(connectButton(other)).toBeVisible(BACK);
+    await context.addCookies([{ name: 'fake_google', value: second, url: FAKE }]);
+    await connectButton(other).click();
+    await expect(toggle(other, 'Elsewhere')).toBeVisible(BACK);
+    await expect(external(other, 'Site visit')).toBeVisible();
+    await expect.poll(async () => (await cached(other)).events.map((e) => e.title)).toEqual(['Site visit']);
+
+    // The first account's answer arrives now, for a connection that no longer exists.
+    await google.becomes(id, { hold: null });
+    expect((await answered).status()).toBe(200);
+    await (await answered).finished();
+
+    // The new connection is exactly as it was, in both tabs and on the device.
+    for (const tab of [other, page]) {
+      await expect(toggle(tab, 'Elsewhere')).toBeVisible();
+      await expect(toggle(tab, 'Personal')).toHaveCount(0);
+      await expect(external(tab, 'Site visit')).toBeVisible();
+      await expect(tab.locator('[data-external]', { hasText: 'Dentist' })).toHaveCount(0);
+    }
+    const kept = await cached(page);
+    expect(kept.calendars.map((c) => c.name)).toEqual(['Elsewhere']);
+    expect(kept.events.map((e) => e.title)).toEqual(['Site visit']);
+    await reload(page);
+    await expect(external(page, 'Site visit')).toBeVisible();
+    await expect(page.locator('[data-external]', { hasText: 'Dentist' })).toHaveCount(0);
+  });
+
+  test('someone else signing in meanwhile: the first person’s answer is not kept for them', async ({ page, context, id }) => {
+    await start(page);
+    await connect(page);
+    const other = await context.newPage();
+    await start(other);
+
+    await refreshAndHold(page, id, 'events');
+    const answered = answerOf(page);
+
+    // In the other tab a different person signs in. They have no connection of their own.
+    await actAs(other, `someone-else-${id}`);
+    await other.goto(`/api/auth/signin?returnTo=${encodeURIComponent('/?calendars=resume')}`);
+    await expect(other.getByText('koyomi', { exact: true })).toBeVisible();
+    await expect(other.locator('[data-external]')).toHaveCount(0, BACK);
+    await nothingKept(other);
+    await expect(page.locator('[data-external]')).toHaveCount(0);
+
+    // The first person's answer arrives now, on a device that is no longer theirs.
+    await google.becomes(id, { hold: null });
+    expect((await answered).status()).toBe(200);
+    await (await answered).finished();
+
+    await nothingKept(page);
+    for (const tab of [page, other]) {
+      await expect(tab.locator('[data-external]')).toHaveCount(0);
+      await expect(tab.getByText(/sign in again|reconnect/i)).toHaveCount(0);
+    }
+    await openCalendars(other);
+    await expect(connectButton(other)).toBeVisible();
+    // Nothing was revoked or deleted on the first person's behalf.
+    expect((await google.asked(id)).revoked).toBe(false);
+  });
+
+  test('someone else with a connection of their own signing in meanwhile: nothing of the first person’s reaches their calendar', async ({ page, context, browser, id }) => {
+    // The second person connected their own Google account some time ago, on another device.
+    const [theirs, they] = [`${id}c`, `someone-else-${id}`];
+    await google.has(theirs, { calendars: [{ id: 'elsewhere@example.test', summary: 'Elsewhere', primary: true, selected: true, events: [{ id: 'visit', summary: 'Site visit', start: { dateTime: ist('2026-10-07', '17:00') }, end: { dateTime: ist('2026-10-07', '18:00') } }] }] });
+    const elsewhere = await browser.newContext({ timezoneId: 'Europe/Istanbul' });
+    await elsewhere.addCookies([
+      { name: 'fake_user', value: they, url: FAKE },
+      { name: 'fake_google', value: theirs, url: FAKE },
+    ]);
+    const device = await elsewhere.newPage();
+    await start(device);
+    await openCalendars(device);
+    await connectButton(device).click();
+    await expect(toggle(device, 'Elsewhere')).toBeVisible(BACK);
+    await elsewhere.close();
+
+    // The first person, here, with a refresh under way.
+    await start(page);
+    await connect(page);
+    const other = await context.newPage();
+    await start(other);
+    await refreshAndHold(page, id, 'events');
+    const answered = answerOf(page);
+
+    // The second person signs in on this device, in the other tab. Their own calendars are read.
+    await actAs(other, they);
+    await other.goto(`/api/auth/signin?returnTo=${encodeURIComponent('/?calendars=resume')}`);
+    await expect(external(other, 'Site visit')).toBeVisible(BACK);
+    await expect(other.locator('[data-external]', { hasText: 'Dentist' })).toHaveCount(0);
+    await expect.poll(async () => (await cached(other)).calendars.map((c) => c.name)).toEqual(['Elsewhere']);
+
+    // The first person's answer arrives now.
+    await google.becomes(id, { hold: null });
+    expect((await answered).status()).toBe(200);
+    await (await answered).finished();
+
+    // The device holds the second person's calendar and nothing of the first person's.
+    for (const tab of [other, page]) {
+      await expect(external(tab, 'Site visit')).toBeVisible();
+      await expect(tab.locator('[data-external]', { hasText: /Dentist|Weekly sync|Trip to Izmir|Mum/ })).toHaveCount(0);
+    }
+    const kept = await cached(other);
+    expect(kept.calendars.map((c) => c.name)).toEqual(['Elsewhere']);
+    expect(kept.events.map((e) => e.title)).toEqual(['Site visit']);
+    await openCalendars(other);
+    await expect(toggle(other, 'Elsewhere')).toBeVisible();
+    await expect(toggle(other, 'Personal')).toHaveCount(0);
+    await reload(other);
+    await expect(external(other, 'Site visit')).toBeVisible();
+    await expect(other.locator('[data-external]', { hasText: 'Dentist' })).toHaveCount(0);
+  });
+
+  test('finishing a Disconnect after signing in, while the copy is being refreshed: it ends disconnected', async ({ page, context, id }) => {
+    // Back from signing in, the page opens two things: the copy of Google's calendars, whose
+    // refresh then starts if it is old, and Koyomi's own calendar, after which the Disconnect
+    // that was asked for is finished. Which opens first is chance. Here Koyomi's own calendar is
+    // made the later one, by opening only when the test says, on the one page load marked for it.
+    await page.addInitScript(() => {
+      const real = IDBFactory.prototype.open;
+      IDBFactory.prototype.open = function (name: string, version?: number) {
+        if (name !== 'kayomi' || sessionStorage.getItem('own-calendar-waits') !== 'yes') return real.call(this, name, version);
+        sessionStorage.removeItem('own-calendar-waits');
+        const stand: any = { onsuccess: null, onerror: null, onupgradeneeded: null, onblocked: null, result: undefined, error: null, transaction: null };
+        (window as any).openOwnCalendar = () => {
+          const req = real.call(indexedDB, name, version);
+          req.onupgradeneeded = (e) => { stand.result = req.result; stand.transaction = req.transaction; stand.onupgradeneeded?.call(req, e); };
+          req.onsuccess = (e) => { stand.result = req.result; stand.onsuccess?.call(req, e); };
+          req.onerror = (e) => { stand.error = req.error; stand.onerror?.call(req, e); };
+        };
+        return stand;
+      };
+    });
+    await start(page);
+    await connect(page);
+    // Later, with the sign-in lapsed and the copy old enough to be refreshed when the page opens.
+    await page.clock.setFixedTime(new Date(NOW.getTime() + 10 * 60_000));
+    await context.clearCookies({ name: 'koyomi_session' });
+    await google.becomes(id, { hold: 'calendars' });
+    await page.evaluate(() => sessionStorage.setItem('own-calendar-waits', 'yes'));
+
+    // Disconnect needs a sign-in first. Back from it, the refresh of the old copy is under way,
+    // waiting on Google, and the Disconnect has not been finished yet.
+    await view(page).getByRole('button', { name: 'Disconnect', exact: true }).click();
+    await expect.poll(async () => (await google.asked(id)).held, BACK).toBeGreaterThan(0);
+    expect((await google.asked(id)).revoked).toBe(false);
+    // Now Koyomi's own calendar opens, and the Disconnect is finished.
+    await page.evaluate(() => (window as any).openOwnCalendar());
+    await expect.poll(async () => (await google.asked(id)).revoked, BACK).toBe(true);
+    await openCalendars(page);
+    await expect(connectButton(page)).toBeVisible(BACK);
+    await nothingKept(page);
+
+    // The refresh that was under way gets its answer now.
+    const asked: string[] = [];
+    page.on('request', (request) => void (new URL(request.url()).pathname.startsWith('/api/google/') && asked.push(new URL(request.url()).pathname)));
+    const answered = page.waitForResponse((response) => response.url().endsWith('/api/google/calendars'));
+    await google.becomes(id, { hold: null });
+    await (await answered).finished();
+    await page.evaluate(() => 0);
+
+    // A reading whose connection has ended asks for nothing more.
+    expect(asked).toEqual([]);
+    // Disconnected is how it stays: nothing asks to sign in again, and nothing is kept.
+    await expect(connectButton(page)).toBeVisible();
+    await expect(page.getByText(/sign in again|reconnect/i)).toHaveCount(0);
+    await expect(page.locator('[data-external]')).toHaveCount(0);
+    await nothingKept(page);
+    await reload(page);
+    await expect(page.getByText(/sign in again|reconnect/i)).toHaveCount(0);
+    await nothingKept(page);
+  });
+
+  test('a copy saved by the release before this one is taken up as it is, and from then on says whose it is', async ({ page }) => {
+    // The copy as that release left it: its two stores, and nothing to say which connection it is for.
+    await page.goto('/home');
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          const open = indexedDB.open('koyomi-external', 1);
+          open.onupgradeneeded = () => {
+            open.result.createObjectStore('calendars', { keyPath: 'id' });
+            open.result.createObjectStore('events', { keyPath: 'id' }).createIndex('calendar', 'calendarId');
+          };
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const tx = open.result.transaction(['calendars', 'events'], 'readwrite');
+            tx.objectStore('calendars').put({ id: 'google:me@example.test', provider: 'google', calendarId: 'me@example.test', name: 'Personal', primary: true, selected: true, visible: true, syncToken: 'cursor', windowFrom: '2026-09-02', windowTo: '2027-04-14', fetchedAt: '2026-10-07T10:00:00.000Z' });
+            tx.objectStore('events').put({ id: 'google:me@example.test:dentist', provider: 'google', providerEventId: 'dentist', calendarId: 'me@example.test', title: 'Dentist', start: '2026-10-07T12:00:00.000Z', end: '2026-10-07T13:00:00.000Z', allDay: false, timeZone: 'Europe/Istanbul', status: 'confirmed', link: null, updatedAt: '2026-10-01T10:00:00.000Z', fetchedAt: '2026-10-07T10:00:00.000Z' });
+            tx.oncomplete = () => {
+              open.result.close();
+              resolve();
+            };
+          };
+        }),
+    );
+    await page.evaluate(() => localStorage.setItem('koyomi-calendars', 'connected'));
+
+    await start(page);
+    // What was read is still shown.
+    await expect(external(page, 'Dentist')).toContainText('15:00 – 16:00');
+    // And the copy holds what it held, now with its mark.
+    const copy = () =>
+      page.evaluate(
+        () =>
+          new Promise<unknown>((resolve) => {
+            const open = indexedDB.open('koyomi-external');
+            open.onsuccess = () => {
+              const db = open.result;
+              const tx = db.transaction(['meta', 'calendars', 'events']);
+              const mark = tx.objectStore('meta').get('connection');
+              const calendars = tx.objectStore('calendars').getAll();
+              const events = tx.objectStore('events').getAll();
+              tx.oncomplete = () => {
+                db.close();
+                resolve({ version: db.version, mark: typeof mark.result?.epoch, calendars: calendars.result.map((c) => c.name), events: events.result.map((e) => e.title) });
+              };
+            };
+          }),
+      );
+    await expect.poll(copy).toEqual({ version: 2, mark: 'string', calendars: ['Personal'], events: ['Dentist'] });
   });
 });
 
