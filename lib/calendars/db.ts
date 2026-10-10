@@ -187,22 +187,26 @@ export function saveExternal(change: ExternalChange, expected: string | null): P
   return ifStill(expected, (tx, epoch) => {
     const calendars = tx.objectStore('calendars');
     const events = tx.objectStore('events');
-    const clear = (calendarId: string) => {
-      const cursor = events.index('calendar').openKeyCursor(IDBKeyRange.only(calendarId));
-      cursor.onsuccess = () => {
-        if (!cursor.result) return;
-        events.delete(cursor.result.primaryKey);
-        cursor.result.continue();
-      };
+    // First what is cleared, then what is put, and never the other way round: a fresh reading
+    // of a calendar replaces its events, and most of the new ones have the ids of the old.
+    // Finding a calendar's old events is a request whose answer arrives later, after anything
+    // asked for in the meantime. So what must come after the clearing is asked for from inside
+    // that answer, once every calendar being cleared has been.
+    const cleared = [...(change.dropCalendars ?? []), ...(change.clearEvents ?? [])];
+    let finding = cleared.length;
+    const afterClearing = () => {
+      for (const id of change.removeEvents ?? []) events.delete(id);
+      for (const event of change.putEvents ?? []) events.put(event);
     };
-    for (const calendarId of change.dropCalendars ?? []) {
-      calendars.delete(`google:${calendarId}`);
-      clear(calendarId);
+    for (const calendarId of cleared) {
+      const old = events.index('calendar').getAllKeys(IDBKeyRange.only(calendarId));
+      old.onsuccess = () => {
+        for (const key of old.result) events.delete(key);
+        if (--finding === 0) afterClearing();
+      };
     }
-    for (const calendarId of change.clearEvents ?? []) clear(calendarId);
-    for (const id of change.removeEvents ?? []) events.delete(id);
-    // Requests in a transaction run in order, so what is put here survives the clearing above.
-    for (const event of change.putEvents ?? []) events.put(event);
+    if (!cleared.length) afterClearing();
+    for (const calendarId of change.dropCalendars ?? []) calendars.delete(`google:${calendarId}`);
     for (const calendar of change.calendars ?? []) calendars.put(calendar);
     const now = epoch ?? newEpoch();
     if (!epoch) tx.objectStore('meta').put({ epoch: now }, CONNECTION);
