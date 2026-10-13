@@ -218,9 +218,13 @@ async function load(hint?: External['status']): Promise<void> {
 async function adopt() {
   again = false;
   unconfirmed = false;
+  const known = roster;
   await load(flag.get() === 'off' ? 'connected' : undefined).catch(() => {});
   set({ syncing: false });
-  if (state.status === 'connected') void sync();
+  // Only if the copy really was not what this tab knew. A write is also refused where the
+  // device cannot keep what was read at all (its storage is full): reading again would be
+  // refused the same way, and again, without end.
+  if (state.status === 'connected' && roster !== known) void sync();
 }
 
 /** Whether the copy still holds the accounts a reading began from: by the copy itself, and by what this tab has heard since. */

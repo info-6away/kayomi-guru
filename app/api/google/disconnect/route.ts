@@ -35,8 +35,9 @@ export async function POST(request: Request) {
         // A token that cannot be opened cannot be revoked either; removing the row is what is left.
       }
       await ctx.store.remove(ctx.subject, id);
+      // Only for a connection that was this person's: an id that is someone else's touches nothing of theirs.
+      forgetAccess(id);
     }
-    forgetAccess(id);
     const signedOut = !(await ctx.store.list(ctx.subject)).length;
     if (signedOut) await auth.destroySession();
     return respond({ status: 200, body: { ok: true, revoked, signedOut } });

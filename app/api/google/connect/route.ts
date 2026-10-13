@@ -4,6 +4,7 @@ import { auth } from '@/lib/server/auth';
 import { connectionsConfig } from '@/lib/server/env';
 import { FLOW_SECONDS, beginFlow } from '@/lib/server/flow';
 import { authorizeUrl } from '@/lib/server/google';
+import { report } from '@/lib/server/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,13 @@ export async function GET(request: Request) {
     return Response.redirect(`${config.appUrl}/api/auth/signin?returnTo=${encodeURIComponent(back)}`, 303);
   }
 
-  if (!add && (await storeFor(config).list(user.sub)).length) return home('connected');
+  try {
+    if (!add && (await storeFor(config).list(user.sub)).length) return home('connected');
+  } catch (error) {
+    // The table could not be asked. Said as the app says any failed attempt, not as a bare error page.
+    report('connecting', error);
+    return home('failed');
+  }
 
   // A new attempt: fresh random state and PKCE secret, sealed with who is asking, in a cookie
   // that page code cannot read. Lax, because the way back from Google is a link from another
