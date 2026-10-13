@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { settled } from './helpers';
 
 // Measures how easy text is to read, the way the eye meets it: each piece of text on screen is
 // compared with the pixels actually behind it, so a tint, a faded parent or a new colour cannot
@@ -18,7 +19,7 @@ export interface Reading {
 export async function read(page: Page): Promise<Reading[]> {
   // Nothing hovered, and every slide and fade finished.
   await page.mouse.move(5, 5);
-  await page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
+  await settled(page);
   const screenshot = (await page.screenshot()).toString('base64');
 
   return page.evaluate(async (png) => {

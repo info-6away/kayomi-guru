@@ -50,6 +50,17 @@ export async function reload(page: Page) {
   await expect(wordmark(page)).toBeVisible();
 }
 
+/**
+ * Waits until every slide and fade under way has finished. The Calendars drawer is on screen from
+ * the first frame of its slide, and on a wide screen the calendar draws in beside it as it comes:
+ * positions read after this are where things stay.
+ */
+export async function settled(page: Page) {
+  await page.evaluate(async () => {
+    await Promise.allSettled(document.getAnimations().map((animation) => animation.finished));
+  });
+}
+
 /** A time of day inside a day's column, scrolled into view. */
 export async function at(page: Page, day: string, time: string) {
   const column = page.locator(`[data-day="${day}"]`);
