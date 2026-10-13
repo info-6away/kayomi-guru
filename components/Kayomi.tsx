@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DAY_MIN,
   DOW,
+  DOW3,
   DOWL,
   MON,
   MON3,
@@ -32,7 +33,7 @@ import { Timeline } from './Timeline';
 import { SearchIcon, hourHeight, type Slot, type View } from './ui';
 
 const ROUND = 'rounded-full transition-colors duration-150 hover:bg-wash hover:text-ink';
-const TAB = 'relative h-8 px-2.5 text-[13px] tracking-[.03em] transition-colors duration-150 hover:text-ink';
+const TAB = 'relative h-8 px-1.5 text-[13px] tracking-[.03em] transition-colors duration-150 hover:text-ink min-[850px]:px-2.5';
 const HALF_MOON = 'rounded-full border border-current bg-[linear-gradient(90deg,currentColor_50%,transparent_50%)]';
 
 /** @param calendars Whether this deployment can connect calendars from outside. Off, Koyomi's own calendar is all there is. */
@@ -158,16 +159,21 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
   // One account that Google has stopped honouring. The others, and Koyomi's own calendar, carry on.
   const needsReconnecting = external.connections.some((connection) => connection.status === 'reconnect');
 
+  // A narrow window has no room for the date in full. Its names go to three letters first: a
+  // day's below 980px, and a week's below 900px, where the header starts to draw in as well.
+  // Below 800px a week and a day lose their year too, as a day has none on a phone. A month is
+  // short enough to keep all of it.
   let rangeLabel = MON[cur.m - 1];
   let rangeYear = String(cur.y);
   if (v === 'week') {
     const a = parts(monday);
     const b = parts(week[6]);
-    rangeLabel = a.m === b.m ? `${a.d} — ${b.d} ${MON[a.m - 1]}` : `${a.d} ${MON3[a.m - 1]} — ${b.d} ${MON3[b.m - 1]}`;
+    rangeLabel = a.m === b.m ? `${a.d} — ${b.d} ${(w < 900 ? MON3 : MON)[a.m - 1]}` : `${a.d} ${MON3[a.m - 1]} — ${b.d} ${MON3[b.m - 1]}`;
     rangeYear = String(b.y);
   } else if (v === 'day') {
-    rangeLabel = `${DOWL[weekday(date)]} ${cur.d} ${MON[cur.m - 1]}`;
+    rangeLabel = w < 980 ? `${DOW3[weekday(date)]} ${cur.d} ${MON3[cur.m - 1]}` : `${DOWL[weekday(date)]} ${cur.d} ${MON[cur.m - 1]}`;
   }
+  const yearFits = v === 'month' || w >= 800;
 
   const go = (next: string) => {
     setDate(next);
@@ -260,7 +266,10 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
       {/* overflow-clip, not hidden: the Calendars drawer waits off-screen, and a clipped box cannot be scrolled sideways to it. */}
       <div className="relative flex h-full flex-col overflow-clip bg-bg pt-[env(safe-area-inset-top)]">
         {!mobile && (
-          <header className="grid h-16 flex-none grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 pr-5 pl-7">
+          // Below 900px the header draws in a step at a time, so that nothing in it overlaps all the way down to
+          // 760px, where the phone's takes over. The date goes first: it is said in fewer letters (see rangeLabel)
+          // and sits closer to what is either side of it. The controls on the right close up below 850px.
+          <header className="grid h-16 flex-none grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pr-5 pl-7 min-[900px]:gap-4">
             <div className="flex items-center gap-2.5">
               <span className="size-[9px] flex-none rounded-full bg-verm" />
               <span className="pb-0.5 font-mincho text-[21px] leading-none tracking-[.01em]">koyomi</span>
@@ -269,22 +278,23 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
               <button onClick={() => step(-1)} aria-label="Previous" className={`size-8 text-[20px] leading-none text-muted ${ROUND}`}>
                 ‹
               </button>
-              <div className="flex min-w-[200px] items-baseline justify-center gap-2 text-center font-mincho text-[18px] whitespace-nowrap">
+              {/* As wide as the longest week it can show, so the arrows stay where they are from one week to the next. */}
+              <div className="flex min-w-[136px] items-baseline justify-center gap-2 text-center font-mincho text-[18px] whitespace-nowrap min-[800px]:min-w-[173px] min-[900px]:min-w-[200px]">
                 <span>{rangeLabel}</span>
-                <span className="text-[14px] text-muted">{rangeYear}</span>
+                {yearFits && <span className="text-[14px] text-muted">{rangeYear}</span>}
               </div>
               <button onClick={() => step(1)} aria-label="Next" className={`size-8 text-[20px] leading-none text-muted ${ROUND}`}>
                 ›
               </button>
               <button
                 onClick={() => go(today)}
-                className="ml-2.5 h-7 rounded-full border border-line px-3.5 text-[12.5px] tracking-[.03em] text-ink2 transition-colors duration-150 hover:border-stone hover:text-ink"
+                className="h-7 rounded-full border border-line px-3.5 text-[12.5px] tracking-[.03em] text-ink2 transition-colors duration-150 hover:border-stone hover:text-ink min-[900px]:ml-2.5"
               >
                 Today
               </button>
             </div>
             {/* A little closer together in a narrow window: "Calendars" is a longer word than the one it replaced. */}
-            <div className="flex items-center justify-end gap-2 min-[920px]:gap-3">
+            <div className="flex items-center justify-end gap-1 min-[850px]:gap-2 min-[920px]:gap-3">
               <nav className="flex gap-1">
                 {(['day', 'week', 'month'] as const).map((x) => (
                   <button

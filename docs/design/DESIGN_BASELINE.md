@@ -43,6 +43,12 @@ Month and the phone Calendars sheet are shown in light only: dark changes their 
   everything else.
 - **Week first on a desktop, one day on a phone.** Below 760px the layout changes rather than
   shrinks: a week strip, a single day, and Calendars as a bottom sheet.
+- **A narrow window keeps the same header.** From 980px up it is as in the screenshots. Below
+  that it draws in a step at a time rather than changing, so that nothing in it overlaps
+  anything else down to 760px. A day's date goes to three letters below 980px ("Wed 27 Sep 2028"), and a
+  week's month below 900px ("20 — 26 Sep 2027"), where the date also moves closer to what is
+  either side of it. The controls on the right close up below 850px. Below 800px a week and a
+  day are shown without their year, as a day is on a phone; a month keeps its year.
 - **Calendars is a drawer.** 320px wide; it sits beside the calendar from 1100px and slides over
   it below that. See "Calendars, where Plan was".
 - **Events are quiet, but present.** A 2px colour bar and a tint of the same colour: 10% on paper

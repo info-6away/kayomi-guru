@@ -68,6 +68,27 @@ export const hourHeight = (page: Page) => columns(page).first().evaluate((el) =>
 export const fits = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight);
 
+/**
+ * Everything in the desktop header that is read or pressed, from left to right, and where each
+ * begins and ends: the dot and the wordmark, the arrows, the date and its year, and each control.
+ */
+export const headerParts = (page: Page) =>
+  page.locator('header').evaluate((header) => {
+    const style = getComputedStyle(header);
+    const edges = header.getBoundingClientRect();
+    return {
+      left: edges.left + parseFloat(style.paddingLeft),
+      right: edges.right - parseFloat(style.paddingRight),
+      parts: [...header.querySelectorAll('button, span')]
+        // A control's own icon is part of it, and what is not drawn takes up no room.
+        .filter((el) => !el.parentElement!.closest('button') && el.getClientRects().length)
+        .map((el) => {
+          const box = el.getBoundingClientRect();
+          return { name: el.getAttribute('aria-label') ?? el.textContent!.trim(), left: box.left, right: box.right };
+        }),
+    };
+  });
+
 export async function addEvent(page: Page, title: string, time: string, day = today()) {
   const { column, position } = await at(page, day, time);
   await column.click({ position });
