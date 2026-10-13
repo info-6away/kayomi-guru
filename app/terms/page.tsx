@@ -5,7 +5,7 @@ import { A, H2, LegalPage, Mail, OPERATOR, P, legalMetadata } from '@/components
 
 export const metadata = legalMetadata('Terms', 'The terms on which Koyomi is offered.', '/terms');
 
-const UPDATED = '10 October 2026';
+const UPDATED = '13 October 2026';
 
 export default function Terms() {
   return (
@@ -20,14 +20,13 @@ export default function Terms() {
 
       <H2>Your calendar is on your device</H2>
       <P>
-        The events and Plan items you write are kept in your browser, on your device. We keep no copy and there is no cloud backup, so we cannot
-        restore them. If you clear the site’s data in your browser, or lose the device, they are lost. Keeping them safe is up to you.
+        The events you write are kept in your browser, on your device. We keep no copy and there is no cloud backup, so we cannot restore them. If you clear the site’s data in your browser, or lose the device, they are lost. Keeping them safe is up to you.
       </P>
 
       <H2>Connected calendars</H2>
       <P>
-        You may connect a Google calendar so that Koyomi shows it beside your own. The connection is read-only: Koyomi cannot change your Google
-        Calendar. You can disconnect at any time in Koyomi.
+        You may connect one or more Google accounts so that Koyomi shows their calendars beside your own. A connection is read-only: Koyomi
+        cannot change your Google Calendar. You can disconnect each account at any time in Koyomi.
       </P>
       <P>
         Connecting uses 6Away for sign-in and Google for your calendar. Those are services of their own, and your use of them is subject to their

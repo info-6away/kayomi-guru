@@ -1,7 +1,7 @@
 {
   "name": "Koyomi",
   "short_name": "Koyomi",
-  "description": "A calm planning calendar. Calendar is scheduled time; Plan is what waits for time.",
+  "description": "Calendar, simplified. All your calendars in one quiet place.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
@@ -14,7 +14,7 @@
     { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "screenshots": [
-    { "src": "/screenshots/desktop.png", "sizes": "1440x900", "type": "image/png", "form_factor": "wide", "label": "A week, with Plan beside it" },
+    { "src": "/screenshots/desktop.png", "sizes": "1440x900", "type": "image/png", "form_factor": "wide", "label": "A week" },
     { "src": "/screenshots/phone.png", "sizes": "780x1688", "type": "image/png", "form_factor": "narrow", "label": "One day" }
   ]
 }

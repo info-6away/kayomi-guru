@@ -36,8 +36,10 @@ export function ExternalPopover({ s, style, onClose }: { s: Showing; style: CSSP
 
       <p className="font-mincho text-[20px] leading-[1.3] text-ink">{ev.title}</p>
       <p className="text-[13px] text-ink2 tabular-nums">{when}</p>
-      <p className="text-[12px] text-muted">
+      {/* Where it came from, from the outside in: the provider and the calendar, then whose account. */}
+      <p className="text-[12px] leading-[1.5] text-muted">
         {PROVIDER[ev.provider]} · {s.calendar}
+        {s.account && <span className="block truncate">{s.account}</span>}
       </p>
 
       {ev.link && (

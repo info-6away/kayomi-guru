@@ -25,10 +25,33 @@ export const TEST_ENV = {
 const local = (day, time) => new Date(`${day}T${time}:00`).toISOString();
 
 /**
- * A made-up Google account for looking at the feature by hand and for the design screenshots:
- * the week of Monday 5 October 2026, with neutral names. Times are on this machine's clock.
+ * Two made-up Google accounts for looking at the feature by hand and for the design
+ * screenshots: the week of Monday 5 October 2026, with neutral names. Times are on this
+ * machine's clock. Each is named here by its id at the stand-in; what Koyomi shows it as is the
+ * id of its own calendar, as with a real account.
  */
-export const DEMO_ACCOUNT = {
+const SECOND_ACCOUNT = {
+  calendars: [
+    {
+      id: 'studio@example.test',
+      summary: 'Studio',
+      primary: true,
+      selected: true,
+      events: [
+        { id: 'workshop', summary: 'Workshop', htmlLink: 'https://www.google.com/calendar', start: { dateTime: local('2026-10-09', '13:00') }, end: { dateTime: local('2026-10-09', '15:00') } },
+        { id: 'open-day', summary: 'Open day', start: { date: '2026-10-10' }, end: { date: '2026-10-11' } },
+      ],
+    },
+    {
+      id: 'team@example.test',
+      summary: 'Team',
+      selected: true,
+      events: [{ id: 'retrospective', summary: 'Retrospective', start: { dateTime: local('2026-10-08', '16:30') }, end: { dateTime: local('2026-10-08', '17:30') } }],
+    },
+  ],
+};
+
+const FIRST_ACCOUNT = {
   calendars: [
     {
       id: 'personal@example.test',
@@ -58,3 +81,6 @@ export const DEMO_ACCOUNT = {
     { id: 'holidays@example.test', summary: 'Holidays', selected: false, events: [{ id: 'holiday', summary: 'Public holiday', start: { date: '2026-10-29' }, end: { date: '2026-10-30' } }] },
   ],
 };
+
+/** Both, by the id each has at the stand-in, in the order they are offered to someone adding accounts by hand. */
+export const DEMO_ACCOUNTS = { first: FIRST_ACCOUNT, second: SECOND_ACCOUNT };

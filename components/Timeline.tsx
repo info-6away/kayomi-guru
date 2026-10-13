@@ -13,7 +13,6 @@ import {
 import { timeLabel, type Showing } from '@/lib/calendars/showings';
 import { DAY_MIN, DOW, clamp, hm, pad, parts, weekday, type Span } from '@/lib/dates';
 import { layoutDay, type Occurrence } from '@/lib/occurrences';
-import type { PlanItem } from '@/lib/types';
 import { EventPopover } from './EventPopover';
 import { ExternalPopover } from './ExternalPopover';
 import { CAT, type Slot } from './ui';
@@ -47,22 +46,17 @@ interface Props {
   hourH: number;
   sel: string | null;
   qa: Slot | null;
-  /** The Plan item waiting for the user to choose a time. */
-  placing: PlanItem | null;
-  /** The Plan item being dragged in from the Plan drawer. */
-  dragPlan: RefObject<PlanItem | null>;
   scroller: RefObject<HTMLDivElement | null>;
   onSelect: (key: string | null) => void;
   onQa: (slot: Slot | null) => void;
   onCreate: (slot: Slot, title: string) => void;
-  onPlace: (itemId: string, date: string, min: number) => void;
   onMove: (o: Occurrence, to: Span) => void;
   onOpenDay: (date: string) => void;
   onSwipe: (dir: number) => void;
 }
 
 export function Timeline(p: Props) {
-  const { days, mobile, today, now, sel, qa, placing, hourH } = p;
+  const { days, mobile, today, now, sel, qa, hourH } = p;
   const n = days.length;
   const oneDay = n === 1;
   const gutter = mobile ? 52 : oneDay ? 56 : 60;
@@ -77,7 +71,7 @@ export function Timeline(p: Props) {
   /** The half-hour under the pointer that an hour-long event can start in. */
   const slotAt = (clientY: number, column: Element) => clamp(Math.floor(minuteAt(clientY, column) / 30) * 30, 0, DAY_MIN - 60);
 
-  const [hover, setHover] = useState<(Slot & { drag?: boolean }) | null>(null);
+  const [hover, setHover] = useState<Slot | null>(null);
   const [drag, setDrag] = useState<(Span & { key: string }) | null>(null);
   const [allDayOpen, setAllDayOpen] = useState(false);
   /** Where the top of the visible grid is, for a popover that belongs to the all-day area. */
@@ -106,15 +100,9 @@ export function Timeline(p: Props) {
     if (sel) p.scroller.current?.querySelector('[data-popover]')?.scrollIntoView({ block: 'nearest' });
   }, [sel, p.scroller]);
 
-  useEffect(() => {
-    const clear = () => setHover(null);
-    window.addEventListener('dragend', clear);
-    return () => window.removeEventListener('dragend', clear);
-  }, []);
-
   /** Moves an event, or changes its end, by dragging with a mouse or pen. Touch scrolls instead. */
   const beginDrag = (e: ReactPointerEvent, o: Occurrence, mode: 'move' | 'resize') => {
-    if (e.pointerType === 'touch' || e.button !== 0 || placing) return;
+    if (e.pointerType === 'touch' || e.button !== 0) return;
     e.stopPropagation();
     const origin = columns.current.get(o.date);
     if (!origin) return;
@@ -182,7 +170,6 @@ export function Timeline(p: Props) {
   const selected = sel ? shown.find((o) => o.key === sel) : undefined;
   const selectedExternal = sel && !selected ? days.flatMap((d) => p.external.get(d) ?? []).find((s) => s.key === sel) : undefined;
   const dragged = drag ? shown.find((o) => o.key === drag.key) : undefined;
-  const incoming = hover?.drag ? p.dragPlan.current?.title : placing?.title;
 
   // The all-day area: Koyomi's own all-day events, and external ones, which may run for days.
   const bars: Bar[] = [];
@@ -295,9 +282,9 @@ export function Timeline(p: Props) {
                     >
                       <span
                         className="absolute top-[3px] bottom-[3px] left-0.5 w-0.5 rounded-[1px]"
-                        style={{ background: o && !o.done ? CAT[o.event.category] : 'var(--stone)', opacity: past && !isSel ? 'var(--past-bar)' : undefined }}
+                        style={{ background: o ? CAT[o.event.category] : 'var(--stone)', opacity: past && !isSel ? 'var(--past-bar)' : undefined }}
                       />
-                      <span className={`min-w-0 truncate ${o ? (o.done ? 'text-muted line-through' : past && !isSel ? 'text-past-title' : 'text-ink') : past && !isSel ? 'text-muted' : 'text-ink2'}`}>
+                      <span className={`min-w-0 truncate ${o ? (past && !isSel ? 'text-past-title' : 'text-ink') : past && !isSel ? 'text-muted' : 'text-ink2'}`}>
                         {o ? o.event.title : bar.external!.event.title}
                       </span>
                       <span className="sr-only">{`, all day, ${date}`}</span>
@@ -386,13 +373,12 @@ export function Timeline(p: Props) {
                 if (e.target !== e.currentTarget || justDragged.current) return;
                 const min = slotAt(e.clientY, e.currentTarget);
                 setHover(null);
-                if (placing) p.onPlace(placing.id, key, min);
-                else if (selected || selectedExternal) p.onSelect(null);
+                if (selected || selectedExternal) p.onSelect(null);
                 else p.onQa({ date: key, min });
               }}
               onPointerMove={(e) => {
                 if (e.pointerType !== 'mouse' || drag) return;
-                if (e.target !== e.currentTarget && !placing) {
+                if (e.target !== e.currentTarget) {
                   if (hover) setHover(null);
                   return;
                 }
@@ -400,34 +386,20 @@ export function Timeline(p: Props) {
                 if (!hover || hover.date !== key || hover.min !== min) setHover({ date: key, min });
               }}
               onPointerLeave={() => hover && setHover(null)}
-              onDragOver={(e) => {
-                if (!p.dragPlan.current) return;
-                e.preventDefault();
-                const min = slotAt(e.clientY, e.currentTarget);
-                if (!hover || hover.date !== key || hover.min !== min) setHover({ date: key, min, drag: true });
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                setHover(null);
-                if (p.dragPlan.current) p.onPlace(p.dragPlan.current.id, key, slotAt(e.clientY, e.currentTarget));
-              }}
               className="relative min-w-0"
               style={{
                 height: totalH,
                 borderLeft: n > 1 ? '1px solid var(--line2)' : 0,
                 backgroundColor: wkend && n > 1 ? 'color-mix(in oklab, var(--ink) 2.5%, transparent)' : 'transparent',
                 backgroundImage: `repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px ${hourH}px)`,
-                cursor: placing ? 'copy' : 'default',
               }}
             >
               {ghost && (
                 <div
-                  className={`pointer-events-none absolute left-1 z-[1] flex overflow-hidden rounded-[3px] bg-wash text-[11.5px] whitespace-nowrap text-muted tabular-nums ${
-                    incoming ? 'items-start border border-dashed border-stone px-2.5 py-1.5' : 'items-center px-2.5'
-                  }`}
-                  style={{ top: yOf(ghost.min) + 1, height: incoming ? hourH - 2 : hourH / 2 - 1, width: eventW }}
+                  className="pointer-events-none absolute left-1 z-[1] flex items-center overflow-hidden rounded-[3px] bg-wash px-2.5 text-[11.5px] whitespace-nowrap text-muted tabular-nums"
+                  style={{ top: yOf(ghost.min) + 1, height: hourH / 2 - 1, width: eventW }}
                 >
-                  {incoming ? `${hm(ghost.min)}  ${incoming}` : hm(ghost.min)}
+                  {hm(ghost.min)}
                 </div>
               )}
 
@@ -574,12 +546,10 @@ function EventBox({
     >
       <span
         className="absolute top-1 bottom-1 left-0.5 w-0.5 rounded-[1px]"
-        style={{ background: o.done ? 'var(--stone)' : CAT[o.event.category], opacity: receded ? 'var(--past-bar)' : undefined }}
+        style={{ background: CAT[o.event.category], opacity: receded ? 'var(--past-bar)' : undefined }}
       />
       <span
-        className={`max-w-full min-w-0 shrink truncate leading-[1.35] font-medium ${mobile ? 'text-[15px]' : 'text-[13px]'} ${
-          o.done ? 'text-muted line-through' : receded ? 'text-past-title' : 'text-ink'
-        }`}
+        className={`max-w-full min-w-0 shrink truncate leading-[1.35] font-medium ${mobile ? 'text-[15px]' : 'text-[13px]'} ${receded ? 'text-past-title' : 'text-ink'}`}
       >
         {o.event.title}
       </span>

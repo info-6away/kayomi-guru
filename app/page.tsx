@@ -6,7 +6,7 @@ import { connectionsConfigured } from '@/lib/server/env';
 // so the landing page (app/home) is not offered for installation.
 export const metadata: Metadata = {
   title: 'Koyomi',
-  description: 'A calm planning calendar. Calendar is scheduled time; Plan is what waits for time.',
+  description: 'Calendar, simplified. All your calendars in one quiet place.',
   applicationName: 'Koyomi',
   manifest: '/manifest.webmanifest',
   appleWebApp: { capable: true, title: 'Koyomi', statusBarStyle: 'default' },
@@ -14,6 +14,7 @@ export const metadata: Metadata = {
 
 export default function Page() {
   // Decided when the site is built: whether this deployment has what calendar connections
-  // need. Without it the calendar is exactly what it was, and never asks the server anything.
+  // need. Without it there is Koyomi's own calendar and nothing to connect, and the server is
+  // never asked anything.
   return <Kayomi calendars={connectionsConfigured()} />;
 }

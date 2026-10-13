@@ -1,7 +1,7 @@
 import { expect, test as base, type Page } from '@playwright/test';
-import { open, plan } from './helpers';
+import { calendars, calendarsButton, open } from './helpers';
 
-// What the tests of connected calendars share: a made-up Google account, a made-up 6Away
+// What the tests of connected calendars share: made-up Google accounts, a made-up 6Away
 // identity, and the steps of connecting. Everything runs against stand-ins for 6Away Auth and
 // Google (tests/fakes/providers.mjs, started by playwright.config.ts). No real account is ever
 // involved.
@@ -11,11 +11,14 @@ export const FAKE = 'http://localhost:4315';
 export const NOW = new Date('2026-10-07T10:10:00Z');
 export const ist = (day: string, time: string) => `${day}T${time}:00+03:00`;
 
+/** The first account's address: the id of its own calendar, which is how Koyomi knows an account. */
+export const ME = 'me@example.test';
+
 /** A Google account with two calendars in use and one that is not ticked. */
 export const account = () => ({
   calendars: [
     {
-      id: 'me@example.test',
+      id: ME,
       summary: 'Personal',
       primary: true,
       selected: true,
@@ -58,7 +61,7 @@ export const account = () => ({
 
 const post = (path: string, body: unknown, method = 'POST') => fetch(`${FAKE}/__fake/google/${path}`, { method, body: JSON.stringify(body) });
 export const google = {
-  /** Sets up what this test's Google account holds. */
+  /** Sets up what a Google account holds. */
   has: (id: string, data: unknown) => post(id, data, 'PUT'),
   /** Something changes at Google after Koyomi last looked. */
   changes: (id: string, change: { calendarId: string; upsert?: unknown[]; cancel?: string[] }) => post(`${id}/change`, change),
@@ -95,8 +98,15 @@ export const test = base.extend<{ id: string }>({
   ],
 });
 
-export const view = (page: Page) => page.getByRole('region', { name: 'Calendars' });
-export const toggle = (page: Page, name: string) => view(page).getByRole('switch', { name });
+export const view = calendars;
+/** One connected account in Calendars, by its address: its calendars, and its own Disconnect. */
+export const group = (page: Page, address: string) => view(page).getByRole('group', { name: address, exact: true });
+/** A calendar's on/off row. Where two accounts have a calendar of the same name, say which account. */
+export const toggle = (page: Page, name: string, address?: string) => (address ? group(page, address) : view(page)).getByRole('switch', { name });
+export const addButton = (page: Page) => view(page).getByRole('button', { name: 'Add calendar account' });
+export const disconnectButton = (page: Page, address?: string) => (address ? group(page, address) : view(page)).getByRole('button', { name: /^Disconnect/ });
+/** What Calendars says while no account is connected: the sentence about what adding one means. */
+export const nothingConnected = (page: Page) => view(page).getByText('It can never change them.');
 export const external = (page: Page, title: string) => page.locator('[data-event][data-external]', { hasText: title });
 export const allDay = (page: Page, title: string) => page.locator('[data-all-day] [data-event]', { hasText: title });
 export const mobile = (page: Page) => page.viewportSize()!.width < 760;
@@ -110,17 +120,14 @@ export async function start(page: Page) {
 
 export async function openCalendars(page: Page) {
   if (await view(page).isVisible()) return;
-  if (!(await plan(page).isVisible())) {
-    if (mobile(page)) await page.getByRole('button', { name: /^Plan/ }).tap();
-    else await page.keyboard.press('p');
-  }
-  await plan(page).getByRole('button', { name: /^Calendars/ }).click();
+  if (mobile(page)) await calendarsButton(page).tap();
+  else await page.keyboard.press('c');
   await expect(view(page)).toBeVisible();
 }
 
 export async function closeDrawer(page: Page) {
   if (mobile(page)) await page.mouse.click(195, 60);
-  else await page.keyboard.press('p');
+  else await page.keyboard.press('c');
   await expect(view(page)).toBeHidden();
   // The drawer is gone at once, but the calendar takes a moment more to slide back to its full
   // width, and every column moves while it does. Wait for that slide itself to end, so that
@@ -133,13 +140,29 @@ export async function closeDrawer(page: Page) {
   });
 }
 
-/** Presses Connect and comes back from the stand-ins signed in, with the calendars listed. */
+/** Which Google account is at the keyboard the next time Google asks: what picking one from Google's own list comes to. */
+export const pick = (page: Page, googleAccount: string) => page.context().addCookies([{ name: 'fake_google', value: googleAccount, url: FAKE }]);
+
+/** Adds an account and comes back from the stand-ins signed in, with its calendars listed. */
 export async function connect(page: Page) {
   await openCalendars(page);
-  await view(page).getByRole('button', { name: 'Connect' }).click();
+  await addButton(page).click();
   // Two round trips and a first reading: allow for a busy machine.
   await expect(toggle(page, 'Personal')).toBeVisible({ timeout: 15_000 });
   await expect(view(page).getByText(/^Read \d/)).toBeVisible();
+}
+
+/**
+ * Adds one more Google account beside whatever is connected, and waits until it is listed under
+ * its own address with its events read.
+ */
+export async function connectAlso(page: Page, googleAccount: string, address: string) {
+  await pick(page, googleAccount);
+  await openCalendars(page);
+  await addButton(page).click();
+  await expect(group(page, address)).toBeVisible({ timeout: 15_000 });
+  await expect(group(page, address).getByRole('switch').first()).toBeVisible();
+  await expect(view(page).getByText('Refreshing…')).toHaveCount(0, { timeout: 15_000 });
 }
 
 /** Signs in with 6Away and nothing more: a Koyomi session, no Google. */
@@ -158,9 +181,9 @@ export async function refresh(page: Page) {
 }
 
 /**
- * Presses Refresh with Google keeping one kind of answer back, and returns once Google has been
- * asked. From then until `google.becomes(id, { hold: null })` the reading is under way, and stays
- * so: what a test does in between does not depend on how fast anything is.
+ * Presses Refresh with Google keeping one kind of answer back for one account, and returns once
+ * Google has been asked. From then until `google.becomes(id, { hold: null })` the reading is
+ * under way, and stays so: what a test does in between does not depend on how fast anything is.
  */
 export async function refreshAndHold(page: Page, id: string, hold: 'calendars' | 'events') {
   await openCalendars(page);
@@ -174,19 +197,23 @@ export async function refreshAndHold(page: Page, id: string, hold: 'calendars' |
 export const cached = (page: Page) =>
   page.evaluate(
     () =>
-      new Promise<{ calendars: any[]; events: any[] }>((resolve) => {
+      new Promise<{ connections: any[]; calendars: any[]; events: any[] }>((resolve) => {
         const open = indexedDB.open('koyomi-external');
         open.onsuccess = () => {
-          const tx = open.result.transaction(['calendars', 'events']);
+          const tx = open.result.transaction(['connections', 'calendars', 'events']);
+          const connections = tx.objectStore('connections').getAll();
           const calendars = tx.objectStore('calendars').getAll();
           const events = tx.objectStore('events').getAll();
           tx.oncomplete = () => {
             open.result.close();
-            resolve({ calendars: calendars.result, events: events.result });
+            resolve({ connections: connections.result, calendars: calendars.result, events: events.result });
           };
         };
       }),
   );
+
+/** The id Koyomi's server gave a connected account, as this device holds it, by the account's address. */
+export const connectionId = async (page: Page, address = ME): Promise<string> => (await cached(page)).connections.find((connection) => connection.account === address).id;
 
 /** Everything page code can reach on this device: both kinds of storage, every database, every cache. */
 export const everythingStored = (page: Page) =>

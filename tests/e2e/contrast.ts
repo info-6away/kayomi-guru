@@ -91,10 +91,15 @@ export async function read(page: Page): Promise<Reading[]> {
   }, screenshot);
 }
 
-/** Fails if anything on screen is hard to read, or is dimmed with opacity instead of given a colour. */
-export async function check(page: Page, screen: string) {
+/**
+ * Fails if anything on screen is hard to read, or is dimmed with opacity instead of given a colour.
+ *
+ * @param least How many pieces of text there must be more than, so that a screen that failed to
+ *   draw does not pass for having nothing hard to read on it. A sheet over a phone's screen has few.
+ */
+export async function check(page: Page, screen: string, least = 10) {
   const readings = await read(page);
-  expect(readings.length, `${screen}: text found`).toBeGreaterThan(10);
+  expect(readings.length, `${screen}: text found`).toBeGreaterThan(least);
   const hard = readings.filter((r) => r.ratio < (r.large ? 3 : 4.5)).map((r) => `"${r.text}" ${r.ratio}:1 at ${r.size}px`);
   expect(hard, `${screen}: text that is hard to read`).toEqual([]);
   expect(readings.filter((r) => r.faded).map((r) => r.text), `${screen}: text dimmed with opacity`).toEqual([]);

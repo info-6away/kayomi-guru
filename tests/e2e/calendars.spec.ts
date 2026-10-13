@@ -2,19 +2,26 @@ import { expect } from '@playwright/test';
 import { check } from './contrast';
 import {
   FAKE,
+  ME,
   NOW,
   account,
   actAs,
+  addButton,
   allDay,
   cached,
   cell,
   closeDrawer,
   connect,
+  connectionId,
+  disconnectButton,
   everythingStored,
   external,
   google,
+  group,
   ist,
+  nothingConnected,
   openCalendars,
+  pick,
   refresh,
   refreshAndHold,
   start,
@@ -22,9 +29,10 @@ import {
   toggle,
   view,
 } from './connected';
-import { addEvent, columns, event, fits, open, plan, popover, reload, seed, stored } from './helpers';
+import { addEvent, columns, event, fits, open, popover, reload, seed, stored } from './helpers';
 
-// Calendars connected from outside: Google, read-only. What only a real account can show is
+// Calendars connected from outside: Google, read-only. These are about one connected account;
+// what holds between several is in accounts.spec.ts. What only a real account can show is
 // listed in docs/CALENDAR_CONNECTIONS.md under "Checked against the real Google".
 
 test.describe('someone who only uses Koyomi', () => {
@@ -35,9 +43,8 @@ test.describe('someone who only uses Koyomi', () => {
     });
     await start(page);
     await addEvent(page, 'Lunch', '14:00', '2026-10-07');
-    await page.keyboard.press('p');
-    // The one new thing: a quiet line at the foot of Plan. Everything else is as it was.
-    await expect(plan(page).getByRole('button', { name: 'Calendars' })).toBeVisible();
+    // Calendars is there to be opened, and that is all it is until an account is added.
+    await expect(page.locator('header').getByRole('button', { name: 'Calendars', exact: true })).toBeVisible();
     await reload(page);
     await expect(event(page, 'Lunch')).toBeVisible();
 
@@ -55,8 +62,11 @@ test.describe('someone who only uses Koyomi', () => {
     await start(page);
     await openCalendars(page);
     await expect(view(page)).toContainText('Koyomi');
-    await expect(view(page).getByRole('button', { name: 'Connect' })).toBeVisible();
+    await expect(addButton(page)).toBeVisible();
     await expect(view(page)).toContainText('It can never change them.');
+    // Nothing of an account's is there before one is added: no address, no Disconnect, no Refresh.
+    await expect(view(page).getByRole('group')).toHaveCount(0);
+    await expect(view(page).getByRole('button')).toHaveText(['×', '＋Add calendar account']);
     // One quiet link to the policy, in the sentence that says what connecting means. It is a page
     // of the site, so it opens beside the calendar rather than in place of it.
     const privacy = view(page).locator('p', { hasText: 'It can never change them.' }).getByRole('link', { name: 'Privacy' });
@@ -65,8 +75,8 @@ test.describe('someone who only uses Koyomi', () => {
     await expect(privacy).toHaveAttribute('target', '_blank');
     await expect(privacy).toHaveAttribute('rel', /noopener/);
     await expect(view(page).getByRole('link')).toHaveCount(1);
-    await view(page).getByRole('button', { name: 'Back to Plan' }).click();
-    await expect(plan(page)).toContainText('Nothing waiting.');
+    await view(page).getByRole('button', { name: 'Close calendars' }).click();
+    await expect(view(page)).toBeHidden();
     expect(asked).toEqual([]);
   });
 });
@@ -83,6 +93,9 @@ test.describe('connecting Google Calendar', () => {
     // Back on the calendar, at its own address, with nothing of the round trip left in it.
     expect(new URL(page.url()).search).toBe('');
     await expect(view(page)).toContainText('Koyomi');
+    // The account is named by its address, with its calendars under it.
+    await expect(view(page).getByRole('group')).toHaveCount(1);
+    await expect(group(page, ME).getByRole('switch')).toHaveText(['Personal✓', 'Holidays', 'Work✓']);
     await expect(toggle(page, 'Personal')).toHaveAttribute('aria-checked', 'true');
     await expect(toggle(page, 'Work')).toHaveAttribute('aria-checked', 'true');
     // Not ticked in Google's own app, so not shown here until asked for.
@@ -95,6 +108,10 @@ test.describe('connecting Google Calendar', () => {
     expect(consent.scope).toBe('https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.readonly');
     expect(consent).toMatchObject({ redirect_uri: 'http://localhost:4310/api/google/callback', access_type: 'offline', response_type: 'code', code_challenge_method: 'S256' });
     expect(consent).not.toHaveProperty('client_secret');
+    // Google is told to ask which account, and then for consent, every time.
+    expect(consent.prompt).toBe('consent select_account');
+    // Which account it is was learned from its own calendar, once, with the permission to list calendars.
+    expect(log.filter((entry) => entry.type === 'account')).toEqual([{ type: 'account', fields: 'id' }]);
     // Repeating events arrive expanded by Google, and only titles and times are asked for.
     const reads = log.filter((entry) => entry.type === 'events');
     expect(reads.map((entry) => `${entry.calendarId} ${entry.mode}`).sort()).toEqual(['me@example.test everything', 'work@example.test everything']);
@@ -199,6 +216,8 @@ test.describe('connecting Google Calendar', () => {
     await expect(details).toContainText('Dentist');
     await expect(details).toContainText('15:00 – 16:00');
     await expect(details).toContainText('Google Calendar · Personal');
+    // And whose account that calendar is in, under it.
+    await expect(details.locator('p').nth(2)).toHaveText(`Google Calendar · Personal${ME}`);
     // Nothing to type into, nothing to press but the way out to Google.
     await expect(details.locator('input, select, textarea')).toHaveCount(0);
     await expect(details.getByRole('button')).toHaveCount(0);
@@ -240,11 +259,14 @@ test.describe('connecting Google Calendar', () => {
   test('only titles and times reach this device', async ({ page }) => {
     await start(page);
     await connect(page);
-    const { events, calendars } = await cached(page);
+    const { events, calendars, connections } = await cached(page);
     expect(events.map((e) => e.title).sort()).toEqual(['Dentist', 'Mum’s birthday', 'Trip to Izmir', 'Weekly sync', 'Weekly sync']);
     expect(Object.keys(events.find((e) => e.title === 'Dentist')).sort()).toEqual(
-      ['allDay', 'calendarId', 'end', 'fetchedAt', 'id', 'link', 'provider', 'providerEventId', 'start', 'status', 'timeZone', 'title', 'updatedAt'].sort(),
+      ['allDay', 'calendarId', 'connectionId', 'end', 'fetchedAt', 'id', 'link', 'provider', 'providerEventId', 'start', 'status', 'timeZone', 'title', 'updatedAt'].sort(),
     );
+    // Of the account itself: the server's name for the connection, the account's address, whether
+    // Google still honours it, and a made-up word that names nobody.
+    expect(connections).toEqual([{ id: expect.stringMatching(/^[0-9a-f-]{36}$/), provider: 'google', account: ME, status: 'connected', epoch: expect.stringMatching(/^[0-9a-f-]{36}$/) }]);
     // The zone it was written in is kept beside the instant.
     expect(events.find((e) => e.title === 'Dentist')).toMatchObject({ start: '2026-10-07T12:00:00.000Z', end: '2026-10-07T13:00:00.000Z', timeZone: 'Europe/Istanbul', allDay: false });
     expect(events.find((e) => e.title === 'Trip to Izmir')).toMatchObject({ start: '2026-10-08', end: '2026-10-10', allDay: true });
@@ -432,7 +454,7 @@ test.describe('the all-day row', () => {
     );
     await google.has(id, more);
     await seed(page, {
-      events: [{ id: 'rent', title: 'Pay rent', start: '2026-10-07', end: '2026-10-07', allDay: true, category: 'life', planItemId: null, recurrence: null, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' }],
+      events: [{ id: 'rent', title: 'Pay rent', start: '2026-10-07', end: '2026-10-07', allDay: true, category: 'life', recurrence: null, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' }],
     });
     await start(page);
     const headingsAlone = (await page.locator('.sticky').first().boundingBox())!.height;
@@ -646,6 +668,10 @@ test.describe('keeping up with Google', () => {
 });
 
 test.describe('when Google or the connection fails', () => {
+  // Several of these connect, refresh, reload and go to Google a second time. With the whole
+  // suite running beside them that can pass the usual half minute; every wait keeps its own limit.
+  test.describe.configure({ timeout: 60_000 });
+
   test('with no connection the calendar carries on, Google events included', async ({ page, context, id }) => {
     await start(page);
     await connect(page);
@@ -714,27 +740,31 @@ test.describe('when Google or the connection fails', () => {
     expect(await consents()).toBe(1);
   });
 
-  test('connecting while the Calendar API is switched off says to try again, and trying again needs no second consent', async ({ page, id }) => {
-    const consents = async () => (await google.asked(id)).log.filter((entry) => entry.type === 'consent').length;
+  test('connecting while the Calendar API is switched off keeps nothing, and says to try again', async ({ page, id }) => {
     await google.becomes(id, { fail: 'disabled' });
     await start(page);
     await openCalendars(page);
-    await view(page).getByRole('button', { name: 'Connect', exact: true }).click();
+    await addButton(page).click();
 
-    // Consent was given and kept. Only the first reading failed, and the person is told what to do.
-    await expect(view(page)).toContainText('Your calendars couldn’t be read just now. Press Connect again in a moment.', { timeout: 15_000 });
-    await expect(view(page).getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    // Consent was given, but Google would not say which account it was for. A permission is kept
+    // as one account's connection or not at all, so it is handed back and the person is told.
+    await expect(view(page).getByRole('status')).toHaveText('Couldn’t connect to Google Calendar. Try again in a moment.', { timeout: 15_000 });
+    await expect(nothingConnected(page)).toBeVisible();
     await expect(page.getByText(/reconnect/i)).toHaveCount(0);
-    expect(await consents()).toBe(1);
+    const { log, liveTokens } = await google.asked(id);
+    expect(log.map((entry) => entry.type)).toEqual(['consent', 'grant', 'revoke']);
+    expect(liveTokens).toBe(0);
     expect(await page.evaluate(() => localStorage.getItem('koyomi-calendars'))).toBeNull();
+    expect(await page.evaluate(() => indexedDB.databases())).toEqual([{ name: 'kayomi', version: 1 }]);
+    expect(await (await page.request.get('/api/google/calendars')).json()).toEqual({ connections: [] });
 
-    // Switched on: Connect finds the permission already given and goes straight to the calendars.
+    // Switched on: trying again goes through Google once more, and this time it is connected.
     await google.becomes(id, { fail: null });
-    await view(page).getByRole('button', { name: 'Connect', exact: true }).click();
+    await addButton(page).click();
     await expect(toggle(page, 'Personal')).toBeVisible({ timeout: 15_000 });
     await closeDrawer(page);
     await expect(external(page, 'Dentist')).toBeVisible();
-    expect(await consents()).toBe(1);
+    expect((await google.asked(id)).log.filter((entry) => entry.type === 'consent')).toHaveLength(2);
   });
 
   test('if the permission is withdrawn at Google, one quiet line says so and reconnecting mends it', async ({ page, id }) => {
@@ -744,8 +774,8 @@ test.describe('when Google or the connection fails', () => {
     await google.becomes(id, { revoked: true });
     await refresh(page);
 
-    await expect(view(page)).toContainText('Google Calendar needs reconnecting');
-    await expect(view(page).getByRole('button', { name: 'Refresh' })).toHaveCount(0);
+    // Said of the account, under its own address.
+    await expect(group(page, ME)).toContainText('Needs reconnecting');
     // What was read before is still on screen, and Koyomi itself is untouched.
     await expect(external(page, 'Dentist')).toBeVisible();
     await closeDrawer(page);
@@ -766,8 +796,10 @@ test.describe('when Google or the connection fails', () => {
     await expect(view(page)).toBeVisible();
     await google.changes(id, { calendarId: 'me@example.test', cancel: ['dentist'] });
     await view(page).getByRole('button', { name: 'Reconnect' }).click();
-    await expect(view(page).getByRole('button', { name: 'Refresh' })).toBeVisible();
-    await expect(page.getByText('Google Calendar needs reconnecting')).toHaveCount(0);
+    await expect(view(page).getByText('Refreshing…')).toHaveCount(0, { timeout: 15_000 });
+    await expect(page.getByText(/needs reconnecting/i)).toHaveCount(0);
+    // The same account again is the same connection, mended: not a second one beside it.
+    await expect(view(page).getByRole('group')).toHaveCount(1);
     await expect(event(page, 'Dentist')).toHaveCount(0);
     await expect(event(page, 'My own event')).toBeVisible();
     await expect(event(page, 'Still works')).toBeVisible();
@@ -778,21 +810,22 @@ test.describe('when Google or the connection fails', () => {
     await start(page);
     await context.addCookies([{ name: 'fake_google', value: `deny:${id}`, url: FAKE }]);
     await openCalendars(page);
-    await view(page).getByRole('button', { name: 'Connect' }).click();
+    await addButton(page).click();
     await expect(view(page).getByRole('status')).toHaveText('Google Calendar was not connected.');
-    await expect(view(page).getByRole('button', { name: 'Connect' })).toBeVisible();
+    await expect(nothingConnected(page)).toBeVisible();
 
     await context.addCookies([{ name: 'fake_google', value: `partial:${id}`, url: FAKE }]);
-    await view(page).getByRole('button', { name: 'Connect' }).click();
+    await addButton(page).click();
     await expect(view(page).getByRole('status')).toContainText('needs both permissions');
-    await expect(view(page).getByRole('button', { name: 'Connect' })).toBeVisible();
+    await expect(nothingConnected(page)).toBeVisible();
     // The half-given permission was handed straight back, and nothing was kept.
     const { log, liveTokens } = await google.asked(id);
     expect(log.map((entry) => entry.type)).toEqual(['consent', 'consent', 'grant', 'revoke']);
     expect(liveTokens).toBe(0);
     expect(await page.evaluate(() => indexedDB.databases())).toEqual([{ name: 'kayomi', version: 1 }]);
     expect(await page.evaluate(() => localStorage.getItem('koyomi-calendars'))).toBeNull();
-    expect((await page.request.get('/api/google/calendars')).status()).toBe(409);
+    // Signed in, and nothing is connected.
+    expect(await (await page.request.get('/api/google/calendars')).json()).toEqual({ connections: [] });
   });
 });
 
@@ -813,8 +846,9 @@ test.describe('disconnecting', () => {
     // Connecting and reading did not touch a single Koyomi record.
     expect(await stored(page)).toEqual(mine);
 
-    await view(page).getByRole('button', { name: 'Disconnect' }).click();
-    await expect(view(page).getByRole('button', { name: 'Connect' })).toBeVisible();
+    await disconnectButton(page, ME).click();
+    await expect(nothingConnected(page)).toBeVisible();
+    await expect(view(page).getByRole('group')).toHaveCount(0);
 
     // On screen: Google's events are gone, Koyomi's are not.
     await expect(page.locator('[data-external]')).toHaveCount(0);
@@ -835,8 +869,6 @@ test.describe('disconnecting', () => {
     await reload(page);
     await expect(event(page, 'My own event')).toBeVisible();
     await expect(page.locator('[data-external]')).toHaveCount(0);
-    await page.keyboard.press('p');
-    await expect(plan(page).getByRole('button', { name: 'Still waiting', exact: true })).toBeVisible();
 
     // And it can be connected again, cleanly.
     await connect(page);
@@ -848,7 +880,7 @@ test.describe('disconnecting', () => {
     await start(page);
     await connect(page);
     await context.clearCookies({ name: 'koyomi_session' });
-    await view(page).getByRole('button', { name: 'Disconnect' }).click();
+    await disconnectButton(page).click();
     await expect(page.locator('[data-external]')).toHaveCount(0);
     await expect.poll(async () => (await google.asked(id)).revoked).toBe(true);
     expect(new URL(page.url()).search).toBe('');
@@ -874,7 +906,6 @@ test.describe('a reading that comes back after its connection has ended', () => 
     ],
   };
   type Tab = Parameters<typeof cached>[0];
-  const connectButton = (page: Tab) => view(page).getByRole('button', { name: 'Connect', exact: true });
   /** The device holds nothing of Google's: no copy at all, and no note that anything is connected. */
   const nothingKept = async (page: Tab) => {
     await expect.poll(() => page.evaluate(() => indexedDB.databases())).toEqual([{ name: 'kayomi', version: 1 }]);
@@ -931,11 +962,11 @@ test.describe('a reading that comes back after its connection has ended', () => 
       const answered = answerOf(page);
 
       // The other tab disconnects, and that is finished: the copy is gone from the device.
-      await view(other).getByRole('button', { name: 'Disconnect', exact: true }).click();
-      await expect(connectButton(other)).toBeVisible(BACK);
+      await disconnectButton(other).click();
+      await expect(nothingConnected(other)).toBeVisible(BACK);
       await nothingKept(other);
       // The first tab knows, however it came to hear.
-      await expect(connectButton(page)).toBeVisible();
+      await expect(nothingConnected(page)).toBeVisible();
       await expect(page.locator('[data-external]')).toHaveCount(0);
 
       // Now the answer it was waiting for arrives, events and all.
@@ -945,15 +976,15 @@ test.describe('a reading that comes back after its connection has ended', () => 
 
       // It is not connected again, and nothing of Google's is shown or kept.
       await nothingKept(page);
-      await expect(connectButton(page)).toBeVisible();
+      await expect(nothingConnected(page)).toBeVisible();
       await expect(page.locator('[data-external]')).toHaveCount(0);
-      await expect(connectButton(other)).toBeVisible();
+      await expect(nothingConnected(other)).toBeVisible();
       await expect(other.locator('[data-external]')).toHaveCount(0);
       // At Google the permission stays withdrawn, and the server has no connection to answer for.
       const { revoked, liveTokens } = await google.asked(id);
       expect([revoked, liveTokens]).toEqual([true, 0]);
       expect((await page.request.get('/api/google/calendars')).status()).toBe(401);
-      // Koyomi's own calendar and Plan are, to the letter, what they were before connecting.
+      // Koyomi's own database is, to the letter, what it was before connecting.
       expect(JSON.stringify(await stored(page))).toBe(mine);
       await expect(event(page, 'My own event')).toBeVisible();
 
@@ -961,14 +992,12 @@ test.describe('a reading that comes back after its connection has ended', () => 
       await reload(page);
       await expect(event(page, 'My own event')).toBeVisible();
       await expect(page.locator('[data-external]')).toHaveCount(0);
-      await page.keyboard.press('p');
-      await expect(plan(page).getByRole('button', { name: 'Still waiting', exact: true })).toBeVisible();
       await nothingKept(page);
       expect(JSON.stringify(await stored(page))).toBe(mine);
     });
   }
 
-  test('connecting a different account meanwhile: the old account’s answer does not touch the new connection', async ({ page, context, id }) => {
+  test('disconnecting and connecting a different account meanwhile: the old account’s answer does not touch the new connection', async ({ page, context, id }) => {
     const second = `${id}b`;
     await google.has(second, { calendars: [{ id: 'elsewhere@example.test', summary: 'Elsewhere', primary: true, selected: true, events: [{ id: 'visit', summary: 'Site visit', start: { dateTime: ist('2026-10-07', '17:00') }, end: { dateTime: ist('2026-10-07', '18:00') } }] }] });
     await start(page);
@@ -982,10 +1011,10 @@ test.describe('a reading that comes back after its connection has ended', () => 
     const answered = answerOf(page);
 
     // In the other tab: disconnect, then connect again, this time allowing a different Google account.
-    await view(other).getByRole('button', { name: 'Disconnect', exact: true }).click();
-    await expect(connectButton(other)).toBeVisible(BACK);
-    await context.addCookies([{ name: 'fake_google', value: second, url: FAKE }]);
-    await connectButton(other).click();
+    await disconnectButton(other).click();
+    await expect(nothingConnected(other)).toBeVisible(BACK);
+    await pick(other, second);
+    await addButton(other).click();
     await expect(toggle(other, 'Elsewhere')).toBeVisible(BACK);
     await expect(external(other, 'Site visit')).toBeVisible();
     await expect.poll(async () => (await cached(other)).events.map((e) => e.title)).toEqual(['Site visit']);
@@ -1038,7 +1067,7 @@ test.describe('a reading that comes back after its connection has ended', () => 
       await expect(tab.getByText(/sign in again|reconnect/i)).toHaveCount(0);
     }
     await openCalendars(other);
-    await expect(connectButton(other)).toBeVisible();
+    await expect(nothingConnected(other)).toBeVisible();
     // Nothing was revoked or deleted on the first person's behalf.
     expect((await google.asked(id)).revoked).toBe(false);
   });
@@ -1055,7 +1084,7 @@ test.describe('a reading that comes back after its connection has ended', () => 
     const device = await elsewhere.newPage();
     await start(device);
     await openCalendars(device);
-    await connectButton(device).click();
+    await addButton(device).click();
     await expect(toggle(device, 'Elsewhere')).toBeVisible(BACK);
     await elsewhere.close();
 
@@ -1125,14 +1154,14 @@ test.describe('a reading that comes back after its connection has ended', () => 
 
     // Disconnect needs a sign-in first. Back from it, the refresh of the old copy is under way,
     // waiting on Google, and the Disconnect has not been finished yet.
-    await view(page).getByRole('button', { name: 'Disconnect', exact: true }).click();
+    await disconnectButton(page).click();
     await expect.poll(async () => (await google.asked(id)).held, BACK).toBeGreaterThan(0);
     expect((await google.asked(id)).revoked).toBe(false);
     // Now Koyomi's own calendar opens, and the Disconnect is finished.
     await page.evaluate(() => (window as any).openOwnCalendar());
     await expect.poll(async () => (await google.asked(id)).revoked, BACK).toBe(true);
     await openCalendars(page);
-    await expect(connectButton(page)).toBeVisible(BACK);
+    await expect(nothingConnected(page)).toBeVisible(BACK);
     await nothingKept(page);
 
     // The refresh that was under way gets its answer now.
@@ -1146,7 +1175,7 @@ test.describe('a reading that comes back after its connection has ended', () => 
     // A reading whose connection has ended asks for nothing more.
     expect(asked).toEqual([]);
     // Disconnected is how it stays: nothing asks to sign in again, and nothing is kept.
-    await expect(connectButton(page)).toBeVisible();
+    await expect(nothingConnected(page)).toBeVisible();
     await expect(page.getByText(/sign in again|reconnect/i)).toHaveCount(0);
     await expect(page.locator('[data-external]')).toHaveCount(0);
     await nothingKept(page);
@@ -1155,22 +1184,25 @@ test.describe('a reading that comes back after its connection has ended', () => 
     await nothingKept(page);
   });
 
-  test('a copy saved by the release before this one is taken up as it is, and from then on says whose it is', async ({ page }) => {
-    // The copy as that release left it: its two stores, and nothing to say which connection it is for.
-    await page.goto('/home');
+  test('a copy saved by a release that knew one account is not carried over: it goes, Koyomi’s own calendar stays, and adding the account reads it again', async ({ page, id }) => {
+    // The copy as the release before this one left it: filed by calendar alone, with one mark
+    // for the whole of it and nothing to say which account anything came from.
+    await seed(page, OWN);
     await page.evaluate(
       () =>
         new Promise<void>((resolve, reject) => {
-          const open = indexedDB.open('koyomi-external', 1);
+          const open = indexedDB.open('koyomi-external', 2);
           open.onupgradeneeded = () => {
             open.result.createObjectStore('calendars', { keyPath: 'id' });
             open.result.createObjectStore('events', { keyPath: 'id' }).createIndex('calendar', 'calendarId');
+            open.result.createObjectStore('meta');
           };
           open.onerror = () => reject(open.error);
           open.onsuccess = () => {
-            const tx = open.result.transaction(['calendars', 'events'], 'readwrite');
+            const tx = open.result.transaction(['meta', 'calendars', 'events'], 'readwrite');
+            tx.objectStore('meta').put({ epoch: 'an-old-mark' }, 'connection');
             tx.objectStore('calendars').put({ id: 'google:me@example.test', provider: 'google', calendarId: 'me@example.test', name: 'Personal', primary: true, selected: true, visible: true, syncToken: 'cursor', windowFrom: '2026-09-02', windowTo: '2027-04-14', fetchedAt: '2026-10-07T10:00:00.000Z' });
-            tx.objectStore('events').put({ id: 'google:me@example.test:dentist', provider: 'google', providerEventId: 'dentist', calendarId: 'me@example.test', title: 'Dentist', start: '2026-10-07T12:00:00.000Z', end: '2026-10-07T13:00:00.000Z', allDay: false, timeZone: 'Europe/Istanbul', status: 'confirmed', link: null, updatedAt: '2026-10-01T10:00:00.000Z', fetchedAt: '2026-10-07T10:00:00.000Z' });
+            tx.objectStore('events').put({ id: 'google:me@example.test:old', provider: 'google', providerEventId: 'old', calendarId: 'me@example.test', title: 'Read by the old release', start: '2026-10-07T12:00:00.000Z', end: '2026-10-07T13:00:00.000Z', allDay: false, timeZone: 'Europe/Istanbul', status: 'confirmed', link: null, updatedAt: '2026-10-01T10:00:00.000Z', fetchedAt: '2026-10-07T10:00:00.000Z' });
             tx.oncomplete = () => {
               open.result.close();
               resolve();
@@ -1179,53 +1211,65 @@ test.describe('a reading that comes back after its connection has ended', () => 
         }),
     );
     await page.evaluate(() => localStorage.setItem('koyomi-calendars', 'connected'));
+    const asked: string[] = [];
+    page.on('request', (request) => void (new URL(request.url()).pathname.startsWith('/api/') && asked.push(new URL(request.url()).pathname)));
 
     await start(page);
-    // What was read is still shown.
+    const mine = JSON.stringify(await stored(page));
+    // Nothing of the old copy is shown, and nothing is left of it: no database, no note.
+    await expect(event(page, 'My own event')).toBeVisible();
+    await expect(page.locator('[data-external]')).toHaveCount(0);
+    await nothingKept(page);
+    await openCalendars(page);
+    await expect(nothingConnected(page)).toBeVisible();
+    await expect(page.getByText(/sign in again|reconnect/i)).toHaveCount(0);
+    // It was only a copy, so letting it go asked nothing of anyone.
+    expect(asked).toEqual([]);
+
+    // Adding the account reads everything again, into a copy that says which account it is.
+    await connect(page);
+    await closeDrawer(page);
     await expect(external(page, 'Dentist')).toContainText('15:00 – 16:00');
-    // And the copy holds what it held, now with its mark.
-    const copy = () =>
-      page.evaluate(
-        () =>
-          new Promise<unknown>((resolve) => {
-            const open = indexedDB.open('koyomi-external');
-            open.onsuccess = () => {
-              const db = open.result;
-              const tx = db.transaction(['meta', 'calendars', 'events']);
-              const mark = tx.objectStore('meta').get('connection');
-              const calendars = tx.objectStore('calendars').getAll();
-              const events = tx.objectStore('events').getAll();
-              tx.oncomplete = () => {
-                db.close();
-                resolve({ version: db.version, mark: typeof mark.result?.epoch, calendars: calendars.result.map((c) => c.name), events: events.result.map((e) => e.title) });
-              };
-            };
-          }),
-      );
-    await expect.poll(copy).toEqual({ version: 2, mark: 'string', calendars: ['Personal'], events: ['Dentist'] });
+    await expect(page.getByText('Read by the old release')).toHaveCount(0);
+    const copy = await cached(page);
+    expect(copy.connections.map((connection) => connection.account)).toEqual([ME]);
+    expect(copy.events.every((kept) => kept.connectionId === copy.connections[0].id && kept.id.startsWith(`${copy.connections[0].id}:`))).toBe(true);
+    expect(await page.evaluate(async () => (await indexedDB.databases()).find((db) => db.name === 'koyomi-external')?.version)).toBe(3);
+    expect((await google.asked(id)).log.filter((entry) => entry.type === 'events').map((entry) => entry.mode)).toEqual(['everything', 'everything']);
+    // Koyomi's own database was not opened, changed or upgraded by any of it.
+    expect(JSON.stringify(await stored(page))).toBe(mine);
   });
 });
 
 test.describe('the server', () => {
   test('answers only the signed-in person, from this site, about their own connection', async ({ page, browser, id }) => {
-    const ask = { timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
+    const span = { timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
     const mine = { origin: 'http://localhost:4310' };
+    const nobodys = '00000000-0000-4000-8000-000000000000';
 
     // Signed out: nothing.
     for (const path of ['/api/google/calendars']) expect((await page.request.get(path)).status()).toBe(401);
-    for (const path of ['/api/google/events', '/api/google/disconnect']) expect((await page.request.post(path, { data: ask, headers: mine })).status()).toBe(401);
+    for (const path of ['/api/google/events', '/api/google/disconnect']) expect((await page.request.post(path, { data: { ...span, connectionId: nobodys }, headers: mine })).status()).toBe(401);
 
     await start(page);
     await connect(page);
+    // Which account is asked about is named by the id the server gave its connection.
+    const ask = { ...span, connectionId: await connectionId(page) };
     expect((await page.request.post('/api/google/events', { data: ask, headers: mine })).status()).toBe(200);
     // From another site, or from nowhere in particular: refused, even with the session.
     expect((await page.request.post('/api/google/events', { data: ask, headers: { origin: 'https://evil.example' } })).status()).toBe(403);
     expect((await page.request.post('/api/google/events', { data: ask })).status()).toBe(403);
     expect((await page.request.post('/api/google/disconnect', { data: {}, headers: { origin: 'https://evil.example' } })).status()).toBe(403);
     // Not what the app would ask: refused.
-    for (const bad of [{}, { ...ask, timeMax: '2029-01-01T00:00:00Z' }, { ...ask, timeMin: 'yesterday' }, { ...ask, calendars: 'all' }, { ...ask, calendars: [{ calendarId: 7 }] }]) {
+    for (const bad of [{}, span, { ...ask, connectionId: 'mine' }, { ...ask, connectionId: [ask.connectionId] }, { ...ask, timeMax: '2029-01-01T00:00:00Z' }, { ...ask, timeMin: 'yesterday' }, { ...ask, calendars: 'all' }, { ...ask, calendars: [{ calendarId: 7 }] }]) {
       expect((await page.request.post('/api/google/events', { data: bad, headers: mine })).status(), JSON.stringify(bad)).toBe(400);
     }
+    for (const bad of [{}, { connectionId: 'mine' }, { connectionId: null }]) {
+      expect((await page.request.post('/api/google/disconnect', { data: bad, headers: mine })).status(), JSON.stringify(bad)).toBe(400);
+    }
+    // A connection that is nobody's is simply not this person's.
+    const none = await page.request.post('/api/google/events', { data: { ...ask, connectionId: nobodys }, headers: mine });
+    expect([none.status(), await none.json()]).toEqual([409, { error: 'not_connected' }]);
     // A calendar this account does not have is simply not there.
     const other = await page.request.post('/api/google/events', { data: { ...ask, calendars: [{ calendarId: 'someone-else@example.test', syncToken: null }] }, headers: mine });
     expect(await other.json()).toEqual({ calendars: [{ calendarId: 'someone-else@example.test', gone: true }] });
@@ -1238,8 +1282,14 @@ test.describe('the server', () => {
     const stranger = await theirs.newPage();
     await stranger.goto('/api/auth/signin?returnTo=%2F');
     await expect(stranger.getByText('koyomi', { exact: true })).toBeVisible();
-    const refused = await stranger.request.get('/api/google/calendars');
-    expect([refused.status(), await refused.json()]).toEqual([409, { error: 'not_connected' }]);
+    const listed = await stranger.request.get('/api/google/calendars');
+    expect([listed.status(), await listed.json()]).toEqual([200, { connections: [] }]);
+    // And the first person's connection, named outright, is not theirs to read or to end.
+    const reached = await stranger.request.post('/api/google/events', { data: ask, headers: mine });
+    expect([reached.status(), await reached.json()]).toEqual([409, { error: 'not_connected' }]);
+    expect((await stranger.request.post('/api/google/disconnect', { data: { connectionId: ask.connectionId }, headers: mine })).status()).toBe(200);
+    expect((await google.asked(id)).revoked).toBe(false);
+    expect((await page.request.post('/api/google/events', { data: ask, headers: mine })).status()).toBe(200);
     await theirs.close();
   });
 
@@ -1266,8 +1316,8 @@ for (const theme of ['light', 'dark'] as const) {
     test('everything about connected calendars is easy to read', async ({ page }) => {
       await seed(page, {
         events: [
-          { id: 'k1', title: 'Focus', start: '2026-10-07T06:00:00.000Z', end: '2026-10-07T08:00:00.000Z', allDay: false, category: 'focus', planItemId: null, recurrence: null, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' },
-          { id: 'k2', title: 'Pay rent', start: '2026-10-08', end: '2026-10-08', allDay: true, category: 'life', planItemId: null, recurrence: null, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' },
+          { id: 'k1', title: 'Focus', start: '2026-10-07T06:00:00.000Z', end: '2026-10-07T08:00:00.000Z', allDay: false, category: 'focus', recurrence: null, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' },
+          { id: 'k2', title: 'Pay rent', start: '2026-10-08', end: '2026-10-08', allDay: true, category: 'life', recurrence: null, createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T08:00:00.000Z' },
         ],
       });
       await start(page);

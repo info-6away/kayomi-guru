@@ -4,7 +4,7 @@ import type { CalendarInfo } from '../calendars/types';
 import { report } from './log';
 
 // Everything Koyomi says to Google, and nothing more: the consent screen, the token exchange,
-// and two read-only calls. Plain fetch, so there is no SDK between this file and the wire.
+// and three read-only calls. Plain fetch, so there is no SDK between this file and the wire.
 //
 // Every address used here comes from this file. Nothing a browser sends is ever treated as an
 // address: a calendar's id is put into the path percent-encoded, so it can name a calendar and
@@ -87,7 +87,9 @@ export function authorizeUrl(g: GoogleClient, state: string, challenge: string):
     // A refresh token, so the calendar can be read again later without asking again...
     access_type: 'offline',
     // ...and the consent screen every time, because Google only hands one out when it is shown.
-    prompt: 'consent',
+    // Before it, Google's own list of accounts, every time: a person may be connecting a second
+    // account, and must be the one to say which, rather than Google quietly taking the last one.
+    prompt: 'consent select_account',
   }).toString();
   return url.href;
 }
@@ -175,6 +177,19 @@ async function api<T>(g: GoogleClient, accessToken: string, path: string, query:
     if (says('accessNotConfigured', 'SERVICE_DISABLED')) report('google', new Error('the Google Calendar API is not enabled for this app’s Google Cloud project'));
   }
   throw new GoogleError('busy');
+}
+
+/**
+ * The id of the account's own calendar, which is what tells one Google account from another
+ * here. It is read with the permission Koyomi already has (the list of calendars) and asks
+ * Google for that one field. Koyomi requests no sign-in or profile permission from Google, so
+ * this is the only name it ever learns for an account. For a Google account it is the
+ * account's address.
+ */
+export async function primaryCalendarId(g: GoogleClient, accessToken: string, deadline?: AbortSignal): Promise<string> {
+  const entry: { id?: string } = await api(g, accessToken, '/users/me/calendarList/primary', { fields: 'id' }, deadline);
+  if (!entry.id) throw new GoogleError('busy');
+  return entry.id;
 }
 
 /** The calendars this account has in its list, excluding ones it has deleted. */

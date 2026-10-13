@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { CalendarEvent, Category, PlanItem } from '../../lib/types';
+import type { CalendarEvent, Category } from '../../lib/types';
 import { check } from './contrast';
-import { columns, event, open, plan, popover, seed } from './helpers';
+import { calendars, calendarsButton, columns, event, open, popover, seed } from './helpers';
 
 // What a day is read by must be easy to read, in both themes and at every size (see contrast.ts
 // for how that is measured). The line is WCAG AA: 4.5:1, or 3:1 for large text. Nothing is exempt.
@@ -19,7 +19,7 @@ const events: CalendarEvent[] = (
     ['2026-10-05', '07:30', '08:30', 'Gym', 'life'],
     ['2026-10-05', '10:00', '11:30', 'Project review', 'work'],
     ['2026-10-06', '14:00', '16:30', 'Design work', 'focus'],
-    ['2026-10-06', '18:00', '18:30', 'Call supplier', 'life', 'p-done'],
+    ['2026-10-06', '18:00', '18:30', 'Call supplier', 'life'],
     ['2026-10-07', '09:00', '11:30', 'Focus', 'focus'],
     ['2026-10-07', '12:30', '13:30', 'Lunch', 'misc'],
     // An event nobody has coloured, later today: the one that used to disappear into the paper.
@@ -28,28 +28,22 @@ const events: CalendarEvent[] = (
     ['2026-10-09', '19:30', '21:30', 'Dinner', 'misc'],
     // Outside October, so the month view has a day from another month with something on it.
     ['2026-09-29', '10:00', '11:00', 'Documents', 'misc'],
-  ] as [string, string, string, string, Category, string?][]
-).map(([day, from, to, title, category, planItemId], i) => ({
+  ] as [string, string, string, string, Category][]
+).map(([day, from, to, title, category], i) => ({
   id: `e-${i}`,
   title,
   start: at(day, from),
   end: at(day, to),
   allDay: false,
   category,
-  planItemId: planItemId ?? null,
   recurrence: null,
   createdAt: STAMP,
   updatedAt: STAMP,
 }));
-const planItems: PlanItem[] = [
-  { id: 'p-1', title: 'Finish slides', status: 'open', createdAt: STAMP, updatedAt: STAMP },
-  { id: 'p-2', title: 'Review budget', status: 'open', createdAt: STAMP, updatedAt: STAMP },
-  { id: 'p-done', title: 'Call supplier', status: 'completed', createdAt: STAMP, updatedAt: STAMP },
-];
 
 async function start(page: Page, now = NOW) {
   await page.clock.setFixedTime(now);
-  await seed(page, { events, planItems });
+  await seed(page, { events });
   await open(page);
   await page.evaluate(() => document.fonts.ready);
 }
@@ -72,11 +66,12 @@ for (const theme of ['light', 'dark'] as const) {
         expect(ratio('Interact meeting')).toBeGreaterThanOrEqual(10);
         expect(ratio('18:00 – 19:00')).toBeGreaterThanOrEqual(5.5);
 
-        await page.keyboard.press('p');
-        await plan(page).getByRole('button', { name: /Completed/ }).click();
-        await check(page, 'week with Plan');
-        await page.keyboard.press('p');
-        await expect(plan(page)).toBeHidden();
+        // Calendars with nothing connected: Koyomi's own, the way to add an account, and what that means.
+        await page.keyboard.press('c');
+        await expect(calendars(page).getByRole('button', { name: 'Add calendar account' })).toBeVisible();
+        await check(page, 'week with Calendars');
+        await page.keyboard.press('c');
+        await expect(calendars(page)).toBeHidden();
 
         await event(page, 'Interact meeting').click();
         await expect(popover(page)).toBeVisible();
@@ -107,11 +102,13 @@ for (const theme of ['light', 'dark'] as const) {
         // Today's numeral on its filled disc: the one place small text sits on vermilion.
         expect(day.find((r) => r.text === '7' && r.size === 17)?.ratio).toBeGreaterThanOrEqual(4.5);
 
-        await page.getByRole('button', { name: /^Plan/ }).tap();
-        await plan(page).getByRole('button', { name: /Completed/ }).tap();
-        await check(page, 'Plan');
-        await plan(page).getByRole('button', { name: 'Close plan' }).tap();
-        await expect(plan(page)).toBeHidden();
+        await calendarsButton(page).tap();
+        await expect(calendars(page).getByRole('button', { name: 'Add calendar account' })).toBeVisible();
+        // The sheet covers the day: what is read is the sheet, which with nothing connected is short.
+        const sheet = await check(page, 'Calendars', 6);
+        expect(sheet.map((r) => r.text)).toEqual(expect.arrayContaining(['Calendars', 'Koyomi', 'Add calendar account', 'Privacy']));
+        await calendars(page).getByRole('button', { name: 'Close calendars' }).tap();
+        await expect(calendars(page)).toBeHidden();
 
         await page.getByRole('button', { name: /October/ }).first().tap();
         await expect(columns(page)).toHaveCount(0);

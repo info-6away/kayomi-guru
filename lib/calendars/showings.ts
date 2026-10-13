@@ -1,5 +1,5 @@
 import { DAY_MIN, addDays, dayKey, hm } from '../dates';
-import type { ExternalCalendar, ExternalEvent } from './types';
+import { calendarKey, type ExternalCalendar, type ExternalConnection, type ExternalEvent } from './types';
 
 // Where external events sit on this device's calendar. Koyomi's own events live within one
 // day; events from elsewhere do not have to, so each is cut into one piece per day it touches.
@@ -11,6 +11,8 @@ export interface Showing {
   event: ExternalEvent;
   /** The name of the calendar it came from. */
   calendar: string;
+  /** The account that calendar belongs to, by its address. Null where that has not been read. */
+  account: string | null;
   date: string;
   /** Minutes from local midnight. An all-day piece covers the whole day. */
   start: number;
@@ -54,17 +56,22 @@ function pieces(event: ExternalEvent): { date: string; start: number; end: numbe
   ];
 }
 
-/** Everything from the calendars being shown, between two days, grouped by day and ordered by start. */
-export function showingsByDay(events: ExternalEvent[], calendars: ExternalCalendar[], from: string, to: string): Map<string, Showing[]> {
-  const names = new Map(calendars.filter((c) => c.visible).map((c) => [c.calendarId, c.name]));
+/**
+ * Everything from the calendars being shown, between two days, grouped by day and ordered by
+ * start. An event belongs to its account's calendar and no other: one in another account with
+ * the same calendar id is another calendar, shown or hidden by itself.
+ */
+export function showingsByDay(events: ExternalEvent[], calendars: ExternalCalendar[], connections: ExternalConnection[], from: string, to: string): Map<string, Showing[]> {
+  const accounts = new Map(connections.map((connection) => [connection.id, connection.account]));
+  const sources = new Map(calendars.filter((c) => c.visible).map((c) => [c.id, { calendar: c.name, account: accounts.get(c.connectionId) ?? null }]));
   const byDay = new Map<string, Showing[]>();
   for (const event of events) {
-    const calendar = names.get(event.calendarId);
-    if (calendar === undefined) continue;
+    const source = sources.get(calendarKey(event.connectionId, event.calendarId));
+    if (source === undefined) continue;
     for (const piece of pieces(event)) {
       if (piece.date < from || piece.date > to) continue;
       const list = byDay.get(piece.date) ?? [];
-      list.push({ key: `x:${event.id}@${piece.date}`, event, calendar, ...piece });
+      list.push({ key: `x:${event.id}@${piece.date}`, event, ...source, ...piece });
       byDay.set(piece.date, list);
     }
   }

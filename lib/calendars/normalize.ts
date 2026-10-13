@@ -1,5 +1,5 @@
 import { addDays } from '../dates';
-import type { ExternalEvent } from './types';
+import { eventKey, type ExternalEvent } from './types';
 
 // Turns an event as Google's Calendar API returns it into what Koyomi keeps. Only the fields
 // read here are ever requested from Google (see EVENT_FIELDS): no description, no location,
@@ -39,13 +39,17 @@ function googleLink(link: string | undefined): string | null {
 /**
  * Returns the event to keep, or `null` when it should not be on the calendar: cancelled,
  * declined by this person, a "working location" marker rather than an event, or unreadable.
+ *
+ * @param connectionId The account it was read through. It is part of the event's id here, so
+ *   the same id in another account is another event.
  */
-export function normalizeGoogleEvent(item: GoogleEvent, calendarId: string, fetchedAt: string): ExternalEvent | null {
+export function normalizeGoogleEvent(item: GoogleEvent, connectionId: string, calendarId: string, fetchedAt: string): ExternalEvent | null {
   if (!item.id || item.status === 'cancelled' || item.eventType === 'workingLocation') return null;
   if (item.attendees?.some((a) => a.self && a.responseStatus === 'declined')) return null;
 
   const base = {
-    id: `google:${calendarId}:${item.id}`,
+    id: eventKey(connectionId, calendarId, item.id),
+    connectionId,
     provider: 'google' as const,
     providerEventId: item.id,
     calendarId,

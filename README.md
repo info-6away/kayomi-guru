@@ -1,16 +1,16 @@
 # kayomi-guru
 
-Koyomi (暦, Japanese for calendar) is a calm, local-first planning calendar.
+Koyomi (暦, Japanese for calendar) is a calm, local-first calendar: one quiet place for all
+your calendars.
 
-- **Calendar** is scheduled time.
-- **Plan** is what is still waiting for time.
+- **Koyomi's own calendar.** Events you write here are stored on the device, in the browser's
+  IndexedDB. It needs no account, and none of it is sent anywhere.
+- **The calendars you already have.** Google Calendar, read-only, from as many Google accounts
+  as you choose to connect, shown beside your own. That is the only part with a server behind
+  it. See [Calendar connections](docs/CALENDAR_CONNECTIONS.md).
 
-Everything you put in Koyomi is stored on the device, in the browser's IndexedDB. It needs no
-account, and none of it is sent anywhere.
-
-Calendars from elsewhere can be shown beside it: Google Calendar, read-only, for anyone who
-chooses to connect one. That is the only part with a server behind it. See
-[Calendar connections](docs/CALENDAR_CONNECTIONS.md).
+Koyomi is a calendar and nothing else. It used to carry a list of things waiting for a time,
+called Plan; that is gone (see "Data model" for what became of what it stored).
 
 The product was first written "Kayomi". That spelling survives in the repository name, in the
 `Kayomi` component, and in the names the app uses inside the browser (the `kayomi` database, caches
@@ -24,7 +24,7 @@ Needs Node 20.9 or newer.
 npm install
 npm run dev                 # http://localhost:3000, no service worker
 npm run preview             # production build on http://localhost:4310, installable, works offline
-npm run preview:connected   # the same, with a stand-in Google account to connect (no credentials needed)
+npm run preview:connected   # the same, with two stand-in Google accounts to connect (no credentials needed)
 ```
 
 `npm run preview` uses its own port on purpose: the production build registers a service worker for
@@ -58,8 +58,8 @@ from. Everything that follows is checked by `tests/e2e/pwa.spec.ts`.
   vermilion dot on paper, drawn by `npm run icons`; the two screenshots shown by Chrome's install
   sheet are taken by `npm run screenshots`.
 - **Installing.** Chrome's own install banner is held back. While Chrome can install the app, one
-  line at the foot of Plan offers it (`lib/install.ts`); it never appears at another address or once
-  installed. Safari has no install prompt: on an iPhone it is Share, then Add to Home Screen.
+  line at the foot of Calendars offers it (`lib/install.ts`); it never appears at another address
+  or once installed. Safari has no install prompt: on an iPhone it is Share, then Add to Home Screen.
 - **Fonts.** Both typefaces are downloaded at build time by `next/font` and served from this site.
   Nothing is requested from Google, or any other server, while the app runs.
 - **Offline.** One visit is enough. The worker (`public/sw.js`) keeps the page and every file it
@@ -71,8 +71,9 @@ from. Everything that follows is checked by `tests/e2e/pwa.spec.ts`.
   underneath its user. Files from older releases are dropped once a newer page has loaded.
 - **Storage.** The calendar is in IndexedDB (database `kayomi`, version 1) and the worker's caches
   hold only files that can be fetched again. Nothing in the worker touches the database, and no
-  release so far has changed its shape. A change that does must raise the version, carry the
-  existing records over, and extend the test that opens a calendar saved by the first release.
+  release so far has changed its shape: removing Plan left it exactly as it was (see "Data
+  model"). A change that does must raise the version, carry the existing records over, and
+  extend the test that opens a calendar saved by the first release.
 
 ## Test it
 
@@ -81,12 +82,14 @@ npm test           # date, recurrence and layout logic
 npm run test:e2e   # the real app in Google Chrome: builds, serves and drives the production build
 ```
 
-The browser tests: `kayomi.spec.ts` (the calendar: quick-add, editing, drag and resize, Plan,
-search, Day/Week/Month, phone layout, dark mode), `pwa.spec.ts` (the installed app, as above),
-`calendars.spec.ts` (connected calendars and the all-day row), `connection-security.spec.ts`
-(sign-in, the round trip to Google, requests from other sites, and how much one person may ask),
-`readability.spec.ts` (the contrast of every piece of text, in both themes, at three sizes) and
-`site.spec.ts` (the landing page and the host names).
+The browser tests: `kayomi.spec.ts` (the calendar: quick-add, editing, drag and resize, search,
+Day/Week/Month, where Calendars is, that nothing of Plan is left, phone layout, dark mode),
+`pwa.spec.ts` (the installed app, as above), `calendars.spec.ts` (a connected account and the
+all-day row), `accounts.spec.ts` (several connected accounts: adding, colliding ids, one failing
+or disconnected while another carries on), `connection-security.spec.ts` (sign-in, the round trip
+to Google, requests from other sites, and how much may be asked), `readability.spec.ts` (the
+contrast of every piece of text, in both themes, at three sizes) and `site.spec.ts` (the landing
+page, Privacy and Terms, and the host names).
 
 No test touches a real account. Signing in and Google are played by stand-ins
 (`tests/fakes/providers.mjs`) that Playwright starts with the app, and connections are kept in
@@ -98,33 +101,45 @@ memory, never in a database, whatever `DATABASE_URL` the machine happens to have
   `app/home/page.tsx` is the landing page. `app/api/` is the server side of calendar
   connections, and the only code that runs on a server.
 - `components/`: the calendar itself. `Kayomi.tsx` holds the screen; `Timeline`, `MonthView`,
-  `PlanPanel`, `EventPopover` and `SearchPanel` are its parts. `CalendarsView` and
-  `ExternalPopover` are for connected calendars.
+  `EventPopover` and `SearchPanel` are its parts. `CalendarsPanel` is the Calendars drawer (a
+  sheet on a phone): Koyomi's own calendar and each connected account's. `ExternalPopover` shows
+  an event from a connected calendar.
 - `lib/`: no React. `types.ts` is the data model, `db.ts` and `store.ts` persist it, and
   `dates.ts`, `recurrence.ts` and `occurrences.ts` are the calendar arithmetic.
-- `lib/calendars/`: connected calendars in the browser: their own local database, reading them,
-  and where their events land on the calendar. `lib/server/`: the server's part: sealing tokens,
-  the connection table, and everything said to Google.
+- `lib/calendars/`: connected calendars in the browser: their own local database, filed by
+  account, reading them, and where their events land on the calendar. `lib/server/`: the
+  server's part: sealing tokens, the table of connections, and everything said to Google.
 - `public/sw.js`: the service worker that keeps the app shell available offline.
 - `scripts/`: `make-icons.mjs` draws the icons and `make-screenshots.mjs` takes the pictures in
   `docs/design` and the manifest. `migrate.mjs` applies `migrations/` (one table).
+  `preview-connected.mjs` runs the app against stand-ins for 6Away and Google.
 - `docs/design/`: the approved visual baseline, with screenshots. Read
   [DESIGN_BASELINE.md](docs/design/DESIGN_BASELINE.md) before changing how anything looks.
 
 ### Data model
 
-Two record types, each with a UUID and `createdAt` / `updatedAt` timestamps:
+One record type of Koyomi's own, with a UUID and `createdAt` / `updatedAt` timestamps:
 
 - `CalendarEvent`: title, `start` and `end` (UTC instants, or the day itself for an all-day
-  event), category, optional recurrence, and `planItemId` when it was scheduled from Plan.
-- `PlanItem`: title and `status` (`open` or `completed`).
+  event), category, and optional recurrence.
 
-Whether a Plan item is scheduled is not stored: it is scheduled exactly when an event points at it.
-Likewise an event is "done" only through its Plan item. An ordinary event is never a task.
+An event can be created, edited, moved, resized, repeated and deleted, and that is all. Nothing
+about it is a task: it cannot be marked done.
 
-Events from a connected calendar are a third kind of record, `ExternalEvent`
-(`lib/calendars/types.ts`), kept in a database of their own. They are never mixed with, merged
-into or converted to Koyomi's events.
+**What Plan left behind.** Until October 2026 the `kayomi` database also held Plan items, in a
+second store, `planItems`, and an event scheduled from one carried its id as `planItemId`. Plan
+has been removed, and Koyomi no longer reads or writes either. The database itself was
+deliberately not changed: it is still version 1 with both stores, a device that used Plan still
+holds what it held, and an event that came from Plan is simply an event (the stray `planItemId`
+stays on its record and means nothing). Leaving the unused store costs nothing, and changing a
+database whose only job is to keep people's events safe would have risked something. If it is
+ever tidied away, that is a version 2 with the events carried over, under the rule in "The
+installed app" above.
+
+Events from a connected calendar are another kind of record, `ExternalEvent`
+(`lib/calendars/types.ts`), kept in a database of their own (`koyomi-external`) and filed by
+the account they were read through. They are never mixed with, merged into or converted to
+Koyomi's events, and deleting that whole database never goes near one.
 
 ## License
 

@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from 'react';
 import { DAY_MIN, DOWL, MON, hm, parseTime, parts, spanOf, toInstant, weekday, type Span } from '@/lib/dates';
 import { moved, occurrenceKey, type Occurrence } from '@/lib/occurrences';
-import { backToPlan, deleteEvent, endSeriesBefore, setPlanStatus, skipOccurrence, updateEvent } from '@/lib/store';
+import { deleteEvent, endSeriesBefore, skipOccurrence, updateEvent } from '@/lib/store';
 import type { Frequency } from '@/lib/types';
 import { CAT, CATEGORIES, SURFACE } from './ui';
 
@@ -20,7 +20,6 @@ interface Props {
 /** Shows one event and edits it in place. Changes to a repeating event apply to the whole series. */
 export function EventPopover({ o, mobile, style, onSelect }: Props) {
   const ev = o.event;
-  const fromPlan = ev.planItemId;
   const [choosingDelete, setChoosingDelete] = useState(false);
   const day = parts(o.date);
 
@@ -94,7 +93,7 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
             close();
           }
         }}
-        className={`w-full font-mincho text-[20px] leading-[1.3] ${FIELD} ${o.done ? 'text-muted line-through' : 'text-ink'}`}
+        className={`w-full font-mincho text-[20px] leading-[1.3] text-ink ${FIELD}`}
       />
 
       <div className={`flex items-center gap-1 text-ink2 tabular-nums ${mobile ? 'text-[16px]' : 'text-[13px]'}`}>
@@ -147,20 +146,18 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
             />
           </button>
         ))}
-        {!fromPlan && (
-          <select
-            aria-label="Repeat"
-            value={ev.recurrence?.freq ?? ''}
-            onChange={(e) => setRepeat(e.target.value)}
-            className={`ml-auto cursor-pointer appearance-none bg-transparent text-muted outline-none [text-align-last:right] hover:text-ink focus-visible:text-ink ${mobile ? 'text-[16px]' : 'text-[12px]'}`}
-          >
-            <option value="">Does not repeat</option>
-            <option value="daily">Every day</option>
-            <option value="weekly">Every week</option>
-            <option value="monthly">Every month</option>
-            <option value="yearly">Every year</option>
-          </select>
-        )}
+        <select
+          aria-label="Repeat"
+          value={ev.recurrence?.freq ?? ''}
+          onChange={(e) => setRepeat(e.target.value)}
+          className={`ml-auto cursor-pointer appearance-none bg-transparent text-muted outline-none [text-align-last:right] hover:text-ink focus-visible:text-ink ${mobile ? 'text-[16px]' : 'text-[12px]'}`}
+        >
+          <option value="">Does not repeat</option>
+          <option value="daily">Every day</option>
+          <option value="weekly">Every week</option>
+          <option value="monthly">Every month</option>
+          <option value="yearly">Every year</option>
+        </select>
       </div>
 
       {choosingDelete ? (
@@ -195,29 +192,6 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
         </div>
       ) : (
         <div className="-mx-2 mt-1.5 flex gap-1 border-t border-line pt-2">
-          {/* Only an event that came from Plan is a task: it can be done, or go back to waiting. */}
-          {fromPlan && (
-            <>
-              <button
-                onClick={() => {
-                  setPlanStatus(fromPlan, o.done ? 'open' : 'completed');
-                  close();
-                }}
-                className={`${ACTION} text-ink hover:bg-wash`}
-              >
-                {o.done ? 'Not done' : 'Mark done'}
-              </button>
-              <button
-                onClick={() => {
-                  backToPlan(ev.id);
-                  close();
-                }}
-                className={`${ACTION} text-ink2 hover:bg-wash`}
-              >
-                Back to Plan
-              </button>
-            </>
-          )}
           <button
             onClick={() => {
               if (ev.recurrence) return setChoosingDelete(true);

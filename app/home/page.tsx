@@ -6,8 +6,8 @@ import type { Category } from '@/lib/types';
 // The landing page. On koyomi.guru it is served at "/"; see next.config.ts.
 
 const SITE_URL = 'https://koyomi.guru';
-const TITLE = 'Koyomi — a calm calendar';
-const DESCRIPTION = 'Koyomi holds two things: what has a time, and what doesn’t yet. Nothing else.';
+const TITLE = 'Koyomi — Calendar, simplified.';
+const DESCRIPTION = 'All your calendars. One quiet place.';
 
 /** Takes the visitor to the calendar: app.koyomi.guru from the live site, this host's "/" anywhere else. */
 const OPEN = '/open';
@@ -38,9 +38,9 @@ const WEEK: { dow: string; num: number; today?: boolean; events: Sample[] }[] = 
 ];
 
 const FEATURES = [
-  { label: 'CALENDAR', title: 'Things with a time.', text: 'Click an hour, type, press Enter. That’s an event.' },
-  { label: 'PLAN', title: 'Things without one yet.', text: 'A short list beside your week. No projects, no priorities.' },
-  { label: 'BETWEEN', title: 'Move one to the other.', text: 'Drag a thought onto an hour. Send it back if the day changes.' },
+  { label: 'EVENTS', title: 'Things with a time.', text: 'Click an hour, type, press Enter. That’s an event.' },
+  { label: 'CALENDARS', title: 'The ones you already have.', text: 'Connect your Google accounts and see their events beside your own. Koyomi only reads them.' },
+  { label: 'QUIET', title: 'Nothing else.', text: 'No tasks, no projects, no feeds. What you write stays on your device, and needs no account.' },
 ];
 
 const WRAP = 'mx-auto w-full max-w-[1080px] px-7';
@@ -63,7 +63,7 @@ export default function Home() {
       <main className="flex-1">
         <section className={`${WRAP} flex flex-col items-start gap-9 pt-[clamp(96px,18vh,180px)] pb-[clamp(72px,12vh,120px)]`}>
           <h1 className="max-w-[13em] font-mincho text-[clamp(40px,6.4vw,76px)] leading-[1.18] font-normal tracking-[-.005em] text-balance">
-            A calm calendar for planning your own life.
+            Calendar, simplified.
           </h1>
           <p className="max-w-[30em] text-[17px] leading-[1.85] text-pretty text-ink2">{DESCRIPTION}</p>
           <a href={OPEN} className={PILL}>

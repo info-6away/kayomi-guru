@@ -2,19 +2,18 @@ import { useSyncExternalStore } from 'react';
 import { addDays, spanOf, toInstant } from './dates';
 import { commit, loadAll, type Change } from './db';
 import { occurrenceDays } from './recurrence';
-import type { CalendarEvent, Category, PlanItem } from './types';
+import type { CalendarEvent, Category } from './types';
 
-// Every record lives in memory and is written through to IndexedDB on each change.
+// Every event lives in memory and is written through to IndexedDB on each change.
 
 export interface Data {
   ready: boolean;
   events: CalendarEvent[];
-  plan: PlanItem[];
   /** The last change could not be written to this device. */
   saveFailed: boolean;
 }
 
-const EMPTY: Data = { ready: false, events: [], plan: [], saveFailed: false };
+const EMPTY: Data = { ready: false, events: [], saveFailed: false };
 let data = EMPTY;
 const listeners = new Set<() => void>();
 
@@ -37,8 +36,7 @@ let started = false;
 let askedToPersist = false;
 
 async function load() {
-  const { events, planItems } = await loadAll();
-  set({ ready: true, events, plan: planItems });
+  set({ ready: true, events: await loadAll() });
 }
 
 /** Reads the saved calendar. Call once, in the browser. */
@@ -84,16 +82,8 @@ function newId(): string {
 }
 
 const eventById = (id: string) => data.events.find((e) => e.id === id);
-const itemById = (id: string) => data.plan.find((p) => p.id === id);
 
-export function addEvent(input: {
-  title: string;
-  date: string;
-  start: number;
-  end: number;
-  category?: Category;
-  planItemId?: string;
-}): CalendarEvent {
+export function addEvent(input: { title: string; date: string; start: number; end: number; category?: Category }): CalendarEvent {
   const now = stamp();
   const event: CalendarEvent = {
     id: newId(),
@@ -102,86 +92,28 @@ export function addEvent(input: {
     end: toInstant(input.date, input.end),
     allDay: false,
     category: input.category ?? 'misc',
-    planItemId: input.planItemId ?? null,
     recurrence: null,
     createdAt: now,
     updatedAt: now,
   };
   set({ events: [...data.events, event] });
-  void save({ put: { events: [event] } });
+  void save({ put: [event] });
   return event;
 }
 
-export function updateEvent(
-  id: string,
-  patch: Partial<Pick<CalendarEvent, 'title' | 'start' | 'end' | 'allDay' | 'category' | 'recurrence'>>,
-) {
+export function updateEvent(id: string, patch: Partial<Pick<CalendarEvent, 'title' | 'start' | 'end' | 'allDay' | 'category' | 'recurrence'>>) {
   const current = eventById(id);
   if (!current) return;
-  const now = stamp();
-  const event = { ...current, ...patch, updatedAt: now };
-  const change: Change = { put: { events: [event] } };
-  let plan = data.plan;
-  // An event scheduled from Plan and its item are one thing with one title.
-  const item = current.planItemId ? itemById(current.planItemId) : undefined;
-  if (item && patch.title !== undefined && patch.title !== item.title) {
-    const renamed = { ...item, title: patch.title, updatedAt: now };
-    plan = plan.map((p) => (p.id === item.id ? renamed : p));
-    change.put!.planItems = [renamed];
-  }
-  set({ events: data.events.map((e) => (e.id === id ? event : e)), plan });
-  void save(change);
+  const event = { ...current, ...patch, updatedAt: stamp() };
+  set({ events: data.events.map((e) => (e.id === id ? event : e)) });
+  void save({ put: [event] });
 }
 
-/** Deletes an event for good. If it came from Plan, its Plan item goes with it. */
+/** Deletes an event for good. */
 export function deleteEvent(id: string) {
-  const current = eventById(id);
-  if (!current) return;
-  const itemId = current.planItemId;
-  set({
-    events: data.events.filter((e) => e.id !== id),
-    plan: itemId ? data.plan.filter((p) => p.id !== itemId) : data.plan,
-  });
-  void save({ remove: { events: [id], planItems: itemId ? [itemId] : [] } });
-}
-
-/** Takes an event scheduled from Plan off the calendar; its item waits in Plan again. */
-export function backToPlan(eventId: string) {
-  const current = eventById(eventId);
-  if (!current?.planItemId) return;
-  const now = stamp();
-  const existing = itemById(current.planItemId);
-  const item: PlanItem = existing
-    ? { ...existing, status: 'open', updatedAt: now }
-    : { id: current.planItemId, title: current.title, status: 'open', createdAt: now, updatedAt: now };
-  set({
-    events: data.events.filter((e) => e.id !== eventId),
-    plan: existing ? data.plan.map((p) => (p.id === item.id ? item : p)) : [...data.plan, item],
-  });
-  void save({ remove: { events: [eventId] }, put: { planItems: [item] } });
-}
-
-export function addPlanItem(title: string): PlanItem {
-  const now = stamp();
-  const item: PlanItem = { id: newId(), title, status: 'open', createdAt: now, updatedAt: now };
-  set({ plan: [...data.plan, item] });
-  void save({ put: { planItems: [item] } });
-  return item;
-}
-
-export function setPlanStatus(id: string, status: PlanItem['status']) {
-  const current = itemById(id);
-  if (!current || current.status === status) return;
-  const item = { ...current, status, updatedAt: stamp() };
-  set({ plan: data.plan.map((p) => (p.id === id ? item : p)) });
-  void save({ put: { planItems: [item] } });
-}
-
-/** Gives a Plan item an hour on the calendar. */
-export function schedulePlanItem(id: string, date: string, start: number): CalendarEvent | undefined {
-  const item = itemById(id);
-  if (!item || data.events.some((e) => e.planItemId === id)) return;
-  return addEvent({ title: item.title, date, start, end: start + 60, planItemId: id });
+  if (!eventById(id)) return;
+  set({ events: data.events.filter((e) => e.id !== id) });
+  void save({ remove: [id] });
 }
 
 /** Removes one day from a series. */

@@ -13,6 +13,10 @@ export interface Recurrence {
   except: string[];
 }
 
+/**
+ * An event of Koyomi's own. Records written before Plan was removed may also carry a
+ * `planItemId`; it means nothing now and is left as it is.
+ */
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -26,21 +30,7 @@ export interface CalendarEvent {
   /** Shown in the all-day row rather than at a time. */
   allDay: boolean;
   category: Category;
-  /** Set when the event was scheduled from Plan. Such an event never repeats. */
-  planItemId: string | null;
   recurrence: Recurrence | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * Something waiting for time. Whether it is scheduled is not stored here:
- * an item is scheduled exactly when an event points at it.
- */
-export interface PlanItem {
-  id: string;
-  title: string;
-  status: 'open' | 'completed';
   createdAt: string;
   updatedAt: string;
 }
