@@ -511,6 +511,9 @@ async function refused(id: string, error: ApiError | 'offline', mine: string | u
  * Only one reading runs at a time. Asking again while one is under way does not start a second:
  * a single further reading follows the first, however many times it was asked for.
  *
+ * A reading is often begun unasked, when the page opens or comes back into view. So it leaves
+ * alone what the person was last told: that goes when they next ask for something themselves.
+ *
  * @param only Read just this calendar's events, without listing accounts again.
  */
 export async function sync(only?: CalendarRef): Promise<void> {
@@ -520,7 +523,7 @@ export async function sync(only?: CalendarRef): Promise<void> {
     again = true;
     return;
   }
-  set({ syncing: true, note: null });
+  set({ syncing: true });
   const began = era;
 
   let round = only ? [only.connectionId] : [];
@@ -564,13 +567,19 @@ export async function sync(only?: CalendarRef): Promise<void> {
   }
 }
 
+/** The person asks for the calendars to be read again. Whatever they were last told, they have seen. */
+export function refresh(): Promise<void> {
+  set({ note: null });
+  return sync();
+}
+
 /** Shows or hides one calendar. A hidden calendar is not read, and its events are not kept. */
 export async function showCalendar(id: string, visible: boolean) {
   const calendar = state.calendars.find((known) => known.id === id);
   if (!calendar) return;
   const next = { ...calendar, visible, ...(visible ? {} : { syncToken: null, windowFrom: null, windowTo: null, fetchedAt: null }) };
   const began = era;
-  set({ calendars: state.calendars.map((known) => (known.id === id ? next : known)), events: visible ? state.events : state.events.filter((event) => !eventsOf(calendar)(event)) });
+  set({ calendars: state.calendars.map((known) => (known.id === id ? next : known)), events: visible ? state.events : state.events.filter((event) => !eventsOf(calendar)(event)), note: null });
   // The choice is shown at once. It is kept only if the account's part of the copy is still the one it was made in.
   const kept = await saveConnection(calendar.connectionId, epochs[calendar.connectionId], { calendars: [next], clearEvents: visible ? [] : [calendar.calendarId] }).catch(() => undefined);
   if (kept === false) return adopt();
@@ -676,13 +685,13 @@ export function initExternal(available: boolean) {
     set({ status: 'off', connections: [], calendars: [], events: [], syncing: false });
   });
   // Only a working sign-in is read on its own. One that has ended waits for the person.
-  const refresh = () => {
+  const whenStale = () => {
     if (document.visibilityState === 'visible' && state.status === 'connected' && stale()) void sync();
   };
-  document.addEventListener('visibilitychange', refresh);
-  window.addEventListener('online', refresh);
-  setInterval(refresh, EVERY_MS);
+  document.addEventListener('visibilitychange', whenStale);
+  window.addEventListener('online', whenStale);
+  setInterval(whenStale, EVERY_MS);
 
   ready = load().catch(() => {});
-  void ready.then(refresh);
+  void ready.then(whenStale);
 }

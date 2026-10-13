@@ -1,6 +1,6 @@
 'use client';
 
-import { addAccount, disconnect, showCalendar, signIn, sync, type External } from '@/lib/calendars/store';
+import { addAccount, disconnect, refresh, showCalendar, signIn, type External } from '@/lib/calendars/store';
 import { hm } from '@/lib/dates';
 import { install, useCanInstall } from '@/lib/install';
 
@@ -169,7 +169,7 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
               Read only. Koyomi never changes your Google Calendar.
               <span className="mt-1 flex flex-wrap items-center gap-x-4">
                 {status === 'connected' && (
-                  <button onClick={() => void sync()} disabled={syncing} className={QUIET}>
+                  <button onClick={() => void refresh()} disabled={syncing} className={QUIET}>
                     {syncing ? 'Refreshing…' : 'Refresh'}
                   </button>
                 )}
