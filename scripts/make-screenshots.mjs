@@ -2,16 +2,18 @@
 // the manifest shows when someone installs the app.
 // Start `npm run preview` in another terminal, then run `npm run screenshots`. The files are committed.
 //
-// The pictures of connected calendars need a calendar to connect. For those, start
-// `npm run preview:connected` instead (it stands in for Google with a made-up account) and
+// The pictures of connected calendars need calendars to connect. For those, start
+// `npm run preview:connected` instead (it stands in for Google with two made-up accounts) and
 // run `npm run screenshots -- --connected`, which takes only those.
 //
 // Every picture is the production build with one neutral sample week, the clock stopped on
 // Monday 5 October 2026 at 14:25. The sample week exists only here; the app itself starts empty.
 
 import { chromium } from '@playwright/test';
+import { DEMO_ACCOUNTS, FAKE_PORT } from '../tests/fakes/env.mjs';
 
 const APP = 'http://localhost:4310/';
+const FAKE = `http://localhost:${FAKE_PORT}`;
 const NOW = new Date(2026, 9, 5, 14, 25);
 const STAMP = '2026-10-01T00:00:00.000Z';
 
@@ -22,7 +24,7 @@ const addDays = (day, n) => {
 
 function sampleWeek() {
   const events = [];
-  const add = (day, from, to, title, category, planItemId = null) => events.push({ day, from, to, title, category, planItemId });
+  const add = (day, from, to, title, category) => events.push({ day, from, to, title, category });
   add('2026-10-05', '07:30', '08:30', 'Gym', 'life');
   add('2026-10-05', '10:00', '11:30', 'Project review', 'work');
   add('2026-10-05', '12:30', '13:15', 'Lunch', 'misc');
@@ -30,7 +32,7 @@ function sampleWeek() {
   add('2026-10-05', '19:00', '20:00', 'Dinner', 'misc');
   add('2026-10-06', '10:00', '10:45', 'Documents', 'work');
   add('2026-10-06', '14:00', '16:30', 'Design work', 'focus');
-  add('2026-10-06', '18:00', '18:30', 'Call supplier', 'life', 'p6');
+  add('2026-10-06', '18:00', '18:30', 'Call supplier', 'life');
   add('2026-10-07', '09:00', '11:30', 'Focus', 'focus');
   add('2026-10-07', '12:30', '13:30', 'Lunch', 'misc');
   add('2026-10-08', '07:30', '08:30', 'Gym', 'life');
@@ -55,16 +57,7 @@ function sampleWeek() {
   add('2026-10-22', '14:00', '16:00', 'Design work', 'focus');
   add('2026-10-27', '11:00', '11:45', 'Documents', 'work');
   add('2026-10-30', '19:00', '20:30', 'Dinner', 'misc');
-  const plan = [
-    ['p1', 'Finish slides', 'open'],
-    ['p2', 'Send documents', 'open'],
-    ['p3', 'Review budget', 'open'],
-    ['p4', 'Gym', 'open'],
-    ['p5', 'Book dentist', 'open'],
-    ['p6', 'Call supplier', 'open'],
-    ['p7', 'Renew passport photos', 'completed'],
-  ];
-  return { events, plan };
+  return { events };
 }
 
 /** Opens the app in a fresh profile with the sample week saved, as if it had been used for a while. */
@@ -75,7 +68,7 @@ async function openApp(browser, options) {
   await page.goto(APP);
   await page.getByText('koyomi').first().waitFor();
   await page.evaluate(
-    async ({ events, plan, stamp }) => {
+    async ({ events, stamp }) => {
       const db = await new Promise((resolve, reject) => {
         const open = indexedDB.open('kayomi', 1);
         open.onsuccess = () => resolve(open.result);
@@ -87,7 +80,7 @@ async function openApp(browser, options) {
         return new Date(y, m - 1, d, h, min).toISOString();
       };
       await new Promise((resolve, reject) => {
-        const tx = db.transaction(['events', 'planItems'], 'readwrite');
+        const tx = db.transaction('events', 'readwrite');
         events.forEach((e, i) =>
           tx.objectStore('events').put({
             id: `sample-${i}`,
@@ -96,15 +89,10 @@ async function openApp(browser, options) {
             end: instant(e.day, e.to),
             allDay: false,
             category: e.category,
-            planItemId: e.planItemId,
             recurrence: null,
             createdAt: stamp,
             updatedAt: stamp,
           }),
-        );
-        // Plan lists items oldest first, so each is a second newer than the one before.
-        plan.forEach(([id, title, status], i) =>
-          tx.objectStore('planItems').put({ id, title, status, createdAt: `2026-10-01T00:00:0${i}.000Z`, updatedAt: stamp }),
         );
         tx.oncomplete = resolve;
         tx.onerror = () => reject(tx.error);
@@ -120,7 +108,7 @@ async function openApp(browser, options) {
 
 async function shot(page, path) {
   await page.mouse.move(700, 40); // off the grid, so no hover marker is captured
-  await page.waitForTimeout(500); // the Plan drawer has finished sliding
+  await page.waitForTimeout(500); // the Calendars drawer has finished sliding
   await page.screenshot({ path });
   console.log('wrote', path);
 }
@@ -131,31 +119,44 @@ const PHONE = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile:
 
 const browser = await chromium.launch({ channel: 'chrome' });
 
-/** Presses Connect, and comes back with the stand-in account's calendars listed. */
-async function connect(page, mobile) {
-  if (mobile) await page.getByRole('button', { name: /^Plan/ }).tap();
-  else await page.keyboard.press('p');
-  await page.getByRole('button', { name: 'Calendars' }).click();
-  await page.getByRole('button', { name: 'Connect' }).click();
-  await page.getByRole('switch', { name: 'Personal' }).waitFor();
+const openCalendars = (page, mobile) => (mobile ? page.getByRole('button', { name: /^Calendars/ }).tap() : page.keyboard.press('c'));
+
+/**
+ * Adds both stand-in Google accounts, one after the other, as a person of this picture's own:
+ * who is signing in, and which account is chosen at Google, are cookies on the stand-in.
+ */
+async function connect({ context, page }, mobile, who) {
+  const calendars = page.getByRole('region', { name: 'Calendars' });
+  for (const [id, account] of Object.entries(DEMO_ACCOUNTS)) {
+    await context.addCookies([
+      { name: 'fake_user', value: who, url: FAKE },
+      { name: 'fake_google', value: id, url: FAKE },
+    ]);
+    if (!(await calendars.isVisible())) await openCalendars(page, mobile);
+    await page.getByRole('button', { name: 'Add calendar account' }).click();
+    await calendars.getByRole('group', { name: account.calendars[0].id }).getByRole('switch').first().waitFor();
+    await calendars.getByText('Refreshing…').waitFor({ state: 'detached' });
+  }
   await page.getByText(/^Read \d/).waitFor();
 }
 
 if (process.argv.includes('--connected')) {
+  for (const [id, account] of Object.entries(DEMO_ACCOUNTS)) await fetch(`${FAKE}/__fake/google/${id}`, { method: 'PUT', body: JSON.stringify(account) });
   for (const theme of ['light', 'dark']) {
     const desktop = await openApp(browser, { ...DESKTOP, colorScheme: theme });
-    await connect(desktop.page, false);
+    await connect(desktop, false, `pictures-desktop-${theme}`);
     if (theme === 'light') await shot(desktop.page, 'docs/design/desktop-calendars-light.png');
-    await desktop.page.keyboard.press('p');
+    await desktop.page.keyboard.press('c');
     await shot(desktop.page, `docs/design/desktop-week-google-${theme}.png`);
     if (theme === 'light') {
-      await desktop.page.locator('[data-event][data-external]', { hasText: 'Quarterly planning' }).click();
+      await desktop.page.locator('[data-event][data-external]', { hasText: 'Workshop' }).click();
       await shot(desktop.page, 'docs/design/desktop-google-event-light.png');
     }
     await desktop.context.close();
   }
   const phone = await openApp(browser, { ...PHONE, colorScheme: 'light' });
-  await connect(phone.page, true);
+  await connect(phone, true, 'pictures-phone');
+  await shot(phone.page, 'docs/design/mobile-calendars-google-light.png');
   await phone.page.mouse.click(195, 60);
   await shot(phone.page, 'docs/design/mobile-day-google-light.png');
   await phone.context.close();
@@ -166,12 +167,12 @@ if (process.argv.includes('--connected')) {
 for (const theme of ['light', 'dark']) {
   const desktop = await openApp(browser, { ...DESKTOP, colorScheme: theme });
   await shot(desktop.page, `docs/design/desktop-week-${theme}.png`);
-  await desktop.page.keyboard.press('p');
-  await shot(desktop.page, `docs/design/desktop-week-plan-${theme}.png`);
+  // What an installer sees: the week, and one day on a phone.
+  if (theme === 'light') await shot(desktop.page, 'public/screenshots/desktop.png');
+  await desktop.page.keyboard.press('c');
+  await shot(desktop.page, `docs/design/desktop-week-calendars-${theme}.png`);
   if (theme === 'light') {
-    // What an installer sees: the week with Plan beside it, and one day on a phone.
-    await shot(desktop.page, 'public/screenshots/desktop.png');
-    await desktop.page.keyboard.press('p');
+    await desktop.page.keyboard.press('c');
     await desktop.page.waitForTimeout(400);
     await desktop.page.keyboard.press('m');
     await shot(desktop.page, 'docs/design/desktop-month-light.png');
@@ -182,8 +183,8 @@ for (const theme of ['light', 'dark']) {
   await shot(phone.page, `docs/design/mobile-day-${theme}.png`);
   if (theme === 'light') {
     await shot(phone.page, 'public/screenshots/phone.png');
-    await phone.page.getByRole('button', { name: /^Plan/ }).tap();
-    await shot(phone.page, 'docs/design/mobile-plan-light.png');
+    await phone.page.getByRole('button', { name: /^Calendars/ }).tap();
+    await shot(phone.page, 'docs/design/mobile-calendars-light.png');
   }
   await phone.context.close();
 }

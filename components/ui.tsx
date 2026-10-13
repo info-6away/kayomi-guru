@@ -29,8 +29,6 @@ export function hourHeight(mobile: boolean, viewportH: number) {
   return clamp(Math.round(room / 12.5), mobile ? 48 : 44, 58);
 }
 
-export const things = (n: number) => (n === 0 ? 'Nothing waiting' : `${n} ${n === 1 ? 'thing' : 'things'}`);
-
 export const SURFACE = 'rounded-[5px] bg-bg shadow-[0_18px_44px_-18px_var(--shadow),0_0_0_1px_var(--line)] animate-in';
 
 export function SearchIcon() {

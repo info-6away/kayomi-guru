@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
 // Installing Koyomi as an app. The browser's own install banner is held back, so nobody is
-// greeted with one; a quiet "Install Koyomi" line at the foot of Plan takes its place.
+// greeted with one; a quiet "Install Koyomi" line at the foot of Calendars takes its place.
 
 /** Chromium's deferred install prompt, which is not in TypeScript's DOM types. */
 interface InstallPrompt extends Event {

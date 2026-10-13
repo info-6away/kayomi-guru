@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test';
-import { FAKE, actAs, cached, closeDrawer, connect, external, google, ist, openCalendars, refresh, refreshAndHold, signInOnly, start, test, toggle, view } from './connected';
-import { addEvent, event, plan, stored } from './helpers';
+import { FAKE, ME, actAs, addButton, cached, closeDrawer, connect, connectionId, external, google, group, ist, nothingConnected, openCalendars, refresh, refreshAndHold, signInOnly, start, test, toggle, view } from './connected';
+import { addEvent, event, stored } from './helpers';
 
 // The parts of a calendar connection that are about trust rather than calendars: who is signed
 // in, what a return from Google is allowed to do, where a redirect may lead, and how much one
@@ -34,9 +34,6 @@ test.describe('a sign-in that has ended is not a connection that is lost', () =>
 
     await closeDrawer(page);
     await expect(page.getByRole('button', { name: 'Sign in again to update Google Calendar' })).toBeVisible();
-    await page.keyboard.press('p');
-    await expect(plan(page).getByRole('button', { name: 'Calendars · sign in again' })).toBeVisible();
-    await page.keyboard.press('p');
     // Koyomi itself does not care.
     await addEvent(page, 'My own event', '17:00', '2026-10-07');
 
@@ -63,10 +60,13 @@ test.describe('a sign-in that has ended is not a connection that is lost', () =>
     await google.becomes(id, { revoked: true });
     await refresh(page);
 
-    await expect(view(page)).toContainText('Google Calendar needs reconnecting');
+    await expect(group(page, ME)).toContainText('Needs reconnecting');
     await expect(view(page).getByRole('button', { name: 'Reconnect' })).toBeVisible();
     await expect(page.getByText(/sign in/i)).toHaveCount(0);
-    expect(await page.evaluate(() => localStorage.getItem('koyomi-calendars'))).toBe('reconnect');
+    // It is the account that needs the person, not the device: the note in storage still says
+    // connected, and the account's own record says what is wrong with it.
+    expect(await page.evaluate(() => localStorage.getItem('koyomi-calendars'))).toBe('connected');
+    expect((await cached(page)).connections.map((connection) => connection.status)).toEqual(['reconnect']);
     // Still signed in: it is Google that said no.
     expect(await session(page)).toBeTruthy();
   });
@@ -107,14 +107,14 @@ test.describe('a sign-in that has ended is not a connection that is lost', () =>
     await expect.poll(() => page.evaluate(() => localStorage.getItem('koyomi-calendars'))).toBeNull();
     await expect.poll(() => page.evaluate(() => indexedDB.databases())).toEqual([{ name: 'kayomi', version: 1 }]);
     await openCalendars(page);
-    await expect(view(page).getByRole('button', { name: 'Connect' })).toBeVisible();
+    await expect(nothingConnected(page)).toBeVisible();
     // Nothing was revoked or deleted on the first person's behalf.
     expect((await google.asked(id)).revoked).toBe(false);
 
     // The first person comes back: their connection is exactly where it was. No consent screen.
     await endSession(page);
     await actAs(page, `user-${id}`);
-    await view(page).getByRole('button', { name: 'Connect' }).click();
+    await addButton(page).click();
     await expect(toggle(page, 'Personal')).toBeVisible({ timeout: 15_000 });
     await expect(external(page, 'Dentist')).toBeVisible();
     expect(await consents(id)).toBe(1);
@@ -264,7 +264,7 @@ test.describe('the round trip to Google', () => {
     // One wrong try was enough to use the attempt up: the right address no longer works either.
     expect(await flow.finish(page, back)).toBe('failed');
     expect(await google.exchanges(code)).toEqual([]);
-    expect((await page.request.get('/api/google/calendars')).status()).toBe(409);
+    expect(await (await page.request.get('/api/google/calendars')).json()).toEqual({ connections: [] });
   });
 
   test('a return in a browser that did not start it is refused', async ({ page, browser, id }) => {
@@ -283,7 +283,7 @@ test.describe('the round trip to Google', () => {
     expect(await flow.finish(victim, back)).toBe('failed');
     expect(await google.exchanges(code)).toEqual([]);
     // They did not end up connected to the first person's Google account.
-    expect((await victim.request.get('/api/google/calendars')).status()).toBe(409);
+    expect(await (await victim.request.get('/api/google/calendars')).json()).toEqual({ connections: [] });
     await theirs.close();
   });
 
@@ -296,7 +296,7 @@ test.describe('the round trip to Google', () => {
     await signInOnly(page);
     expect(await flow.finish(page, back)).toBe('failed');
     expect(await google.exchanges(code)).toEqual([]);
-    expect((await page.request.get('/api/google/calendars')).status()).toBe(409);
+    expect(await (await page.request.get('/api/google/calendars')).json()).toEqual({ connections: [] });
 
     await endSession(page);
     await actAs(page, `user-${id}`);
@@ -325,6 +325,10 @@ test.describe('redirects', () => {
     const signin = `${APP}/api/auth/signin?returnTo=${encodeURIComponent('/api/google/connect?signed=1')}`;
     for (const path of ['/api/google/connect', '/api/google/connect?returnTo=https://evil.example', '/api/google/connect?redirect_uri=https://evil.example&next=//evil.example']) {
       expect(await location(path), path).toBe(signin);
+    }
+    // Adding an account says so, and that is the one thing carried through sign-in: as a fixed word, not as whatever was sent.
+    for (const path of ['/api/google/connect?add=1', '/api/google/connect?add=https://evil.example&returnTo=//evil.example']) {
+      expect(await location(path), path).toBe(`${APP}/api/auth/signin?returnTo=${encodeURIComponent('/api/google/connect?signed=1&add=1')}`);
     }
     // A forged Host header changes nothing: addresses are built from the server's own setting.
     expect(await location('/api/google/connect', { host: 'evil.example' })).toBe(signin);
@@ -382,12 +386,13 @@ test.describe('a word in the app’s own address', () => {
     }
     // "connected" makes the app ask the server, which says no. Nothing is remembered.
     await page.goto('/?calendars=connected');
-    await expect(view(page).getByRole('button', { name: 'Connect' })).toBeVisible();
+    await expect(nothingConnected(page)).toBeVisible();
     await untouched();
     // The same for someone signed in who has no connection.
     await signInOnly(page);
     await page.goto('/?calendars=connected');
-    await expect(view(page).getByRole('button', { name: 'Connect' })).toBeVisible();
+    await expect(nothingConnected(page)).toBeVisible();
+    await expect(view(page).getByRole('group')).toHaveCount(0);
     await untouched();
     await page.reload();
     await expect(page.getByText('koyomi', { exact: true })).toBeVisible();
@@ -413,7 +418,8 @@ test.describe('cookies and answers', () => {
 
   test('an answer that is not data is one fixed word, and never a message, a token or a stack', async ({ page, id }) => {
     const origin = { origin: APP };
-    const ask = { timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
+    const nobodys = '00000000-0000-4000-8000-000000000000';
+    let ask = { connectionId: nobodys, timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
     const answers: [number, string][] = [];
     const note = async (response: Promise<{ status(): number; text(): Promise<string> }>) => {
       const r = await response;
@@ -426,6 +432,9 @@ test.describe('cookies and answers', () => {
     await note(page.request.get('/api/google/calendars'));
     await start(page);
     await connect(page);
+    // Asked about a connection that is not theirs, then about their own.
+    await note(page.request.post('/api/google/events', { data: ask, headers: origin }));
+    ask = { ...ask, connectionId: await connectionId(page) };
     await note(page.request.post('/api/google/events', { data: ask }));
     await note(page.request.post('/api/google/events', { data: { nonsense: true }, headers: origin }));
     await note(page.request.post('/api/google/events', { data: 'not json at all', headers: { ...origin, 'content-type': 'application/json' } }));
@@ -437,6 +446,8 @@ test.describe('cookies and answers', () => {
     expect(answers).toEqual([
       [401, '{"error":"signed_out"}'],
       [401, '{"error":"signed_out"}'],
+      // Signed in with nothing connected is not a refusal: there is simply nothing to list.
+      [200, '{"connections":[]}'],
       [409, '{"error":"not_connected"}'],
       [403, '{"error":"bad_request"}'],
       [400, '{"error":"bad_request"}'],
@@ -498,14 +509,18 @@ test.describe('requests from another site', () => {
     const stranger = await theirs.newPage();
     await signInOnly(stranger);
     const origin = { origin: APP };
-    // Asking by the first person's calendar names gets nothing: there is no parameter that names a person.
-    const ask = { timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
-    for (const path of ['/api/google/calendars', `/api/google/calendars?subject=user-${id}`, `/api/google/calendars?user=user-${id}&auth_subject=user-${id}`]) {
-      expect((await stranger.request.get(path, { headers: { 'x-subject': `user-${id}`, 'x-user': `user-${id}` } })).status(), path).toBe(409);
+    // Asking by the first person's name gets nothing: there is no parameter that names a person.
+    const [connection] = mine.connections;
+    const ask = { connectionId: connection.id, timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
+    for (const path of ['/api/google/calendars', `/api/google/calendars?subject=user-${id}`, `/api/google/calendars?user=user-${id}&auth_subject=user-${id}`, `/api/google/calendars?connectionId=${connection.id}`]) {
+      expect(await (await stranger.request.get(path, { headers: { 'x-subject': `user-${id}`, 'x-user': `user-${id}` } })).json(), path).toEqual({ connections: [] });
     }
-    expect((await stranger.request.post('/api/google/events', { data: { ...ask, subject: `user-${id}` }, headers: origin })).status()).toBe(409);
-    // Their own Disconnect ends their own (nonexistent) connection, and nobody else's.
-    expect((await stranger.request.post('/api/google/disconnect', { data: { subject: `user-${id}` }, headers: origin })).status()).toBe(200);
+    // Nor does knowing the id of the first person's connection: it is looked for among the
+    // asker's own, and is not there.
+    const reached = await stranger.request.post('/api/google/events', { data: { ...ask, subject: `user-${id}` }, headers: origin });
+    expect([reached.status(), await reached.json()]).toEqual([409, { error: 'not_connected' }]);
+    // Their own Disconnect of it ends nothing of anybody's.
+    expect((await stranger.request.post('/api/google/disconnect', { data: { connectionId: connection.id, subject: `user-${id}` }, headers: origin })).status()).toBe(200);
     await theirs.close();
 
     expect((await google.asked(id)).revoked).toBe(false);
@@ -516,7 +531,7 @@ test.describe('requests from another site', () => {
   });
 });
 
-test.describe('how much one person may ask', () => {
+test.describe('how much may be asked about one account', () => {
   test('asking far faster than the app would is refused quietly, Google is spared, and nobody else is affected', async ({ page, browser, id }) => {
     test.setTimeout(90_000);
     await start(page);
@@ -524,28 +539,29 @@ test.describe('how much one person may ask', () => {
     const before = (await google.asked(id)).log.filter((entry) => entry.type === 'calendars').length;
 
     // A script with this person's cookie asks for the calendar list 140 times in a row.
-    const statuses: number[] = [];
-    let refusal: { body: string; retryAfter: string | undefined } | null = null;
+    const states: string[] = [];
     for (let i = 0; i < 140; i++) {
       const response = await page.request.get('/api/google/calendars');
-      statuses.push(response.status());
-      if (response.status() === 429 && !refusal) refusal = { body: await response.text(), retryAfter: response.headers()['retry-after'] };
+      expect(response.status()).toBe(200);
+      const { connections } = await response.json();
+      expect(connections).toHaveLength(1);
+      states.push(connections[0].state);
     }
-    const answered = statuses.filter((status) => status === 200).length;
-    // 120 a minute, less the handful connecting used.
+    const answered = states.filter((state) => state === 'ok').length;
+    // 120 a minute for the account, less the handful connecting used.
     expect(answered).toBeGreaterThan(100);
     expect(answered).toBeLessThanOrEqual(120);
-    // Once refused, refused until the minute is up.
-    expect(statuses.slice(answered)).toEqual(new Array(140 - answered).fill(429));
-    expect(refusal!.body).toBe('{"error":"slow_down"}');
-    expect(Number(refusal!.retryAfter)).toBeGreaterThan(0);
-    expect(Number(refusal!.retryAfter)).toBeLessThanOrEqual(60);
+    // Past it the account is listed, as one that cannot be read just now, until the minute is up.
+    expect(states.slice(answered)).toEqual(new Array(140 - answered).fill('busy'));
     // Google was asked only for the ones that were answered.
     expect((await google.asked(id)).log.filter((entry) => entry.type === 'calendars').length - before).toBe(answered);
-    // Reading events is refused too, and costs Google nothing.
+    // Reading that account's events is refused outright, and costs Google nothing.
     const events = (await google.asked(id)).log.filter((entry) => entry.type === 'events').length;
-    const ask = { timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
-    expect((await page.request.post('/api/google/events', { data: ask, headers: { origin: APP } })).status()).toBe(429);
+    const ask = { connectionId: await connectionId(page), timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
+    const refusal = await page.request.post('/api/google/events', { data: ask, headers: { origin: APP } });
+    expect([refusal.status(), await refusal.text()]).toEqual([429, '{"error":"slow_down"}']);
+    expect(Number(refusal.headers()['retry-after'])).toBeGreaterThan(0);
+    expect(Number(refusal.headers()['retry-after'])).toBeLessThanOrEqual(60);
     expect((await google.asked(id)).log.filter((entry) => entry.type === 'events').length).toBe(events);
 
     // In the app this is not an error: pressing Refresh simply changes nothing, and says nothing.
@@ -566,7 +582,7 @@ test.describe('how much one person may ask', () => {
     const them = await theirs.newPage();
     await start(them);
     await connect(them);
-    expect((await them.request.get('/api/google/calendars')).status()).toBe(200);
+    expect((await (await them.request.get('/api/google/calendars')).json()).connections.map((entry: { state: string }) => entry.state)).toEqual(['ok']);
     await theirs.close();
   });
 
@@ -585,7 +601,7 @@ test.describe('how much one person may ask', () => {
     expect((await count('calendars')) - lists).toBe(1);
 
     const reads = await count('events');
-    const ask = { timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }, { calendarId: 'work@example.test', syncToken: null }] };
+    const ask = { connectionId: await connectionId(page), timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }, { calendarId: 'work@example.test', syncToken: null }] };
     const read = await Promise.all(Array.from({ length: 6 }, () => page.request.post('/api/google/events', { data: ask, headers: { origin: APP } })));
     expect(read.map((answer) => answer.status())).toEqual(new Array(6).fill(200));
     // Two calendars, each read once, not six times.
@@ -634,7 +650,8 @@ test.describe('how much one person may ask', () => {
   test('only what the app itself would ask for is accepted', async ({ page }) => {
     await start(page);
     await connect(page);
-    const ask = { timeMin: '2026-09-01T21:00:00.000Z', timeMax: '2027-04-14T21:00:00.000Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
+    const ask = { connectionId: await connectionId(page), timeMin: '2026-09-01T21:00:00.000Z', timeMax: '2027-04-14T21:00:00.000Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
+    const { connectionId: _, ...unnamed } = ask;
     const status = async (body: unknown) => (await page.request.post('/api/google/events', { data: body, headers: { origin: APP } })).status();
     // The span the app reads is fine...
     expect(await status(ask)).toBe(200);
@@ -642,6 +659,9 @@ test.describe('how much one person may ask', () => {
     expect(await status({ ...ask, calendars: many(25) })).toBe(200);
     // ...and anything wider, longer, emptier or stranger is not.
     for (const [why, body] of [
+      ['no account named', unnamed],
+      ['an account named by its address', { ...ask, connectionId: 'me@example.test' }],
+      ['several accounts at once', { ...ask, connectionId: [ask.connectionId, ask.connectionId] }],
       ['a span of eight months', { ...ask, timeMax: '2027-05-01T00:00:00.000Z' }],
       ['years of history', { ...ask, timeMin: '2015-01-01T00:00:00.000Z' }],
       ['a span that ends before it starts', { ...ask, timeMin: ask.timeMax, timeMax: ask.timeMin }],

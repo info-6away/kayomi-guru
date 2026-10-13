@@ -1,6 +1,6 @@
 import { addDays, diffDays, spanOf, toInstant } from './dates';
 import { occurrenceDays, shiftRecurrence } from './recurrence';
-import type { CalendarEvent, PlanItem } from './types';
+import type { CalendarEvent } from './types';
 
 /** One showing of an event on one day. A series has many; a plain event has one. */
 export interface Occurrence {
@@ -10,27 +10,18 @@ export interface Occurrence {
   date: string;
   start: number;
   end: number;
-  /** Only an event scheduled from Plan can be done: it is done when its item is completed. */
-  done: boolean;
 }
 
 export const occurrenceKey = (eventId: string, date: string) => `${eventId}@${date}`;
 
 /** Everything on the calendar between two days, grouped by day and ordered by start. */
-export function occurrencesByDay(
-  events: CalendarEvent[],
-  plan: PlanItem[],
-  from: string,
-  to: string,
-): Map<string, Occurrence[]> {
-  const completed = new Set(plan.filter((p) => p.status === 'completed').map((p) => p.id));
+export function occurrencesByDay(events: CalendarEvent[], from: string, to: string): Map<string, Occurrence[]> {
   const byDay = new Map<string, Occurrence[]>();
   for (const event of events) {
     const span = spanOf(event);
-    const done = !!event.planItemId && completed.has(event.planItemId);
     for (const date of occurrenceDays(span.date, event.recurrence, from, to)) {
       const list = byDay.get(date) ?? [];
-      list.push({ key: occurrenceKey(event.id, date), event, date, start: span.start, end: span.end, done });
+      list.push({ key: occurrenceKey(event.id, date), event, date, start: span.start, end: span.end });
       byDay.set(date, list);
     }
   }

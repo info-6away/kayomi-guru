@@ -63,8 +63,8 @@ export function MonthView({ date, today, mobile, viewportH, byDay, external, lab
           const isToday = key === today;
           // One list for the day: all-day first, then by time. External events are drawn a level quieter.
           const list = [
-            ...(byDay.get(key) ?? []).map((o) => ({ key: o.key, title: o.event.title, allDay: o.event.allDay, start: o.start, color: CAT[o.event.category], done: o.done, quiet: false })),
-            ...(external.get(key) ?? []).map((s) => ({ key: s.key, title: s.event.title, allDay: s.allDay, start: s.start, color: 'var(--stone)', done: false, quiet: true })),
+            ...(byDay.get(key) ?? []).map((o) => ({ key: o.key, title: o.event.title, allDay: o.event.allDay, start: o.start, color: CAT[o.event.category], quiet: false })),
+            ...(external.get(key) ?? []).map((s) => ({ key: s.key, title: s.event.title, allDay: s.allDay, start: s.start, color: 'var(--stone)', quiet: true })),
           ].sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start - b.start);
 
           if (mobile) {
@@ -108,7 +108,7 @@ export function MonthView({ date, today, mobile, viewportH, byDay, external, lab
                 <span key={o.key} className="flex min-w-0 items-center gap-[7px] text-[12px] leading-[1.35]">
                   <span className="h-[11px] w-0.5 flex-none rounded-[1px]" style={{ background: o.color, opacity: inMonth ? undefined : 0.5 }} />
                   {!o.allDay && <span className={`flex-none tabular-nums ${inMonth && !o.quiet ? 'text-event-time' : 'text-muted'}`}>{hm(o.start)}</span>}
-                  <span className={`min-w-0 truncate ${o.done ? 'text-muted line-through' : inMonth && !o.quiet ? 'text-ink' : 'text-ink2'}`}>{o.title}</span>
+                  <span className={`min-w-0 truncate ${inMonth && !o.quiet ? 'text-ink' : 'text-ink2'}`}>{o.title}</span>
                 </span>
               ))}
               {list.length > max && <span className="pl-[9px] text-[11.5px] text-muted">+{list.length - max} more</span>}

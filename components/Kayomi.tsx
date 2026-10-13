@@ -22,21 +22,20 @@ import { showingsByDay } from '@/lib/calendars/showings';
 import { connected, finishDisconnect, initExternal, resume, say, useExternal } from '@/lib/calendars/store';
 import { moved, occurrenceKey, occurrencesByDay, type Occurrence } from '@/lib/occurrences';
 import { watchInstall } from '@/lib/install';
-import { addEvent, init, schedulePlanItem, updateEvent, useData, type Data } from '@/lib/store';
+import { addEvent, init, updateEvent, useData, type Data } from '@/lib/store';
 import { registerServiceWorker } from '@/lib/sw-register';
 import { toggleTheme, watchTheme } from '@/lib/theme';
-import type { PlanItem } from '@/lib/types';
+import { CalendarsPanel } from './CalendarsPanel';
 import { MonthView } from './MonthView';
-import { PlanPanel } from './PlanPanel';
 import { SearchPanel } from './SearchPanel';
 import { Timeline } from './Timeline';
-import { SearchIcon, hourHeight, things, type Slot, type View } from './ui';
+import { SearchIcon, hourHeight, type Slot, type View } from './ui';
 
 const ROUND = 'rounded-full transition-colors duration-150 hover:bg-wash hover:text-ink';
 const TAB = 'relative h-8 px-2.5 text-[13px] tracking-[.03em] transition-colors duration-150 hover:text-ink';
 const HALF_MOON = 'rounded-full border border-current bg-[linear-gradient(90deg,currentColor_50%,transparent_50%)]';
 
-/** @param calendars Whether this deployment can connect calendars from outside. Off, nothing below changes. */
+/** @param calendars Whether this deployment can connect calendars from outside. Off, Koyomi's own calendar is all there is. */
 export default function Kayomi({ calendars = false }: { calendars?: boolean }) {
   const viewport = useViewport();
   const data = useData();
@@ -97,15 +96,12 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
   const [view, setView] = useState<View>('week');
   const [date, setDate] = useState(today);
   const [monthOnPhone, setMonthOnPhone] = useState(false);
-  const [planOpen, setPlanOpen] = useState(false);
-  const [planView, setPlanView] = useState<'plan' | 'calendars'>('plan');
+  const [calendarsOpen, setCalendarsOpen] = useState(false);
   const external = useExternal();
   const [sel, setSel] = useState<string | null>(null);
   const [qa, setQa] = useState<Slot | null>(null);
-  const [placingId, setPlacingId] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const scroller = useRef<HTMLDivElement | null>(null);
-  const dragPlan = useRef<PlanItem | null>(null);
   const swipe = useRef({ x: 0, y: 0 });
 
   // Week is the home view on a desktop; a phone shows one day, with the month a tap away.
@@ -116,30 +112,27 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
   const monday = mondayOf(date);
   const week = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
   const cur = parts(date);
-  const placing = (placingId && data.plan.find((p) => p.id === placingId)) || null;
 
   const byDay = useMemo(() => {
-    if (v !== 'month') return occurrencesByDay(data.events, data.plan, monday, addDays(monday, 6));
+    if (v !== 'month') return occurrencesByDay(data.events, monday, addDays(monday, 6));
     const grid = monthGrid(date);
-    return occurrencesByDay(data.events, data.plan, grid.start, addDays(grid.start, grid.rows * 7 - 1));
-  }, [data.events, data.plan, v, date, monday]);
+    return occurrencesByDay(data.events, grid.start, addDays(grid.start, grid.rows * 7 - 1));
+  }, [data.events, v, date, monday]);
 
   const externalByDay = useMemo(() => {
-    if (v !== 'month') return showingsByDay(external.events, external.calendars, monday, addDays(monday, 6));
+    if (v !== 'month') return showingsByDay(external.events, external.calendars, external.connections, monday, addDays(monday, 6));
     const grid = monthGrid(date);
-    return showingsByDay(external.events, external.calendars, grid.start, addDays(grid.start, grid.rows * 7 - 1));
-  }, [external.events, external.calendars, v, date, monday]);
+    return showingsByDay(external.events, external.calendars, external.connections, grid.start, addDays(grid.start, grid.rows * 7 - 1));
+  }, [external.events, external.calendars, external.connections, v, date, monday]);
 
-  const openCalendars = () => {
-    setPlanOpen(true);
-    setPlanView('calendars');
+  const toggleCalendars = () => {
+    setCalendarsOpen(!calendarsOpen);
     setSel(null);
   };
-
-  // The drawer opens on Plan. Calendars is one step further in, and never the first thing seen.
-  useEffect(() => {
-    if (!planOpen) setPlanView('plan');
-  }, [planOpen]);
+  const openCalendars = () => {
+    setCalendarsOpen(true);
+    setSel(null);
+  };
 
   // Back from signing in or from Google's consent screen: the address says how it went. An
   // address can also be a link from anywhere, so none of these words can do anything on its own:
@@ -160,16 +153,10 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     else say('Couldn’t connect to Google Calendar. Try again in a moment.');
   }, []);
 
-  // Plan shows what is still waiting for a time; a scheduled item lives on the calendar instead.
-  const { waiting, done } = useMemo(() => {
-    const scheduled = new Set(data.events.map((e) => e.planItemId));
-    return {
-      waiting: data.plan
-        .filter((p) => p.status === 'open' && !scheduled.has(p.id))
-        .sort((x, y) => x.createdAt.localeCompare(y.createdAt)),
-      done: data.plan.filter((p) => p.status === 'completed').sort((x, y) => y.updatedAt.localeCompare(x.updatedAt)),
-    };
-  }, [data.events, data.plan]);
+  // How many calendars from elsewhere are on screen beside Koyomi's own.
+  const shown = external.calendars.filter((calendar) => calendar.visible).length;
+  // One account that Google has stopped honouring. The others, and Koyomi's own calendar, carry on.
+  const needsReconnecting = external.connections.some((connection) => connection.status === 'reconnect');
 
   let rangeLabel = MON[cur.m - 1];
   let rangeYear = String(cur.y);
@@ -226,15 +213,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     setSearching(false);
     setMonthOnPhone(false);
     if (view === 'month') setView('week');
-    if (mobile) setPlanOpen(false);
-  };
-
-  const startPlacing = (item: PlanItem) => {
-    setPlacingId(placingId === item.id ? null : item.id);
-    setSel(null);
-    setMonthOnPhone(false);
-    if (view === 'month') setView('week');
-    if (mobile) setPlanOpen(false);
+    if (mobile) setCalendarsOpen(false);
   };
 
   const moveEvent = (o: Occurrence, to: Span) => {
@@ -250,15 +229,14 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
       if (k === 'escape') {
         if (searching) setSearching(false);
         else if (sel) setSel(null);
-        else if (placingId) setPlacingId(null);
-        else if (planOpen) setPlanOpen(false);
+        else if (calendarsOpen) setCalendarsOpen(false);
       } else if (k === 'arrowleft') step(-1);
       else if (k === 'arrowright') step(1);
       else if (k === 't') go(today);
       else if (k === 'd') changeView('day');
       else if (k === 'w') changeView('week');
       else if (k === 'm') changeView('month');
-      else if (k === 'p') setPlanOpen(!planOpen);
+      else if (k === 'c') toggleCalendars();
       else if (k === 'n' || k === '/') {
         // Otherwise the key would be typed into the field it opens.
         e.preventDefault();
@@ -279,7 +257,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
   return (
     // On a phone held sideways the notch eats into one side; the insets are zero everywhere else.
     <div data-app className="h-dvh pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
-      {/* overflow-clip, not hidden: the Plan drawer waits off-screen, and a clipped box cannot be scrolled sideways to it. */}
+      {/* overflow-clip, not hidden: the Calendars drawer waits off-screen, and a clipped box cannot be scrolled sideways to it. */}
       <div className="relative flex h-full flex-col overflow-clip bg-bg pt-[env(safe-area-inset-top)]">
         {!mobile && (
           <header className="grid h-16 flex-none grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 pr-5 pl-7">
@@ -305,7 +283,8 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
                 Today
               </button>
             </div>
-            <div className="flex items-center justify-end gap-3">
+            {/* A little closer together in a narrow window: "Calendars" is a longer word than the one it replaced. */}
+            <div className="flex items-center justify-end gap-2 min-[920px]:gap-3">
               <nav className="flex gap-1">
                 {(['day', 'week', 'month'] as const).map((x) => (
                   <button
@@ -319,16 +298,9 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
                 ))}
               </nav>
               <span className="h-4 w-px bg-line" />
-              <button
-                onClick={() => {
-                  setPlanOpen(!planOpen);
-                  setSel(null);
-                }}
-                aria-expanded={planOpen}
-                className={`${TAB} flex items-center gap-2 ${planOpen ? 'text-ink' : 'text-ink2'}`}
-              >
-                <span>Plan</span>
-                <span className="text-[11.5px] text-muted tabular-nums">{waiting.length}</span>
+              {/* Which calendars are on screen, and where another is connected. One of the calendar's own controls, not a setting. */}
+              <button onClick={toggleCalendars} aria-expanded={calendarsOpen} className={`${TAB} ${calendarsOpen ? 'text-ink' : 'text-ink2'}`}>
+                Calendars
               </button>
               <button onClick={() => setSearching(true)} aria-label="Search" className={`grid size-8 place-items-center text-ink2 ${ROUND}`}>
                 <SearchIcon />
@@ -415,7 +387,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
 
         <div
           className="relative flex min-h-0 flex-1 transition-[padding-right] duration-[220ms] ease-kayomi"
-          style={{ paddingRight: pushes && planOpen ? 320 : 0 }}
+          style={{ paddingRight: pushes && calendarsOpen ? 320 : 0 }}
         >
           {v === 'day' && !mobile && w >= 900 && (
             <aside className="flex w-[280px] flex-none flex-col pt-9 pb-7 pl-10">
@@ -456,8 +428,6 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
               hourH={hourH}
               sel={sel}
               qa={qa}
-              placing={placing}
-              dragPlan={dragPlan}
               scroller={scroller}
               onSelect={(key) => {
                 setSel(key);
@@ -467,11 +437,6 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
               onCreate={(slot, title) => {
                 if (title) addEvent({ title, date: slot.date, start: slot.min, end: slot.min + 60 });
                 setQa(null);
-              }}
-              onPlace={(itemId, day, min) => {
-                schedulePlanItem(itemId, day, min);
-                setPlacingId(null);
-                dragPlan.current = null;
               }}
               onMove={moveEvent}
               onOpenDay={openDay}
@@ -497,76 +462,32 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
 
         {mobile && (
           <>
+            {/* On a phone, Calendars is the bar along the foot: always in reach, and one tap from another account. */}
             <button
-              onClick={() => {
-                setPlanOpen(!planOpen);
-                setSel(null);
-              }}
-              aria-expanded={planOpen}
+              onClick={toggleCalendars}
+              aria-expanded={calendarsOpen}
               className="flex flex-none items-center gap-3 border-t border-line bg-bg px-[22px] text-left"
               style={{ height: 'calc(64px + env(safe-area-inset-bottom))', paddingBottom: 'calc(4px + env(safe-area-inset-bottom))' }}
             >
-              <span className="font-mincho text-[18px]">Plan</span>
-              <span className="flex-1 text-[12.5px] text-muted">{things(waiting.length)}</span>
-              <span className="h-[3px] w-7 rounded-[2px] bg-line" />
+              <span className="font-mincho text-[18px]">Calendars</span>
+              <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted">{shown ? `Koyomi and ${shown} more` : 'Koyomi'}</span>
+              <span className="h-[3px] w-7 flex-none rounded-[2px] bg-line" />
             </button>
             <div
-              onClick={() => setPlanOpen(false)}
+              onClick={() => setCalendarsOpen(false)}
               className={`absolute inset-0 z-[25] bg-[rgba(29,29,27,.22)] transition-opacity duration-[260ms] ease-kayomi ${
-                planOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+                calendarsOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
               }`}
             />
           </>
         )}
 
-        {placing && (
-          <div
-            className="pointer-events-none absolute inset-x-2 z-40 flex justify-center"
-            style={{ top: mobile ? 'calc(env(safe-area-inset-top) + 62px)' : 72 }}
-          >
-            <div className="pointer-events-auto flex max-w-full animate-in items-center gap-2 rounded-full bg-ink py-1.5 pr-1.5 pl-4 whitespace-nowrap text-bg shadow-[0_10px_30px_-12px_var(--shadow)]">
-              <span className="min-w-0 truncate text-[13px]">
-                Choose a time for <span className="font-medium">{placing.title}</span>
-              </span>
-              <button onClick={() => setPlacingId(null)} className="h-7 flex-none px-2.5 text-[12.5px] opacity-70">
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
+        <CalendarsPanel mobile={mobile} open={calendarsOpen} pushes={pushes} external={external} onClose={() => setCalendarsOpen(false)} />
 
-        <PlanPanel
-          mobile={mobile}
-          open={planOpen}
-          pushes={pushes}
-          waiting={waiting}
-          done={done}
-          placingId={placingId}
-          dragPlan={dragPlan}
-          external={external}
-          view={planView}
-          onView={setPlanView}
-          onClose={() => setPlanOpen(false)}
-          onPlace={startPlacing}
-        />
-
-        {searching && (
-          <SearchPanel
-            mobile={mobile}
-            events={data.events}
-            plan={data.plan}
-            today={today}
-            onClose={() => setSearching(false)}
-            onEvent={reveal}
-            onPlanItem={() => {
-              setSearching(false);
-              setPlanOpen(true);
-            }}
-          />
-        )}
+        {searching && <SearchPanel mobile={mobile} events={data.events} today={today} onClose={() => setSearching(false)} onEvent={reveal} />}
 
         {/* Koyomi carries on as it is; what was read before stays on screen. One quiet line says what is needed. */}
-        {(external.status === 'reconnect' || external.status === 'signin') && !planOpen && (
+        {(needsReconnecting || external.status === 'signin') && !calendarsOpen && (
           <button
             onClick={openCalendars}
             className={`absolute z-[24] h-7 rounded-full border border-line bg-bg px-3 text-[12px] text-ink2 shadow-[0_6px_18px_-10px_var(--shadow)] hover:border-stone hover:text-ink ${
@@ -574,7 +495,8 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
             }`}
             style={mobile ? { bottom: 'calc(76px + env(safe-area-inset-bottom))' } : undefined}
           >
-            {external.status === 'reconnect' ? 'Google Calendar needs reconnecting' : 'Sign in again to update Google Calendar'}
+            {/* Sign-in first: until that is mended, nothing can be asked about any account. */}
+            {external.status === 'signin' ? 'Sign in again to update Google Calendar' : 'Google Calendar needs reconnecting'}
           </button>
         )}
 

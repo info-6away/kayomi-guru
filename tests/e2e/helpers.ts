@@ -1,5 +1,19 @@
 import { expect, type Page } from '@playwright/test';
-import type { CalendarEvent, PlanItem } from '../../lib/types';
+import type { CalendarEvent } from '../../lib/types';
+
+/**
+ * A Plan item, as releases before Plan was removed stored one. Koyomi no longer reads or writes
+ * these; tests plant them to show that a device which has some is left exactly as it was.
+ */
+export interface LegacyPlanItem {
+  id: string;
+  title: string;
+  status: 'open' | 'completed';
+  createdAt: string;
+  updatedAt: string;
+}
+/** An event as those releases stored one: with the Plan item it was scheduled from, if any. */
+export type StoredEvent = CalendarEvent & { planItemId?: string | null };
 
 // Shared by the browser tests. They run against the production build, so they exercise the real
 // service worker and IndexedDB, and every test starts from an empty calendar in its own profile.
@@ -16,7 +30,10 @@ export const otherDay = () => addDays(today(), (new Date().getDay() + 6) % 7 ===
 
 export const event = (page: Page, title: string) => page.locator('[data-event]', { hasText: title });
 export const popover = (page: Page) => page.locator('[data-popover]');
-export const plan = (page: Page) => page.getByRole('region', { name: 'Plan' });
+/** The Calendars drawer (a sheet on a phone): which calendars are on screen, and where another is connected. */
+export const calendars = (page: Page) => page.getByRole('region', { name: 'Calendars' });
+/** What opens it: a control in the header on a desktop, the bar along the foot on a phone. */
+export const calendarsButton = (page: Page) => page.getByRole('button', { name: /^Calendars/ });
 export const columns = (page: Page) => page.locator('[data-day]');
 
 /** The wordmark in the header: on screen once the calendar has loaded what is saved. */
@@ -60,24 +77,7 @@ export async function addEvent(page: Page, title: string, time: string, day = to
   await expect(event(page, title)).toBeVisible();
 }
 
-export async function addToPlan(page: Page, ...titles: string[]) {
-  await plan(page).getByRole('button', { name: /Add$/ }).click();
-  for (const title of titles) {
-    await page.keyboard.type(title);
-    await page.keyboard.press('Enter');
-  }
-  await page.keyboard.press('Escape');
-}
-
-export async function placeFromPlan(page: Page, title: string, time: string, day = today()) {
-  await plan(page).getByRole('button', { name: title, exact: true }).click();
-  await expect(page.getByText('Choose a time for')).toBeVisible();
-  const { column, position } = await at(page, day, time);
-  await column.click({ position });
-  await expect(event(page, title)).toBeVisible();
-}
-
-/** What is actually written to this device, read straight from IndexedDB. */
+/** What is actually written to this device, read straight from IndexedDB: the events, and the store Plan used to keep. */
 export function stored(page: Page) {
   return page.evaluate(
     () =>
@@ -103,7 +103,7 @@ export const storedTitles = async (page: Page) => (await stored(page)).events.ma
  * wrote it: database `kayomi`, version 1, one store each for events and Plan items, keyed by id.
  * This is what everyone who used Koyomi before today already has.
  */
-export async function seed(page: Page, data: { events?: CalendarEvent[]; planItems?: PlanItem[] }) {
+export async function seed(page: Page, data: { events?: StoredEvent[]; planItems?: LegacyPlanItem[] }) {
   // The landing page shares the calendar's address and storage, and never opens the database itself.
   await page.goto('/home');
   await page.evaluate(

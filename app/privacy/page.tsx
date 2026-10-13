@@ -6,7 +6,7 @@ import { A, H2, LegalPage, List, Mail, OPERATOR, P, legalMetadata } from '@/comp
 
 export const metadata = legalMetadata('Privacy', 'What Koyomi keeps, where it keeps it, and what it is used for.', '/privacy');
 
-const UPDATED = '10 October 2026';
+const UPDATED = '13 October 2026';
 
 export default function Privacy() {
   return (
@@ -18,8 +18,8 @@ export default function Privacy() {
 
       <H2>Your Koyomi calendar stays on your device</H2>
       <P>
-        The events and Plan items you write in Koyomi are kept in your browser, on the device you write them on. They are not sent to our servers
-        and we cannot see them. Ordinary use needs no account.
+        The events you write in Koyomi are kept in your browser, on the device you write them on. They are not sent to our servers and we cannot
+        see them. Ordinary use needs no account.
       </P>
       <P>There is no cloud copy. If you clear the site’s data in your browser, or remove the installed app’s data, they are gone.</P>
       <P>
@@ -29,10 +29,13 @@ export default function Privacy() {
 
       <H2>Connecting Google Calendar</H2>
       <P>
-        Connecting a Google calendar is optional. If you connect one, Koyomi shows its events beside your own, so that you can see which hours are
-        already taken. That is the only thing your Google Calendar data is used for.
+        Connecting a Google calendar is optional. You can connect one Google account or several. Koyomi shows their events beside your own, so
+        that you can see which hours are already taken. That is the only thing your Google Calendar data is used for.
       </P>
-      <P>To connect, you first sign in with 6Away. Google then asks whether you allow Koyomi two things, both read-only:</P>
+      <P>
+        To connect an account, you first sign in with 6Away. Google then asks which account, and whether you allow Koyomi two things, both
+        read-only:
+      </P>
       <List>
         <li>see the list of your Google calendars (calendar.calendarlist.readonly);</li>
         <li>view the events on them (calendar.events.readonly).</li>
@@ -43,6 +46,10 @@ export default function Privacy() {
       <P>
         Koyomi reads the names and identifiers of your calendars, and whether each is your main one, is shown in Google Calendar, or has been
         deleted. A calendar’s identifier can be an email address.
+      </P>
+      <P>
+        The identifier of an account’s main calendar is that account’s address. Koyomi uses it to tell your connected accounts apart, and to
+        show you which calendars belong to which.
       </P>
       <P>For the calendars you choose to show in Koyomi, it reads these details of each event, from five weeks back to twenty-seven weeks ahead:</P>
       <List>
@@ -57,15 +64,20 @@ export default function Privacy() {
       <H2>Where it is kept</H2>
       <P>
         On your device. The calendar names and identifiers and the event details above are kept in your browser, apart from your Koyomi calendar, so
-        that they can be shown when you are offline, together with which calendars you chose to show and a note that a calendar is connected.
-        They are removed from the device when you hide a calendar, when you disconnect, or when a different person signs in on that device.
+        that they can be shown when you are offline, together with the address of each connected account, which calendars you chose to show and a
+        note that a calendar is connected. They are removed from the device when you hide a calendar, when you disconnect that account, or when
+        a different person signs in on that device.
       </P>
       <P>
         On our server. Events pass through our server on their way from Google to your device. They are not stored there and are not written to
-        its log. The server stores one record for each person who has connected. It holds:
+        its log. The server stores one record for each Google account you connect. It holds:
       </P>
       <List>
         <li>your 6Away identifier;</li>
+        <li>
+          a keyed hash that stands for which Google account it is, so that the same account is not recorded twice. It is made from the
+          account’s address and cannot be turned back into it;
+        </li>
         <li>the refresh token Google issued, encrypted with AES-256-GCM;</li>
         <li>the permissions Google granted, and whether the connection is working;</li>
         <li>when the record was made and last changed;</li>
@@ -104,7 +116,7 @@ export default function Privacy() {
           Google to your device. They are not stored there.
         </li>
         <li>
-          Neon hosts the database, in the United States. It stores only the connection record described above. It receives no events and no
+          Neon hosts the database, in the United States. It stores only the connection records described above. It receives no events and no
           calendar names.
         </li>
         <li>
@@ -118,20 +130,21 @@ export default function Privacy() {
       </P>
 
       <H2>Disconnecting, and deleting</H2>
-      <P>The connection record is kept until you disconnect or ask us to delete it.</P>
+      <P>A connection record is kept until you disconnect that account or ask us to delete it.</P>
       <P>
-        Disconnect, in Koyomi’s Calendars pane, asks Google to revoke Koyomi’s access, deletes the record from our server, signs that device out
-        and deletes its copy of your Google calendars. Another device on which you had connected removes its own copy the next time it is signed
-        in and checks. Your Koyomi calendar is not touched.
+        Each connected account has its own Disconnect, in Koyomi’s Calendars pane. It asks Google to revoke Koyomi’s access to that account,
+        deletes that account’s record from our server and deletes the device’s copy of that account’s calendars. Your other connected accounts
+        are not affected. Disconnecting the last one also signs that device out. Another device on which you had connected removes its own copy
+        the next time it is signed in and checks. Your Koyomi calendar is not touched.
       </P>
       <P>
-        If you remove Koyomi’s access in your Google Account instead, Koyomi can read nothing further. The record stays on our server, marked as
-        needing reconnection, until you reconnect or disconnect.
+        If you remove Koyomi’s access in your Google Account instead, Koyomi can read nothing further from that account. Its record stays on our
+        server, marked as needing reconnection, until you reconnect or disconnect.
       </P>
       <P>
         You can also ask us to delete the record by writing to <Mail />.
       </P>
-      <P>To delete your Koyomi calendar, delete its events and Plan items in the app, or clear the site’s data in your browser.</P>
+      <P>To delete your Koyomi calendar, delete its events in the app, or clear the site’s data in your browser.</P>
 
       <H2>Questions and requests</H2>
       <P>

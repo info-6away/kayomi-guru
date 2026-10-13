@@ -7,6 +7,11 @@ it side by side.
 Do not redesign it. New work should be built in the same visual language, and any change to the look
 below needs approval first.
 
+In October 2026 Plan was removed from the product and Calendars took its place: the same drawer,
+in the same position, opened by the control that used to say Plan. The calendar itself (the week,
+the day, the month, an event and its details) was not redesigned. What changed is listed under
+"Calendars, where Plan was".
+
 ## Screenshots
 
 Taken from the production build with a neutral sample week, the clock set to Monday
@@ -17,16 +22,16 @@ pictures the manifest shows when the app is installed.
 | View | Light | Dark |
 | --- | --- | --- |
 | Desktop Week | [desktop-week-light.png](desktop-week-light.png) | [desktop-week-dark.png](desktop-week-dark.png) |
-| Desktop Week + Plan | [desktop-week-plan-light.png](desktop-week-plan-light.png) | [desktop-week-plan-dark.png](desktop-week-plan-dark.png) |
+| Desktop Week + Calendars | [desktop-week-calendars-light.png](desktop-week-calendars-light.png) | [desktop-week-calendars-dark.png](desktop-week-calendars-dark.png) |
 | Desktop Month | [desktop-month-light.png](desktop-month-light.png) | |
 | Phone Day | [mobile-day-light.png](mobile-day-light.png) | [mobile-day-dark.png](mobile-day-dark.png) |
-| Phone Plan | [mobile-plan-light.png](mobile-plan-light.png) | |
+| Phone Calendars | [mobile-calendars-light.png](mobile-calendars-light.png) | |
 
-Month and the phone Plan sheet are shown in light only: dark changes their palette and nothing else.
+Month and the phone Calendars sheet are shown in light only: dark changes their palette and nothing else.
 
 ![Desktop Week, light](desktop-week-light.png)
 
-![Desktop Week with Plan, dark](desktop-week-plan-dark.png)
+![Desktop Week with Calendars, dark](desktop-week-calendars-dark.png)
 
 ## What makes it Koyomi
 
@@ -37,12 +42,13 @@ Month and the phone Plan sheet are shown in light only: dark changes their palet
 - **Two typefaces.** Shippori Mincho for the wordmark, dates and titles; Zen Kaku Gothic New for
   everything else.
 - **Week first on a desktop, one day on a phone.** Below 760px the layout changes rather than
-  shrinks: a week strip, a single day, and Plan as a bottom sheet.
-- **Plan is a drawer.** 320px wide; it sits beside the calendar from 1100px and slides over it below
-  that. Completed items stay collapsed at its foot.
+  shrinks: a week strip, a single day, and Calendars as a bottom sheet.
+- **Calendars is a drawer.** 320px wide; it sits beside the calendar from 1100px and slides over
+  it below that. See "Calendars, where Plan was".
 - **Events are quiet, but present.** A 2px colour bar and a tint of the same colour: 10% on paper
-  and 6% at night, about twice that when selected; struck through when a Plan item is done. Once
-  past, the bar and tint drop to half strength and the text goes one step lighter, in both themes.
+  and 6% at night, about twice that when selected. Once past, the bar and tint drop to half
+  strength and the text goes one step lighter, in both themes. An event is never struck through:
+  nothing on the calendar is a task.
 - **An event nobody has coloured is still easy to find.** Most events keep the default colour.
   On paper that is a neutral grey as strong as the other three colours, not the pale stone used
   for decoration, so an ordinary week does not dissolve into the background.
@@ -71,17 +77,44 @@ Month and the phone Plan sheet are shown in light only: dark changes their palet
   opens just after 07:30, so about 08:00 to 20:00 is visible without scrolling.
 - **Creation is one line.** Click a time, type, Enter: `14:00 │ What are you doing?`
 
+## Calendars, where Plan was
+
+Koyomi is one calm place for all your calendars, and Calendars is where they are chosen and
+connected. It took over Plan's place exactly, so nothing about the frame moved:
+
+- **On a desktop, one word in the header.** "Calendars" sits where "Plan" did, after Day, Week
+  and Month and before search, in the same type and weight. No count beside it, no icon. It
+  opens the drawer; `C` does too, as `P` used to.
+- **On a phone, the bar along the foot.** The bar that said Plan says Calendars, in the same
+  Mincho, with a quiet line beside it for what is on screen: "Koyomi", or "Koyomi and 3 more".
+  It opens the same bottom sheet.
+- **The drawer is a list, not a settings page.** "Koyomi", always shown and ticked. Then, under
+  a small "GOOGLE" heading, each connected account: its address as a quiet line with
+  "Disconnect" as text beside it, and its calendars under it, each a row that is on (a tick) or
+  off (a ring). Then "＋ Add calendar account", drawn like Plan's old "＋ Add" row. With nothing
+  connected, one sentence under it says what adding an account means, with a link to Privacy.
+  Refresh and when things were last read are text at the foot, with "Install Koyomi" when the
+  browser offers it. No avatars, no provider logos, no account screen, nothing about how an
+  account is connected.
+- **Accounts are told apart by their address and nothing else.** No colour for each account, on
+  the list or on the calendar.
+
+What went with Plan: the list of things waiting and its count, "Completed", the "＋ Add" field,
+dragging a thing onto the week, the "Choose a time for…" pill, "Mark done" and "Back to Plan" in
+an event's details, and the struck-through title of a done event.
+
 ## Connected calendars
 
-Added in v1.2. Nothing above changes for someone who connects nothing; these are the additions
-for someone who does. Taken with `npm run screenshots -- --connected` against
-`npm run preview:connected`, which stands in for Google with a made-up account.
+For someone who connects nothing, the calendar is as above. These are the additions for someone
+who does. Taken with `npm run screenshots -- --connected` against `npm run preview:connected`,
+which stands in for Google with two made-up accounts.
 
 | View | |
 | --- | --- |
 | Desktop Week with Google events | [light](desktop-week-google-light.png), [dark](desktop-week-google-dark.png) |
 | A Google event open | [desktop-google-event-light.png](desktop-google-event-light.png) |
-| Calendars | [desktop-calendars-light.png](desktop-calendars-light.png) |
+| Calendars with two accounts | [desktop-calendars-light.png](desktop-calendars-light.png) |
+| Phone Calendars with two accounts | [mobile-calendars-google-light.png](mobile-calendars-google-light.png) |
 | Phone Day with Google events | [mobile-day-google-light.png](mobile-day-google-light.png) |
 
 ![Desktop Week with Google events, light](desktop-week-google-light.png)
@@ -92,22 +125,21 @@ for someone who does. Taken with `npm run screenshots -- --connected` against
   never faint: both still meet the same contrast as everything else. No provider logo and no
   provider colours.
 - **It can be looked at, not changed.** Opening one shows its title, time, and "Google Calendar ·"
-  with the calendar's name, beside a ring where a Koyomi event has a coloured dot. The only
-  action is Open in Google Calendar. It cannot be dragged, resized, completed or deleted.
+  with the calendar's name, then the address of the account that calendar is in on a line of its
+  own, in the same quiet type; beside a ring where a Koyomi event has a coloured dot. The only
+  action is Open in Google Calendar. It cannot be dragged, resized or deleted.
 - **The all-day row.** A slim row under the day headings, there only when the days in view have
   something in it. Koyomi's all-day events are tinted, external ones outlined, and one that runs
   for several days is a single bar across them. Two rows show; more fold into "+n", which opens
   the rest. An event of Koyomi's own moves in and out of the row with "All day" and "Set a time"
   in its details.
-- **Calendars lives inside Plan.** One quiet line at the foot of Plan opens it in the same drawer:
-  Koyomi, always shown, then the connected account's calendars, each a row that is on or off.
-  Refresh and Disconnect are text at the foot. There is no settings page, no avatar, no account
-  screen.
 - **Trouble is one line, and says which trouble.** If the Koyomi sign-in has ended: "Sign in
-  again to update Google Calendar". If Google itself has refused the permission: "Google
-  Calendar needs reconnecting". Either appears as a small pill at the bottom of the calendar and
-  in Calendars, and the two are never confused. Being offline, or Google being slow, shows
-  nothing at all.
+  again to update Google Calendar". If Google itself has refused an account's permission:
+  "Google Calendar needs reconnecting". Either appears as a small pill at the bottom of the
+  calendar, and the two are never confused. In Calendars the first is a line with "Sign in", and
+  the second is "Needs reconnecting" with "Reconnect", under the one account it is true of; the
+  other accounts look as they always do. Being offline, or Google being slow, shows nothing at
+  all.
 
 ## Differences from the prototype
 
@@ -115,14 +147,15 @@ Each of these was needed for a real calendar and was kept as small as possible:
 
 - A search icon in both headers.
 - The event popover edits in place (title, times, day) and has one extra row for colour and repeat.
-  Mark done and Back to Plan appear only on events that came from Plan.
+  Its one action is Delete.
 - The timeline covers 00:00 to 24:00 instead of 06:00 to 23:00.
 - Overlapping events sit side by side.
 - Text fields are 16px on phones, so iOS does not zoom when one is focused.
 - The first visit follows the system's light or dark setting; after that the user's choice is kept.
-- When the browser can install Koyomi, one line at the foot of Plan says "Install Koyomi". It is
-  absent everywhere else: in Safari and Firefox, at any address but `app.koyomi.guru`, and once
-  the app is installed.
+- When the browser can install Koyomi, one line at the foot of Calendars says "Install Koyomi".
+  It is absent everywhere else: in Safari and Firefox, at any address but `app.koyomi.guru`, and
+  once the app is installed.
+- Plan, which the prototype had, is gone, and Calendars is in its place (see above).
 - The app starts empty. The sample week exists only in these screenshots.
 
 ## The original prototype

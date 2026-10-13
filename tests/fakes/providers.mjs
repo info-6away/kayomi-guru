@@ -8,7 +8,9 @@
 //   /__fake/...   how a test sets up an account and sees what was asked of it
 //
 // Who signs in, and which Google account consents, is chosen by two cookies on this server's
-// own address (`fake_user`, `fake_google`), which a test sets before it presses Connect.
+// own address (`fake_user`, `fake_google`), which a test sets before it adds an account. The
+// second is what picking an account on Google's own list comes to: a test that connects two
+// accounts changes it in between.
 
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -98,6 +100,11 @@ const account = (id) => {
   if (!accounts.has(id)) accounts.set(id, blank());
   return accounts.get(id);
 };
+/**
+ * Which accounts someone with no `fake_google` cookie is, one after the other: for adding
+ * accounts by hand (scripts/preview-connected.mjs). The last one is who they stay.
+ */
+let turns = [];
 const googleCodes = new Map();
 /** Every attempt to trade a code for tokens, by any account. */
 const exchanges = [];
@@ -113,7 +120,7 @@ async function google(req, res, url) {
   // The consent screen. `fake_google` says who is at the keyboard and what they do.
   if (url.pathname === '/google/o/oauth2/v2/auth') {
     const q = url.searchParams;
-    const who = cookie(req, 'fake_google') ?? 'nobody';
+    const who = cookie(req, 'fake_google') ?? (turns.length > 1 ? turns.shift() : turns[0]) ?? 'nobody';
     const [choice, id] = who.includes(':') ? who.split(':') : ['allow', who];
     const acct = account(id);
     acct.log.push({ type: 'consent', choice, ...Object.fromEntries(q) });
@@ -206,9 +213,17 @@ async function google(req, res, url) {
     // A test is keeping this kind of question waiting. It is answered when the test lets go, so
     // whatever the test does in between happens while the reading is under way, however fast or
     // slow the machine is.
-    const asks = url.pathname === '/google/calendar/v3/users/me/calendarList' ? 'calendars' : 'events';
+    const asks = url.pathname === '/google/calendar/v3/users/me/calendarList' ? 'calendars' : url.pathname === '/google/calendar/v3/users/me/calendarList/primary' ? 'account' : 'events';
     if (acct.hold === asks) await new Promise((resolve) => acct.waiting.push(resolve));
     const q = url.searchParams;
+
+    // Which account this is: its own calendar, by id. All Koyomi ever learns of who it is.
+    if (asks === 'account') {
+      acct.log.push({ type: 'account', fields: q.get('fields') });
+      const own = [...acct.calendars.values()].find((c) => c.entry.primary);
+      // Every Google account has a calendar of its own, whether or not a test gave it one.
+      return send(res, 200, { id: own?.entry.id ?? `${token.split('.')[1]}@account.example.test` });
+    }
 
     if (url.pathname === '/google/calendar/v3/users/me/calendarList') {
       acct.log.push({ type: 'calendars', fields: q.get('fields') });
@@ -254,6 +269,11 @@ async function google(req, res, url) {
 async function control(req, res, url) {
   if (url.pathname === '/__fake/health') return send(res, 200, { ok: true });
   if (url.pathname === '/__fake/exchanges') return send(res, 200, exchanges.filter((e) => e.code === url.searchParams.get('code')));
+  // PUT /__fake/turns  ["first", "second"]: who consents next, for someone with no cookie to say.
+  if (url.pathname === '/__fake/turns') {
+    turns = JSON.parse((await body(req)) || '[]');
+    return send(res, 200, {});
+  }
   const match = /^\/__fake\/google\/([^/]+)(\/change|\/state)?$/.exec(url.pathname);
   if (!match) return send(res, 404, {});
   const id = decodeURIComponent(match[1]);

@@ -2,18 +2,19 @@ import 'server-only';
 import { neon } from '@neondatabase/serverless';
 import type { ApiError } from '../calendars/types';
 import { auth } from './auth';
-import { memoryStore, sqlStore, type Allowance, type ConnectionStore, type Sql } from './connections';
+import { memoryStore, sealContext, sqlStore, type Allowance, type ConnectionStore, type Sql } from './connections';
 import { connectionsConfig, type ConnectionsConfig } from './env';
 import { GoogleError, refreshAccess } from './google';
 import { report } from './log';
 import { open } from './seal';
 
-// What every calendar route needs: who is asking, where their connection is kept, how much they
-// may ask for, and a way to answer that never lets a browser or a proxy keep a copy.
+// What every calendar route needs: who is asking, where their connections are kept, how much
+// may be asked for each, and a way to answer that never lets a browser or a proxy keep a copy.
 //
-// Who is asking comes from the session cookie and from nowhere else. No route takes a person's
-// id, or a connection's, from the address, the body or a header, so there is no way to name
-// someone else's row.
+// Who is asking comes from the session cookie and from nowhere else. A person can have several
+// connections, so a route is told which one by its id, but every look in the table is for that
+// id among the signed-in person's own rows. An id that belongs to someone else finds nothing,
+// exactly as one that never existed does.
 
 /** What a route answers with. Plain data, so several waiting requests can share one. */
 export interface Answer {
@@ -52,8 +53,8 @@ export function storeFor(config: ConnectionsConfig): ConnectionStore {
 
 /**
  * The context for a request from a signed-in person, or the answer that says why there is none.
- * No session is not a lost connection: the person's row is untouched, and signing in again
- * with the same 6Away identity finds it exactly as it was.
+ * No session is not a lost connection: the person's rows are untouched, and signing in again
+ * with the same 6Away identity finds them exactly as they were.
  */
 export async function signedIn(): Promise<Ctx | Answer> {
   const config = connectionsConfig();
@@ -70,21 +71,21 @@ export const sameOrigin = (request: Request, config: ConnectionsConfig) => reque
 /** Holds the consent round trip's sealed details for the few minutes it takes. Page code cannot read it. */
 export const OAUTH_COOKIE = 'koyomi_google_oauth';
 
-/** What a token's seal is tied to: it only opens on the row it was made for. */
-export const sealContext = (subject: string) => `${subject}:google`;
-
 const access = () => (shared.koyomiAccess ??= new Map());
-export const forgetAccess = (subject: string) => access().delete(subject);
+export const forgetAccess = (connectionId: string) => access().delete(connectionId);
 
 /**
- * What one person may ask of Google through Koyomi: 120 units a minute, where listing calendars
- * is one unit and reading events is one per calendar. The app's own use is a few units at a
- * time, some minutes apart. The count lives in the database, beside the connection, so it is
- * one count however many servers are answering.
+ * What may be asked of Google about one connected account through Koyomi: 120 units a minute,
+ * where listing its calendars is one unit and reading events is one per calendar. The app's own
+ * use is a few units at a time, some minutes apart. The count lives in the database, in the
+ * connection's own row, so it is one count however many servers are answering, and one account
+ * asked about too often does not hold back another.
  */
 export const ALLOWANCE: Allowance = { units: 120, seconds: 60 };
 /** However many calendars and pages a request involves, it gives up after this long. */
 export const JOB_TIMEOUT_MS = 25_000;
+/** How many calendars, or how many accounts, are read from a provider at the same moment. */
+export const AT_ONCE = 5;
 
 /**
  * Runs `work` once for everyone asking for the same thing at the same moment: a second tab, a
@@ -100,65 +101,80 @@ export function once<T>(key: string, work: () => Promise<T>): Promise<T> {
   return started;
 }
 
+/** Runs `work` over `items`, a few at a time, keeping their order. */
+export async function inTurn<T, R>(items: T[], width: number, work: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const lane = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await work(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(width, items.length) }, lane));
+  return out;
+}
+
+/** What a reading came to: the data, or the one word for why there is none. */
+export type Read<T> = { data: T } | { error: ApiError; retryAfter?: number };
+
+const STATUS: Partial<Record<ApiError, number>> = { not_connected: 409, reconnect: 409, slow_down: 429, busy: 503 };
+/** A reading as a route's answer. */
+export const answerOf = <T>(read: Read<T>): Answer =>
+  'error' in read ? no(read.error, STATUS[read.error] ?? 503, read.retryAfter ? { 'retry-after': String(read.retryAfter) } : undefined) : { status: 200, body: read.data };
+
 /** Marks the connection as needing the person, and says so. Only Google refusing its token leads here. */
-async function needsReconnect(ctx: Ctx): Promise<Answer> {
-  forgetAccess(ctx.subject);
-  await ctx.store.setStatus(ctx.subject, 'google', 'reconnect').catch(() => {});
-  return no('reconnect', 409);
+async function needsReconnect(ctx: Ctx, id: string): Promise<{ error: ApiError }> {
+  forgetAccess(id);
+  await ctx.store.setStatus(ctx.subject, id, 'reconnect').catch(() => {});
+  return { error: 'reconnect' };
 }
 
 /**
- * A short-lived Google access token for this person, or the answer that says why not. The
- * refresh token is opened here, used once, and goes no further: it is never sent to a browser,
- * never logged and never written anywhere unsealed. Access tokens are held in memory until
- * they expire, and asked for once however many requests are waiting.
+ * A short-lived Google access token for one of this person's connections, or the word that
+ * says why not. The refresh token is opened here, used once, and goes no further: it is never
+ * sent to a browser, never logged and never written anywhere unsealed. Access tokens are held
+ * in memory until they expire, each under its own connection, and asked for once however many
+ * requests are waiting.
  *
- * @param cost What this read counts for against the person's allowance, or 0 to count nothing.
+ * @param cost What this read counts for against the account's allowance.
  */
-async function accessFor(ctx: Ctx, cost: number): Promise<string | Answer> {
-  const spent = cost ? await ctx.store.spend(ctx.subject, 'google', cost, ALLOWANCE) : null;
-  const connection = spent ? spent.connection : await ctx.store.get(ctx.subject, 'google');
-  if (!connection) return no('not_connected', 409);
-  if (spent && !spent.allowed) return no('slow_down', 429, { 'retry-after': String(spent.retryAfter) });
-  if (connection.status === 'reconnect') return no('reconnect', 409);
+async function accessFor(ctx: Ctx, id: string, cost: number): Promise<string | { error: ApiError; retryAfter?: number }> {
+  const spent = await ctx.store.spend(ctx.subject, id, cost, ALLOWANCE);
+  if (!spent) return { error: 'not_connected' };
+  const { connection } = spent;
+  if (!spent.allowed) return { error: 'slow_down', retryAfter: spent.retryAfter };
+  if (connection.status === 'reconnect') return { error: 'reconnect' };
 
-  const held = access().get(ctx.subject);
+  const held = access().get(id);
   if (held && held.until > Date.now()) return held.token;
 
   let refreshToken: string;
   try {
-    refreshToken = open(connection.sealedToken, ctx.config.tokenKey, sealContext(ctx.subject));
+    refreshToken = open(connection.sealedToken, ctx.config.tokenKey, sealContext(connection));
   } catch {
     // Sealed with a key this server no longer has. It cannot be recovered, only replaced.
-    return needsReconnect(ctx);
+    return needsReconnect(ctx, id);
   }
-  return once(`${ctx.subject}:token`, async () => {
+  return once(`${id}:token`, async () => {
     const { accessToken, expiresIn } = await refreshAccess(ctx.config.google, refreshToken);
-    access().set(ctx.subject, { token: accessToken, until: Date.now() + (expiresIn - 60) * 1000 });
+    access().set(id, { token: accessToken, until: Date.now() + (expiresIn - 60) * 1000 });
     return accessToken;
   });
 }
 
 /**
- * Reads from Google for this person: checks their allowance, gets a token, runs `work`, and
- * turns anything that goes wrong into a quiet answer.
+ * Reads from Google through one of this person's connections: checks that account's allowance,
+ * gets a token, runs `work`, and turns anything that goes wrong into one quiet word. What goes
+ * wrong for one connection is that connection's alone: nothing here touches another row.
  */
-export async function reading(ctx: Ctx, cost: number, work: (token: string) => Promise<Answer>): Promise<Answer> {
+export async function reading<T>(ctx: Ctx, id: string, cost: number, work: (token: string) => Promise<T>): Promise<Read<T>> {
   try {
-    const token = await accessFor(ctx, cost);
-    return typeof token === 'string' ? await work(token) : token;
+    const token = await accessFor(ctx, id, cost);
+    return typeof token === 'string' ? { data: await work(token) } : token;
   } catch (error) {
-    if (error instanceof GoogleError && error.kind === 'reconnect') return needsReconnect(ctx);
+    if (error instanceof GoogleError && error.kind === 'reconnect') return needsReconnect(ctx, id);
     if (!(error instanceof GoogleError)) report('reading', error);
-    return no('busy', 503);
-  }
-}
-
-/** Whether this person's connection can be used right now, without counting it as a read. */
-export async function works(ctx: Ctx): Promise<boolean> {
-  try {
-    return typeof (await accessFor(ctx, 0)) === 'string';
-  } catch {
-    return false;
+    return { error: 'busy' };
   }
 }

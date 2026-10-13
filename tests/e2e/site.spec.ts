@@ -14,10 +14,16 @@ test.describe('landing page', () => {
     page.on('response', (r) => r.status() >= 400 && problems.push(`${r.status()} ${r.url()}`));
 
     await page.goto('/home');
-    await expect(page).toHaveTitle('Koyomi — a calm calendar');
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('A calm calendar for planning your own life.');
-    await expect(page.getByRole('heading', { level: 2 })).toHaveText(['Things with a time.', 'Things without one yet.', 'Move one to the other.']);
+    await expect(page).toHaveTitle('Koyomi — Calendar, simplified.');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Calendar, simplified.');
+    await expect(page.getByRole('main').locator('section').first().locator('p')).toHaveText('All your calendars. One quiet place.');
+    await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', 'All your calendars. One quiet place.');
+    await expect(page.getByRole('heading', { level: 2 })).toHaveText(['Things with a time.', 'The ones you already have.', 'Nothing else.']);
     await expect(page.getByText('Your day should have space in it.')).toBeVisible();
+    // Koyomi is a calendar and nothing beside it: no list of things to do, anywhere on the page.
+    await expect(page.getByText(/\bPlan\b|waiting|to-do|task list/i)).toHaveCount(0);
+    // What it says of connected calendars is what is so: Google, several accounts, read only.
+    await expect(page.getByText('Connect your Google accounts and see their events beside your own. Koyomi only reads them.')).toBeVisible();
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /^https:\/\/koyomi\.guru\/?$/);
 
     // Three ways in, all to the same place, and the footer's two quiet links. Nothing else.
@@ -102,7 +108,7 @@ test.describe('privacy and terms', () => {
 
     // The wordmark goes home, and Open Koyomi to the calendar.
     await page.getByRole('link', { name: 'Koyomi, home' }).click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('A calm calendar for planning your own life.');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Calendar, simplified.');
     await page.goto('/terms');
     await page.getByRole('link', { name: /Open Koyomi/ }).click();
     await expect(page.locator('[data-day]')).toHaveCount(7);
@@ -134,6 +140,23 @@ test.describe('privacy and terms', () => {
     }
     expect(said).toContain('Koyomi does not ask Google for descriptions, locations, guest lists or meeting links');
 
+    // What Koyomi itself keeps is events, and nothing else: there is no Plan to speak of any more.
+    expect(said).toContain('The events you write in Koyomi are kept in your browser, on the device you write them on.');
+    expect(said).toContain('To delete your Koyomi calendar, delete its events in the app, or clear the site’s data in your browser.');
+    expect(said).not.toMatch(/\bPlan\b/);
+
+    // More than one Google account, each told apart by its address, and how.
+    for (const part of [
+      'You can connect one Google account or several.',
+      'Google then asks which account, and whether you allow Koyomi two things, both read-only',
+      'The identifier of an account’s main calendar is that account’s address. Koyomi uses it to tell your connected accounts apart, and to show you which calendars belong to which.',
+      'together with the address of each connected account',
+      'The server stores one record for each Google account you connect.',
+      'a keyed hash that stands for which Google account it is, so that the same account is not recorded twice. It is made from the account’s address and cannot be turned back into it',
+    ]) {
+      expect(said, part).toContain(part);
+    }
+
     // Where it is kept, and how.
     for (const part of [
       'They are not sent to our servers and we cannot see them. Ordinary use needs no account.',
@@ -161,7 +184,7 @@ test.describe('privacy and terms', () => {
     expect(said).toContain('It is not given to anyone for purposes of their own.');
     for (const part of [
       'Vercel hosts the website and the server. Your Google Calendar events and calendar names pass through that server on their way from Google to your device. They are not stored there.',
-      'Neon hosts the database, in the United States. It stores only the connection record described above. It receives no events and no calendar names.',
+      'Neon hosts the database, in the United States. It stores only the connection records described above. It receives no events and no calendar names.',
       '6Away provides sign-in. It learns that you signed in to Koyomi. It does not receive your Google Calendar events, your calendar names or Google’s tokens.',
     ]) {
       expect(said, part).toContain(part);
@@ -169,8 +192,10 @@ test.describe('privacy and terms', () => {
 
     // Disconnecting, and deleting.
     for (const part of [
-      'The connection record is kept until you disconnect or ask us to delete it.',
-      'asks Google to revoke Koyomi’s access, deletes the record from our server, signs that device out and deletes its copy of your Google calendars',
+      'A connection record is kept until you disconnect that account or ask us to delete it.',
+      'Each connected account has its own Disconnect, in Koyomi’s Calendars pane.',
+      'It asks Google to revoke Koyomi’s access to that account, deletes that account’s record from our server and deletes the device’s copy of that account’s calendars.',
+      'Your other connected accounts are not affected. Disconnecting the last one also signs that device out.',
       'Your Koyomi calendar is not touched.',
       'marked as needing reconnection, until you reconnect or disconnect',
       `You can also ask us to delete the record by writing to ${CONTACT}.`,
@@ -196,7 +221,10 @@ test.describe('privacy and terms', () => {
     ]);
     for (const part of [
       'We keep no copy and there is no cloud backup, so we cannot restore them.',
-      'The connection is read-only: Koyomi cannot change your Google Calendar.',
+      'The events you write are kept in your browser, on your device.',
+      'You may connect one or more Google accounts so that Koyomi shows their calendars beside your own.',
+      'A connection is read-only: Koyomi cannot change your Google Calendar.',
+      'You can disconnect each account at any time in Koyomi.',
       'your use of them is subject to their own terms',
       'Koyomi is provided as it is and as available.',
       'Use Koyomi lawfully and reasonably.',
@@ -206,6 +234,7 @@ test.describe('privacy and terms', () => {
       expect(said, part).toContain(part);
     }
     await expect(page.getByRole('main').locator('a[href^="mailto:"]')).toHaveAttribute('href', `mailto:${CONTACT}`);
+    expect(said).not.toMatch(/\bPlan\b/);
     // Short: a page or two, not a contract.
     expect(said.split(' ').length).toBeLessThan(450);
   });
@@ -292,7 +321,8 @@ for (const theme of ['light', 'dark'] as const) {
 test.describe('host names', () => {
   // Only the Host header tells the two sites apart, so that is all these requests change.
   const get = (request: APIRequestContext, host: string, path: string) => request.get(path, { headers: { host }, maxRedirects: 0 });
-  const LANDING = 'A calm calendar for planning your own life.';
+  // Something only the landing page says. (Its headline is also in the calendar's own description.)
+  const LANDING = 'The ones you already have.';
 
   test('koyomi.guru shows the landing page at /', async ({ request }) => {
     const response = await get(request, 'koyomi.guru', '/');

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { spanOf, toInstant } from '../../lib/dates';
 import { layoutDay, moved, nearestDay, occurrencesByDay } from '../../lib/occurrences';
 import { occurrenceDays, shiftRecurrence } from '../../lib/recurrence';
-import type { CalendarEvent, Frequency, PlanItem, Recurrence } from '../../lib/types';
+import type { CalendarEvent, Frequency, Recurrence } from '../../lib/types';
 
 const every = (freq: Frequency, rest: Partial<Recurrence> = {}): Recurrence => ({ freq, until: null, except: [], ...rest });
 
@@ -14,7 +14,6 @@ const event = ({ day, from = 450, to = 510, ...over }: Partial<CalendarEvent> & 
   end: toInstant(day, to),
   allDay: false,
   category: 'life',
-  planItemId: null,
   recurrence: null,
   createdAt: '2026-10-01T00:00:00.000Z',
   updatedAt: '2026-10-01T00:00:00.000Z',
@@ -88,7 +87,7 @@ test('moving a series moves its end and its removed days with it', () => {
 
 test('moving one occurrence of a series moves its first day by the same amount', () => {
   const gym = event({ day: '2026-10-05', recurrence: every('weekly') });
-  const occurrence = occurrencesByDay([gym], [], '2026-10-19', '2026-10-19').get('2026-10-19')![0];
+  const occurrence = occurrencesByDay([gym], '2026-10-19', '2026-10-19').get('2026-10-19')![0];
   const next = moved(occurrence, { date: '2026-10-20', start: 480, end: 540 });
   expect(spanOf(next)).toEqual({ date: '2026-10-06', start: 480, end: 540 });
 });
@@ -96,20 +95,23 @@ test('moving one occurrence of a series moves its first day by the same amount',
 test('a series lists once per day, in order of start', () => {
   const gym = event({ day: '2026-10-05', recurrence: every('weekly') });
   const lunch = event({ id: 'e2', title: 'Lunch', day: '2026-10-12', from: 420, to: 450 });
-  const byDay = occurrencesByDay([gym, lunch], [], '2026-10-12', '2026-10-18');
+  const byDay = occurrencesByDay([gym, lunch], '2026-10-12', '2026-10-18');
   expect([...byDay.keys()]).toEqual(['2026-10-12']);
   expect(byDay.get('2026-10-12')!.map((o) => o.event.title)).toEqual(['Lunch', 'Gym']);
   expect(byDay.get('2026-10-12')![1].key).toBe('e1@2026-10-12');
 });
 
-test('only an event scheduled from a completed Plan item is done', () => {
-  const item: PlanItem = { id: 'p1', title: 'Call', status: 'completed', createdAt: '', updatedAt: '' };
-  const call = event({ id: 'e2', day: '2026-10-05', planItemId: 'p1' });
-  const lunch = event({ id: 'e3', day: '2026-10-05' });
-  const [a, b] = occurrencesByDay([call, lunch], [item], '2026-10-05', '2026-10-05').get('2026-10-05')!;
-  expect([a.done, b.done]).toEqual([true, false]);
-  const reopened = occurrencesByDay([call], [{ ...item, status: 'open' }], '2026-10-05', '2026-10-05').get('2026-10-05')!;
-  expect(reopened[0].done).toBe(false);
+test('an event is only an event: one that was once scheduled from Plan is no different, and nothing is ever done', () => {
+  // As releases before Plan was removed stored it: with the Plan item it came from.
+  const call = { ...event({ id: 'e2', day: '2026-10-05' }), planItemId: 'p1' };
+  const lunch = event({ id: 'e3', day: '2026-10-05', from: 720, to: 780 });
+  const [a, b] = occurrencesByDay([call, lunch], '2026-10-05', '2026-10-05').get('2026-10-05')!;
+  expect(Object.keys(a).sort()).toEqual(['date', 'end', 'event', 'key', 'start']);
+  expect(Object.keys(b).sort()).toEqual(Object.keys(a).sort());
+  expect([a.event.title, a.start, a.end]).toEqual(['Gym', 450, 510]);
+  // It moves and repeats like any other, which an event from Plan never could.
+  expect(spanOf(moved(a, { date: '2026-10-06', start: 600, end: 660 }))).toEqual({ date: '2026-10-06', start: 600, end: 660 });
+  expect(occurrencesByDay([{ ...call, recurrence: every('daily') }], '2026-10-05', '2026-10-07').size).toBe(3);
 });
 
 test('search shows the next occurrence, or the last when the series is over', () => {

@@ -1,18 +1,26 @@
 import { expect, test } from '@playwright/test';
 import { EVENT_FIELDS, normalizeGoogleEvent, type GoogleEvent } from '../../lib/calendars/normalize';
 import { showingsByDay, timeLabel } from '../../lib/calendars/showings';
-import type { ExternalCalendar, ExternalEvent } from '../../lib/calendars/types';
+import { calendarKey, eventKey, type ExternalCalendar, type ExternalConnection, type ExternalEvent } from '../../lib/calendars/types';
 import { covers, spanOfWindow, syncWindow, within } from '../../lib/calendars/window';
 
 // Google events becoming Koyomi's record of them, and where they land on the local calendar.
 // Time zones are the point of most of these, so each says which zone the device is in.
 
 const FETCHED = '2026-10-07T09:00:00.000Z';
-const read = (item: GoogleEvent) => normalizeGoogleEvent(item, 'work@example.com', FETCHED);
-const calendar = (over: Partial<ExternalCalendar> = {}): ExternalCalendar => ({
-  id: 'google:work@example.com',
+/** Two connected accounts, by the ids the server gives their connections. */
+const A = '11111111-1111-4111-8111-111111111111';
+const B = '22222222-2222-4222-8222-222222222222';
+const accounts: ExternalConnection[] = [
+  { id: A, provider: 'google', account: 'one@example.com', status: 'connected' },
+  { id: B, provider: 'google', account: 'two@example.com', status: 'connected' },
+];
+const read = (item: GoogleEvent, connectionId = A) => normalizeGoogleEvent(item, connectionId, 'work@example.com', FETCHED);
+const calendar = ({ connectionId = A, calendarId = 'work@example.com', ...over }: Partial<ExternalCalendar> = {}): ExternalCalendar => ({
+  id: calendarKey(connectionId, calendarId),
+  connectionId,
   provider: 'google',
-  calendarId: 'work@example.com',
+  calendarId,
   name: 'Work',
   primary: true,
   selected: true,
@@ -35,7 +43,7 @@ function inZone<T>(zone: string, run: () => T): T {
   }
 }
 const on = (event: ExternalEvent, from: string, to: string) =>
-  [...showingsByDay([event], [calendar()], from, to)].flatMap(([, list]) => list.map((s) => `${s.date} ${s.allDay ? 'all day' : `${s.start}-${s.end}`}`));
+  [...showingsByDay([event], [calendar()], accounts, from, to)].flatMap(([, list]) => list.map((s) => `${s.date} ${s.allDay ? 'all day' : `${s.start}-${s.end}`}`));
 
 test('a timed event keeps its instant and the zone it was written in', () => {
   const event = read({
@@ -48,7 +56,8 @@ test('a timed event keeps its instant and the zone it was written in', () => {
     end: { dateTime: '2026-10-07T19:00:00-07:00', timeZone: 'America/Los_Angeles' },
   })!;
   expect(event).toEqual({
-    id: 'google:work@example.com:e1',
+    id: `${A}:work@example.com:e1`,
+    connectionId: A,
     provider: 'google',
     providerEventId: 'e1',
     calendarId: 'work@example.com',
@@ -141,10 +150,33 @@ test('nothing beyond titles and times is asked of Google', () => {
 
 test('a hidden calendar shows nothing, and two calendars keep their own events', () => {
   const event = read({ id: 'e1', summary: 'Call', start: { dateTime: '2026-10-07T10:00:00Z' }, end: { dateTime: '2026-10-07T11:00:00Z' } })!;
-  expect(showingsByDay([event], [calendar({ visible: false })], '2026-10-01', '2026-10-31').size).toBe(0);
-  expect(showingsByDay([event], [calendar({ calendarId: 'other@example.com' })], '2026-10-01', '2026-10-31').size).toBe(0);
-  const [showing] = showingsByDay([event], [calendar()], '2026-10-01', '2026-10-31').values().next().value!;
-  expect(showing).toMatchObject({ key: `x:${event.id}@${showing.date}`, calendar: 'Work' });
+  expect(showingsByDay([event], [calendar({ visible: false })], accounts, '2026-10-01', '2026-10-31').size).toBe(0);
+  expect(showingsByDay([event], [calendar({ calendarId: 'other@example.com' })], accounts, '2026-10-01', '2026-10-31').size).toBe(0);
+  const [showing] = showingsByDay([event], [calendar()], accounts, '2026-10-01', '2026-10-31').values().next().value!;
+  expect(showing).toMatchObject({ key: `x:${event.id}@${showing.date}`, calendar: 'Work', account: 'one@example.com' });
+  // An account whose address has not been read yet is still shown; it just has no address to give.
+  const [unnamed] = showingsByDay([event], [calendar()], [], '2026-10-01', '2026-10-31').values().next().value!;
+  expect(unnamed).toMatchObject({ calendar: 'Work', account: null });
+});
+
+test('the same calendar and event ids in two accounts are two calendars and two events', () => {
+  // Both accounts have a calendar called work@example.com, with an event e1 in it.
+  const item = (summary: string): GoogleEvent => ({ id: 'e1', summary, start: { dateTime: '2026-10-07T10:00:00Z' }, end: { dateTime: '2026-10-07T11:00:00Z' } });
+  const [first, second] = [read(item('From the first'), A)!, read(item('From the second'), B)!];
+  expect(first.id).not.toBe(second.id);
+  expect([first.id, second.id]).toEqual([eventKey(A, 'work@example.com', 'e1'), eventKey(B, 'work@example.com', 'e1')]);
+  expect([first.providerEventId, first.calendarId]).toEqual([second.providerEventId, second.calendarId]);
+  const calendars = [calendar({ connectionId: A, name: 'Work' }), calendar({ connectionId: B, name: 'Work' })];
+  expect(calendars[0].id).not.toBe(calendars[1].id);
+
+  const shown = (list: ExternalCalendar[]) =>
+    [...showingsByDay([first, second], list, accounts, '2026-10-01', '2026-10-31').values()].flat().map((s) => `${s.event.title} (${s.account})`).sort();
+  expect(shown(calendars)).toEqual(['From the first (one@example.com)', 'From the second (two@example.com)']);
+  // Hiding it in one account hides that account's event and not the other's.
+  expect(shown([{ ...calendars[0], visible: false }, calendars[1]])).toEqual(['From the second (two@example.com)']);
+  expect(shown([calendars[0], { ...calendars[1], visible: false }])).toEqual(['From the first (one@example.com)']);
+  // With only one of the two accounts on this device, the other's event has no calendar to belong to.
+  expect(shown([calendars[1]])).toEqual(['From the second (two@example.com)']);
 });
 
 test('the span that is read: five weeks back, twenty-seven ahead, re-read once it has slipped a week', () => {

@@ -2,12 +2,12 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { expect, test } from '@playwright/test';
-import { memoryStore, sqlStore, type ConnectionStore, type Sql } from '../../lib/server/connections';
+import { accountKey, isConnectionId, memoryStore, sealContext, sqlStore, type Sql } from '../../lib/server/connections';
 import { connectionsConfig, signInConfigured } from '../../lib/server/env';
 import { FLOW_SECONDS, beginFlow, finishFlow } from '../../lib/server/flow';
-import { GoogleError, MAX_CALENDAR_PAGES, MAX_EVENT_PAGES, SCOPES, authorizeUrl, googleEndpoints, listCalendars, listEvents, pkce, refreshAccess } from '../../lib/server/google';
+import { GoogleError, MAX_CALENDAR_PAGES, MAX_EVENT_PAGES, SCOPES, authorizeUrl, googleEndpoints, listCalendars, listEvents, pkce, primaryCalendarId, refreshAccess } from '../../lib/server/google';
 import { describe } from '../../lib/server/log';
-import { open, seal } from '../../lib/server/seal';
+import { fingerprint, open, seal } from '../../lib/server/seal';
 
 // The server's side of a calendar connection: how a token is sealed, where it is kept, what is
 // asked of Google, and when the whole feature is switched off.
@@ -36,46 +36,169 @@ test('the same token never seals to the same text twice, and a short key is refu
   expect(() => seal('token', 'abc123', 'u:google')).toThrow(/64 hexadecimal/);
 });
 
-/** The real table, created by the real migration, in a Postgres that runs inside the test. */
-async function postgres(): Promise<{ store: ConnectionStore; rows: () => Promise<Record<string, unknown>[]> }> {
+test('an account is known to the table by a word that only this server can make, and never by its address', () => {
+  const word = accountKey(KEY, 'user-1', 'google', 'someone@example.com');
+  // The same person and the same account always come to the same word, however the address is written.
+  expect(accountKey(KEY, 'user-1', 'google', 'someone@example.com')).toBe(word);
+  expect(accountKey(KEY, 'user-1', 'google', ' Someone@Example.com ')).toBe(word);
+  // Another account, another person, or another server's key: another word.
+  expect(accountKey(KEY, 'user-1', 'google', 'someone.else@example.com')).not.toBe(word);
+  expect(accountKey(KEY, 'user-2', 'google', 'someone@example.com')).not.toBe(word);
+  expect(accountKey(OTHER_KEY, 'user-1', 'google', 'someone@example.com')).not.toBe(word);
+  // It gives nothing of the address away: 256 bits that say nothing by themselves.
+  expect(word).toMatch(/^[\w-]{43}$/);
+  for (const part of ['someone', 'example', 'user-1']) expect(word).not.toContain(part);
+  // It is not the plain hash of the address, which anyone could make from a guess.
+  expect(word).not.toBe(createHash('sha256').update('someone@example.com').digest('base64url'));
+  expect(fingerprint('someone@example.com', KEY, 'one use')).not.toBe(fingerprint('someone@example.com', KEY, 'another use'));
+  expect(() => fingerprint('x', 'abc123', 'c')).toThrow(/64 hexadecimal/);
+
+  // A token is sealed for the account's row and no other: not another account of the same person's.
+  const row = (account: string) => ({ subject: 'user-1', provider: 'google' as const, accountKey: accountKey(KEY, 'user-1', 'google', account) });
+  const sealed = seal('1//refresh-token', KEY, sealContext(row('one@example.com')));
+  expect(open(sealed, KEY, sealContext(row('one@example.com')))).toBe('1//refresh-token');
+  expect(() => open(sealed, KEY, sealContext(row('two@example.com')))).toThrow();
+  expect(() => open(sealed, KEY, sealContext({ ...row('one@example.com'), subject: 'user-2' }))).toThrow();
+});
+
+const MIGRATIONS = readdirSync('migrations').filter((name) => name.endsWith('.sql')).sort();
+/** The real table, created by the real migrations, in a Postgres that runs inside the test. */
+async function postgres(files = MIGRATIONS) {
   const db = new PGlite();
-  for (const file of readdirSync('migrations').filter((name) => name.endsWith('.sql')).sort()) await db.exec(readFileSync(`migrations/${file}`, 'utf8'));
+  const migrate = async (names = files) => {
+    for (const file of names) await db.exec(readFileSync(`migrations/${file}`, 'utf8'));
+  };
+  await migrate();
   const sql: Sql = async (strings, ...values) => (await db.query(strings.reduce((text, part, i) => `${text}$${i}${part}`), values)).rows as Record<string, unknown>[];
-  return { store: sqlStore(sql), rows: async () => (await db.query('select * from calendar_connections order by auth_subject')).rows as Record<string, unknown>[] };
+  const rows = async () => (await db.query('select * from calendar_connections order by auth_subject, created_at')).rows as Record<string, unknown>[];
+  return { db, migrate, store: sqlStore(sql), rows };
 }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** A connection id that is well formed and belongs to nobody. */
+const NOBODYS = '00000000-0000-4000-8000-000000000000';
 
 for (const kind of ['Postgres', 'memory'] as const) {
-  test(`the connection store keeps one sealed token per person per provider (${kind})`, async () => {
+  test(`the connection store keeps one sealed token for each account a person connects (${kind})`, async () => {
     const store = kind === 'Postgres' ? (await postgres()).store : memoryStore();
-    expect(await store.get('user-1', 'google')).toBeNull();
+    expect(await store.list('user-1')).toEqual([]);
+    expect(await store.get('user-1', NOBODYS)).toBeNull();
 
-    await store.save('user-1', 'google', 'sealed-1', 'scope-a scope-b');
-    await store.save('user-2', 'google', 'sealed-2', 'scope-a');
-    expect(await store.get('user-1', 'google')).toEqual({ subject: 'user-1', provider: 'google', sealedToken: 'sealed-1', scope: 'scope-a scope-b', status: 'active' });
+    // One person, two accounts at the same provider; and someone else with the very same account.
+    const personal = await store.save('user-1', 'google', 'account-a', 'sealed-1a', 'scope-a scope-b');
+    const work = await store.save('user-1', 'google', 'account-b', 'sealed-1b', 'scope-a scope-b');
+    const theirs = await store.save('user-2', 'google', 'account-a', 'sealed-2a', 'scope-a');
+    for (const id of [personal, work, theirs]) expect(id).toMatch(UUID);
+    expect(new Set([personal, work, theirs]).size).toBe(3);
+    expect(await store.get('user-1', personal)).toEqual({ id: personal, subject: 'user-1', provider: 'google', accountKey: 'account-a', sealedToken: 'sealed-1a', scope: 'scope-a scope-b', status: 'active' });
+    // In the order they were connected.
+    expect((await store.list('user-1')).map((c) => [c.id, c.accountKey, c.sealedToken])).toEqual([[personal, 'account-a', 'sealed-1a'], [work, 'account-b', 'sealed-1b']]);
+    expect((await store.list('user-2')).map((c) => c.id)).toEqual([theirs]);
 
-    // The provider refuses the token: remembered, so nothing more is fetched with it.
-    await store.setStatus('user-1', 'google', 'reconnect');
-    expect((await store.get('user-1', 'google'))!.status).toBe('reconnect');
-    // Connecting again replaces the token and clears that.
-    await store.save('user-1', 'google', 'sealed-1b', 'scope-a scope-b');
-    expect(await store.get('user-1', 'google')).toMatchObject({ sealedToken: 'sealed-1b', status: 'active' });
+    // A connection is its owner's alone: named by anyone else, it is not there.
+    expect(await store.get('user-2', personal)).toBeNull();
+    expect(await store.spend('user-2', personal, 1, { units: 5, seconds: 60 })).toBeNull();
+    await store.setStatus('user-2', personal, 'reconnect');
+    await store.remove('user-2', personal);
+    expect(await store.get('user-1', personal)).toMatchObject({ sealedToken: 'sealed-1a', status: 'active' });
+    // Something that is not an id at all is never put to the database, and finds nothing.
+    for (const bad of ['', 'personal', "'; drop table calendar_connections; --", `${personal}x`]) {
+      expect(await store.get('user-1', bad), bad).toBeNull();
+      expect(await store.spend('user-1', bad, 1, { units: 5, seconds: 60 }), bad).toBeNull();
+      await store.setStatus('user-1', bad, 'reconnect');
+      await store.remove('user-1', bad);
+    }
+    expect(await store.list('user-1')).toHaveLength(2);
 
-    // Disconnecting removes that person's row and nobody else's.
-    await store.remove('user-1', 'google');
-    expect(await store.get('user-1', 'google')).toBeNull();
-    expect(await store.get('user-2', 'google')).toMatchObject({ sealedToken: 'sealed-2' });
-    await store.remove('user-1', 'google');
-    await store.setStatus('nobody', 'google', 'reconnect');
-    expect(await store.get('nobody', 'google')).toBeNull();
+    // The provider refuses one account's token: remembered for that account, and not the other.
+    await store.setStatus('user-1', personal, 'reconnect');
+    expect((await store.list('user-1')).map((c) => c.status)).toEqual(['reconnect', 'active']);
+    // Connecting the same account again is the same connection: its token is replaced, that is
+    // cleared, and nothing is doubled. The other account is exactly as it was.
+    expect(await store.save('user-1', 'google', 'account-a', 'sealed-1a-new', 'scope-a scope-b')).toBe(personal);
+    expect((await store.list('user-1')).map((c) => [c.id, c.sealedToken, c.status])).toEqual([[personal, 'sealed-1a-new', 'active'], [work, 'sealed-1b', 'active']]);
+
+    // Disconnecting one account removes that row and no other: not the person's other account,
+    // and not someone else's connection to the same account.
+    await store.remove('user-1', personal);
+    expect(await store.get('user-1', personal)).toBeNull();
+    expect((await store.list('user-1')).map((c) => [c.id, c.sealedToken])).toEqual([[work, 'sealed-1b']]);
+    expect(await store.get('user-2', theirs)).toMatchObject({ sealedToken: 'sealed-2a' });
+    await store.remove('user-1', personal);
+    await store.setStatus('nobody', NOBODYS, 'reconnect');
+    expect(await store.list('nobody')).toEqual([]);
+    // Connected again after that, it is a new connection, with a name of its own.
+    expect(await store.save('user-1', 'google', 'account-a', 'sealed-again', 'scope')).not.toBe(personal);
   });
 }
 
-test('the table holds a sealed token and nothing that names the person or their calendar', async () => {
+test('the table holds a sealed token and nothing that names the person, their account or their calendar', async () => {
   const { store, rows } = await postgres();
-  await store.save('3f0c7c1e-subject', 'google', seal('1//refresh-token', KEY, '3f0c7c1e-subject:google'), SCOPES.join(' '));
-  const [row] = await rows();
-  expect(Object.keys(row).sort()).toEqual(['auth_subject', 'created_at', 'provider', 'refresh_token_sealed', 'scope', 'status', 'updated_at', 'window_spent', 'window_started_at']);
-  expect(JSON.stringify(row)).not.toContain('refresh-token');
+  const row = { subject: '3f0c7c1e-subject', provider: 'google' as const, accountKey: accountKey(KEY, '3f0c7c1e-subject', 'google', 'someone@example.com') };
+  await store.save(row.subject, row.provider, row.accountKey, seal('1//refresh-token', KEY, sealContext(row)), SCOPES.join(' '));
+  const [stored] = await rows();
+  expect(Object.keys(stored).sort()).toEqual([
+    'auth_subject',
+    'connection_id',
+    'created_at',
+    'provider',
+    'provider_account_id',
+    'refresh_token_sealed',
+    'scope',
+    'status',
+    'updated_at',
+    'window_spent',
+    'window_started_at',
+  ]);
+  const everything = JSON.stringify(stored);
+  for (const secret of ['refresh-token', 'someone', 'example.com']) expect(everything).not.toContain(secret);
+});
+
+// ---------- From one account for each person to several ----------
+
+test('the table’s rule is one row for each account a person connects, and the database holds it to that', async () => {
+  const { db, store } = await postgres();
+  const keys = (await db.query(`select indexdef from pg_indexes where tablename = 'calendar_connections' order by indexname`)).rows.map((row) => (row as { indexdef: string }).indexdef);
+  // Named by its own id, and unique by person, provider and account. Nothing else is unique:
+  // in particular not person and provider, which was the rule before.
+  expect(keys).toHaveLength(2);
+  expect(keys.join('\n')).toMatch(/UNIQUE INDEX calendar_connections_one_per_account .*\(auth_subject, provider, provider_account_id\)/);
+  expect(keys.join('\n')).toMatch(/UNIQUE INDEX calendar_connections_pkey .*\(connection_id\)/);
+
+  // The rule is the database's own, whatever the code above it does.
+  const insert = (subject: string, account: string) =>
+    db.query(`insert into calendar_connections (auth_subject, provider, provider_account_id, refresh_token_sealed, scope) values ($1, 'google', $2, 'sealed', 'scope')`, [subject, account]);
+  await insert('user-1', 'account-a');
+  await insert('user-1', 'account-b');
+  await insert('user-2', 'account-a');
+  await expect(insert('user-1', 'account-a')).rejects.toThrow(/calendar_connections_one_per_account/);
+  await expect(db.query(`insert into calendar_connections (auth_subject, provider, refresh_token_sealed, scope) values ('user-3', 'google', 'sealed', 'scope')`)).rejects.toThrow(/provider_account_id/);
+  expect(await store.list('user-1')).toHaveLength(2);
+});
+
+test('moving to several accounts is applied whole, can be run again, and lets go of rows that cannot say which account they were', async () => {
+  // The table as production has it: the first two files, and a connection made under them.
+  const { db, migrate, store } = await postgres(MIGRATIONS.slice(0, 2));
+  expect(MIGRATIONS.slice(2)).toEqual(['003_many_accounts.sql']);
+  await db.query(`insert into calendar_connections (auth_subject, provider, refresh_token_sealed, scope) values ('user-old', 'google', 'sealed-old', 'scope')`);
+  await db.query(`update calendar_connections set window_started_at = now(), window_spent = 7`);
+
+  await migrate(MIGRATIONS.slice(2));
+  // It had no account to its name and nothing here could ask Google which, so it is gone, and
+  // the table is ready: the person connects again, and may connect a second account as well.
+  expect(await store.list('user-old')).toEqual([]);
+  const first = await store.save('user-old', 'google', 'account-a', 'sealed-a', 'scope');
+  const second = await store.save('user-old', 'google', 'account-b', 'sealed-b', 'scope');
+  expect((await store.spend('user-old', first, 3, { units: 5, seconds: 60 }))!.allowed).toBe(true);
+
+  // Run again, as the repository's migrations always may be: every file, twice more.
+  const before = JSON.stringify((await db.query('select * from calendar_connections order by created_at')).rows);
+  await migrate(MIGRATIONS);
+  await migrate(MIGRATIONS);
+  expect(JSON.stringify((await db.query('select * from calendar_connections order by created_at')).rows)).toBe(before);
+  expect((await store.list('user-old')).map((c) => c.id)).toEqual([first, second]);
+  // Still held to the rule afterwards, and the count that was under way is still counted.
+  expect(await store.save('user-old', 'google', 'account-a', 'sealed-a2', 'scope')).toBe(first);
+  expect((await store.spend('user-old', first, 3, { units: 5, seconds: 60 }))!.allowed).toBe(false);
 });
 
 test('Koyomi asks Google for two read-only permissions and no others', () => {
@@ -95,7 +218,9 @@ test('Koyomi asks Google for two read-only permissions and no others', () => {
     code_challenge: challenge,
     code_challenge_method: 'S256',
     access_type: 'offline',
-    prompt: 'consent',
+    // Which account, then its consent, asked every time: a second account can be chosen, and
+    // a first is never taken for granted.
+    prompt: 'consent select_account',
   });
   // The client secret is for the server's own calls to Google, never for an address a browser visits.
   expect(url.href).not.toContain('secret');
@@ -245,53 +370,55 @@ test('what Google says when it refuses a token goes no further than the word for
   }
 });
 
-// ---------- How much one person may ask ----------
+// ---------- How much may be asked about one account ----------
 
 for (const kind of ['Postgres', 'memory'] as const) {
-  test(`reads are counted per person, in the store, and refused past the allowance (${kind})`, async () => {
+  test(`reads are counted per account, in the store, and refused past the allowance (${kind})`, async () => {
     const store = kind === 'Postgres' ? (await postgres()).store : memoryStore();
     const few = { units: 5, seconds: 60 };
-    // Nobody connected: nothing to count against.
-    expect(await store.spend('user-1', 'google', 1, few)).toBeNull();
-    await store.save('user-1', 'google', 'sealed-1', 'scope');
-    await store.save('user-2', 'google', 'sealed-2', 'scope');
+    // Not a connection of anyone's: nothing to count against.
+    expect(await store.spend('user-1', NOBODYS, 1, few)).toBeNull();
+    const mine = await store.save('user-1', 'google', 'account-a', 'sealed-1', 'scope');
+    const theirs = await store.save('user-2', 'google', 'account-a', 'sealed-2', 'scope');
 
     // The connection comes back with the count, in one step.
-    const first = (await store.spend('user-1', 'google', 2, few))!;
-    expect(first.connection).toEqual({ subject: 'user-1', provider: 'google', sealedToken: 'sealed-1', scope: 'scope', status: 'active' });
+    const first = (await store.spend('user-1', mine, 2, few))!;
+    expect(first.connection).toEqual({ id: mine, subject: 'user-1', provider: 'google', accountKey: 'account-a', sealedToken: 'sealed-1', scope: 'scope', status: 'active' });
     expect(first.allowed).toBe(true);
-    expect((await store.spend('user-1', 'google', 3, few))!.allowed).toBe(true); // 5 of 5
-    const over = (await store.spend('user-1', 'google', 1, few))!; // 6
+    expect((await store.spend('user-1', mine, 3, few))!.allowed).toBe(true); // 5 of 5
+    const over = (await store.spend('user-1', mine, 1, few))!; // 6
     expect(over.allowed).toBe(false);
     expect(over.retryAfter).toBeGreaterThan(0);
     expect(over.retryAfter).toBeLessThanOrEqual(60);
-    expect((await store.spend('user-1', 'google', 1, few))!.allowed).toBe(false);
+    expect((await store.spend('user-1', mine, 1, few))!.allowed).toBe(false);
     // One request too large for what is left is refused whole.
-    expect((await store.spend('user-2', 'google', 6, few))!.allowed).toBe(false);
+    expect((await store.spend('user-2', theirs, 6, few))!.allowed).toBe(false);
 
-    // Connecting again does not buy a fresh allowance.
-    await store.save('user-1', 'google', 'sealed-1b', 'scope');
-    expect((await store.spend('user-1', 'google', 1, few))!.allowed).toBe(false);
+    // Connecting the same account again does not buy a fresh allowance.
+    expect(await store.save('user-1', 'google', 'account-a', 'sealed-1b', 'scope')).toBe(mine);
+    expect((await store.spend('user-1', mine, 1, few))!.allowed).toBe(false);
   });
 
-  test(`the allowance is whole again when its window ends, and each person has their own (${kind})`, async () => {
+  test(`the allowance is whole again when its window ends, and each account has its own (${kind})`, async () => {
     const store = kind === 'Postgres' ? (await postgres()).store : memoryStore();
     const brief = { units: 2, seconds: 1 };
-    await store.save('user-1', 'google', 'sealed-1', 'scope');
-    await store.save('user-2', 'google', 'sealed-2', 'scope');
-    expect((await store.spend('user-1', 'google', 2, brief))!.allowed).toBe(true);
-    expect((await store.spend('user-1', 'google', 1, brief))!.allowed).toBe(false);
-    // Someone else is not affected by it.
-    expect((await store.spend('user-2', 'google', 2, brief))!.allowed).toBe(true);
+    const personal = await store.save('user-1', 'google', 'account-a', 'sealed-1a', 'scope');
+    const work = await store.save('user-1', 'google', 'account-b', 'sealed-1b', 'scope');
+    const theirs = await store.save('user-2', 'google', 'account-a', 'sealed-2', 'scope');
+    expect((await store.spend('user-1', personal, 2, brief))!.allowed).toBe(true);
+    expect((await store.spend('user-1', personal, 1, brief))!.allowed).toBe(false);
+    // The same person's other account is not held back by it, and neither is anyone else.
+    expect((await store.spend('user-1', work, 2, brief))!.allowed).toBe(true);
+    expect((await store.spend('user-2', theirs, 2, brief))!.allowed).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 1200));
-    expect((await store.spend('user-1', 'google', 2, brief))!.allowed).toBe(true);
-    expect((await store.spend('user-1', 'google', 1, brief))!.allowed).toBe(false);
+    expect((await store.spend('user-1', personal, 2, brief))!.allowed).toBe(true);
+    expect((await store.spend('user-1', personal, 1, brief))!.allowed).toBe(false);
   });
 
   test(`requests arriving together cannot all slip under the limit (${kind})`, async () => {
     const store = kind === 'Postgres' ? (await postgres()).store : memoryStore();
-    await store.save('user-1', 'google', 'sealed-1', 'scope');
-    const answers = await Promise.all(Array.from({ length: 12 }, () => store.spend('user-1', 'google', 1, { units: 5, seconds: 60 })));
+    const id = await store.save('user-1', 'google', 'account-a', 'sealed-1', 'scope');
+    const answers = await Promise.all(Array.from({ length: 12 }, () => store.spend('user-1', id, 1, { units: 5, seconds: 60 })));
     expect(answers.filter((answer) => answer!.allowed)).toHaveLength(5);
   });
 }
@@ -395,6 +522,33 @@ test('only a missing permission asks the person to reconnect: the API switched o
     expect(await kind(Response.json({ error: { code: 401, status: 'UNAUTHENTICATED' } }, { status: 401 }))).toBe('reconnect');
   } finally {
     console.error = real;
+  }
+});
+
+test('which account it is comes from its own calendar: one field, asked with the permission to list calendars', async () => {
+  await withGoogle(
+    () => Response.json({ id: 'someone@example.com' }),
+    async (asked) => {
+      expect(await primaryCalendarId(CLIENT, 'token')).toBe('someone@example.com');
+      expect(asked).toHaveLength(1);
+      // The calendar list, which the first of the two permissions covers. Not a profile, not a
+      // sign-in, not an address book: Koyomi asks Google for no permission that would reach one.
+      expect(asked[0].origin + asked[0].pathname).toBe('https://www.googleapis.com/calendar/v3/users/me/calendarList/primary');
+      expect(Object.fromEntries(asked[0].searchParams)).toEqual({ fields: 'id' });
+    },
+  );
+  for (const scope of SCOPES) expect(scope).not.toMatch(/openid|email|profile|userinfo/);
+  // No answer, or an answer that names nothing, is no account: there is nothing to connect it as.
+  const kind = (answer: Response) => withGoogle(() => answer, async () => (await primaryCalendarId(CLIENT, 'token').catch((e) => e)).kind);
+  expect(await kind(Response.json({}))).toBe('busy');
+  expect(await kind(Response.json({ error: { code: 503 } }, { status: 503 }))).toBe('busy');
+  expect(await kind(Response.json({ error: { code: 401 } }, { status: 401 }))).toBe('reconnect');
+});
+
+test('only something shaped like a connection’s id is ever looked up', () => {
+  expect(isConnectionId('3f0c7c1e-8a2b-4c1d-9e0f-123456789abc')).toBe(true);
+  for (const bad of [undefined, null, 7, '', 'google', '3f0c7c1e8a2b4c1d9e0f123456789abc', '3F0C7C1E-8A2B-4C1D-9E0F-123456789ABC', ['3f0c7c1e-8a2b-4c1d-9e0f-123456789abc'], '3f0c7c1e-8a2b-4c1d-9e0f-123456789abc ']) {
+    expect(isConnectionId(bad), String(bad)).toBe(false);
   }
 });
 

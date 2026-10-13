@@ -2,25 +2,26 @@ import { expect, test } from '@playwright/test';
 import {
   addDays,
   addEvent,
-  addToPlan,
   at,
+  calendars,
+  calendarsButton,
   columns,
   event,
   hourHeight,
   open,
   otherDay,
-  placeFromPlan,
-  plan,
   popover,
   reload,
   renderedFonts,
+  seed,
   stored,
   storedTitles,
   today,
 } from './helpers';
 
-// The calendar itself: events, Plan, the views and the look.
-// Koyomi as an installed app (manifest, offline, releases) is in pwa.spec.ts.
+// The calendar itself: events, the views, where Calendars is, and the look.
+// Koyomi as an installed app (manifest, offline, releases) is in pwa.spec.ts, and calendars
+// connected from elsewhere are in calendars.spec.ts and accounts.spec.ts.
 
 test.describe('calendar', () => {
   test('opens on the week, with nothing failing to load', async ({ page }) => {
@@ -44,7 +45,9 @@ test.describe('calendar', () => {
 
     await expect.poll(() => storedTitles(page)).toEqual(['Lunch']);
     const [saved] = (await stored(page)).events;
-    expect(saved).toMatchObject({ title: 'Lunch', allDay: false, category: 'misc', planItemId: null, recurrence: null });
+    expect(saved).toMatchObject({ title: 'Lunch', allDay: false, category: 'misc', recurrence: null });
+    // An event is an event: nothing about it says it is, or ever was, a task.
+    expect(Object.keys(saved).sort()).toEqual(['allDay', 'category', 'createdAt', 'end', 'id', 'recurrence', 'start', 'title', 'updatedAt']);
     expect(saved.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(new Date(saved.end).getTime() - new Date(saved.start).getTime()).toBe(3600_000);
 
@@ -60,9 +63,10 @@ test.describe('calendar', () => {
     await page.keyboard.press('Escape');
     await expect(page.locator('[data-event]')).toHaveCount(0);
 
-    await addEvent(page, 'Dinner with dad, pm', '19:00');
+    // Every letter that is a shortcut elsewhere: c, d, m, n, t, w.
+    await addEvent(page, 'Catch up with dad, pm', '19:00');
     await expect(columns(page)).toHaveCount(7);
-    await expect(plan(page)).toBeHidden();
+    await expect(calendars(page)).toBeHidden();
   });
 
   test('N starts an event without touching the mouse', async ({ page }) => {
@@ -74,11 +78,13 @@ test.describe('calendar', () => {
     await expect(event(page, 'Call the bank')).toBeVisible();
   });
 
-  test('an ordinary event is not a task: it has no done state and no way back to Plan', async ({ page }) => {
+  test('an event is not a task: it can be deleted, and there is nothing to mark done or send anywhere', async ({ page }) => {
     await open(page);
     await addEvent(page, 'Dinner', '19:00');
     await event(page, 'Dinner').click();
-    await expect(popover(page).getByRole('button', { name: 'Delete' })).toBeVisible();
+    // Everything an event can have done to it: its title, day and times, all day, a colour, repeating, deleting.
+    await expect(popover(page).getByRole('button')).toHaveText(['All day', '', '', '', '', 'Delete']);
+    await expect(popover(page).getByLabel('Repeat')).toBeVisible();
     await expect(popover(page).getByRole('button', { name: 'Mark done' })).toHaveCount(0);
     await expect(popover(page).getByRole('button', { name: 'Back to Plan' })).toHaveCount(0);
 
@@ -263,18 +269,17 @@ test.describe('calendar', () => {
     await expect(event(page, 'Standup')).toHaveCount(0);
   });
 
-  test('search finds events and Plan items', async ({ page }) => {
+  test('search finds events by their title', async ({ page }) => {
     await open(page);
     await addEvent(page, 'Dentist', '10:00', otherDay());
-    await page.keyboard.press('p');
-    await addToPlan(page, 'Call the dentist back', 'Buy stamps');
-    await page.keyboard.press('p');
+    await addEvent(page, 'Call the dentist back', '12:00');
+    await addEvent(page, 'Buy stamps', '16:00');
 
     await page.keyboard.press('/');
     const search = page.getByRole('search');
+    await expect(search.getByLabel('Search')).toHaveAttribute('placeholder', 'Search events');
     await search.getByLabel('Search').fill('DENT');
     await expect(search.getByRole('button')).toHaveCount(2);
-    await expect(search.getByRole('button', { name: /Call the dentist back/ })).toContainText('Plan');
 
     await search.getByRole('button', { name: /^Dentist/ }).click();
     await expect(search).toHaveCount(0);
@@ -288,118 +293,115 @@ test.describe('calendar', () => {
   });
 });
 
-test.describe('Plan', () => {
-  test('Plan holds what is unscheduled; scheduling moves it to the calendar', async ({ page }) => {
+test.describe('Calendars is in reach', () => {
+  test('on a desktop it is one of the header’s own controls, and opens beside the week', async ({ page }) => {
     await open(page);
-    await page.keyboard.press('p');
-    await expect(plan(page)).toContainText('Nothing waiting.');
-    await addToPlan(page, 'Send documents', 'Book dentist');
-    await expect(plan(page)).toContainText('2 things');
+    // Beside Day, Week and Month, not behind a menu or a settings page.
+    const control = page.locator('header').getByRole('button', { name: 'Calendars', exact: true });
+    await expect(control).toBeVisible();
+    await expect(control).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('button', { name: /settings|menu/i })).toHaveCount(0);
 
-    await placeFromPlan(page, 'Send documents', '10:00');
-    await expect(event(page, 'Send documents')).toContainText('10:00 – 11:00');
-    await expect(plan(page)).toContainText('1 thing');
-    await expect(plan(page).getByRole('button', { name: 'Send documents', exact: true })).toHaveCount(0);
+    await control.click();
+    await expect(control).toHaveAttribute('aria-expanded', 'true');
+    await expect(calendars(page)).toBeVisible();
+    // Koyomi's own calendar is always on it, and the way to another is one press away.
+    await expect(calendars(page).getByText('Koyomi', { exact: true })).toBeVisible();
+    await expect(calendars(page).getByRole('button', { name: 'Add calendar account' })).toBeVisible();
 
-    // One record each, linked: not two unrelated copies.
-    await expect.poll(async () => (await stored(page)).events.length).toBe(1);
-    const data = await stored(page);
-    const item = data.planItems.find((p) => p.title === 'Send documents');
-    expect(item.status).toBe('open');
-    expect(data.events[0].planItemId).toBe(item.id);
+    // C opens and closes it, as D, W and M change the view; Escape and its own × close it too.
+    await page.keyboard.press('c');
+    await expect(calendars(page)).toBeHidden();
+    await page.keyboard.press('c');
+    await expect(calendars(page)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(calendars(page)).toBeHidden();
+    await control.click();
+    await calendars(page).getByRole('button', { name: 'Close calendars' }).click();
+    await expect(calendars(page)).toBeHidden();
+  });
+});
+
+test.describe('Plan is gone', () => {
+  const stamp = '2026-10-01T08:00:00.000Z';
+  const at9 = (day: string) => new Date(`${day}T09:00:00`).toISOString();
+  const at10 = (day: string) => new Date(`${day}T10:00:00`).toISOString();
+  /** A device that used Plan: something waiting, something done, and two events scheduled from it. */
+  const usedPlan = () => ({
+    events: [
+      { id: 'e-open', title: 'Send documents', start: at9(today()), end: at10(today()), allDay: false, category: 'work' as const, planItemId: 'p-open', recurrence: null, createdAt: stamp, updatedAt: stamp },
+      { id: 'e-done', title: 'Call supplier', start: at9(otherDay()), end: at10(otherDay()), allDay: false, category: 'life' as const, planItemId: 'p-done', recurrence: null, createdAt: stamp, updatedAt: stamp },
+    ],
+    planItems: [
+      { id: 'p-open', title: 'Send documents', status: 'open' as const, createdAt: stamp, updatedAt: stamp },
+      { id: 'p-done', title: 'Call supplier', status: 'completed' as const, createdAt: stamp, updatedAt: stamp },
+      { id: 'p-waiting', title: 'Renew passport photos', status: 'open' as const, createdAt: stamp, updatedAt: stamp },
+    ],
   });
 
-  test('Back to Plan and Delete are different things', async ({ page }) => {
+  test('nothing on a desktop is called Plan, and P does nothing', async ({ page }) => {
     await open(page);
+    await addEvent(page, 'Lunch', '12:30');
+    await expect(page.getByRole('button', { name: /plan/i })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Plan' })).toHaveCount(0);
+    await expect(page.getByText(/\bPlan\b/)).toHaveCount(0);
+
     await page.keyboard.press('p');
-    await addToPlan(page, 'Send documents', 'Book dentist');
-    await placeFromPlan(page, 'Send documents', '10:00');
-    await placeFromPlan(page, 'Book dentist', '13:00');
+    // The one drawer there is, is Calendars, and P did not open it.
+    await expect(page.locator('section[aria-label]')).toHaveAttribute('aria-label', 'Calendars');
+    await expect(calendars(page)).toBeHidden();
+    await expect(page.getByText('Choose a time for')).toHaveCount(0);
 
-    // Back to Plan: off the calendar, waiting in Plan again.
-    await event(page, 'Send documents').click();
-    await popover(page).getByRole('button', { name: 'Back to Plan' }).click();
-    await expect(event(page, 'Send documents')).toHaveCount(0);
-    await expect(plan(page).getByRole('button', { name: 'Send documents', exact: true })).toBeVisible();
-    await expect(plan(page)).toContainText('1 thing');
-
-    // Delete: gone from the calendar and from Plan.
-    await event(page, 'Book dentist').click();
-    await popover(page).getByRole('button', { name: 'Delete' }).click();
-    await expect(event(page, 'Book dentist')).toHaveCount(0);
-    await expect(plan(page)).not.toContainText('Book dentist');
-    await expect(plan(page)).toContainText('1 thing');
-
-    await expect.poll(async () => (await stored(page)).planItems.map((p) => p.title)).toEqual(['Send documents']);
-    expect((await stored(page)).events).toEqual([]);
-
-    await reload(page);
-    await page.keyboard.press('p');
-    await expect(plan(page).getByRole('button', { name: 'Send documents', exact: true })).toBeVisible();
-    await expect(plan(page)).not.toContainText('Book dentist');
-    await expect(page.locator('[data-event]')).toHaveCount(0);
+    // Calendars has nothing of it either: no list of things to do, no field to add one.
+    await page.keyboard.press('c');
+    await expect(calendars(page)).toBeVisible();
+    await expect(calendars(page).getByText(/\bPlan\b|waiting|Completed/)).toHaveCount(0);
+    await expect(calendars(page).getByRole('textbox')).toHaveCount(0);
+    // Nothing on the calendar can be dragged in from anywhere.
+    expect(await page.locator('[draggable="true"]').count()).toBe(0);
   });
 
-  test('marking a scheduled Plan item done completes the item and keeps the event', async ({ page }) => {
+  test('an event that was scheduled from Plan is an ordinary event now, and what Plan held is neither shown nor touched', async ({ page }) => {
+    const before = usedPlan();
+    await seed(page, before);
     await open(page);
-    await page.keyboard.press('p');
-    await addToPlan(page, 'Call supplier');
-    await placeFromPlan(page, 'Call supplier', '18:00');
 
-    await event(page, 'Call supplier').click();
-    await popover(page).getByRole('button', { name: 'Mark done' }).click();
-    await expect(event(page, 'Call supplier')).toBeVisible();
-    await expect(event(page, 'Call supplier').locator('span').nth(1)).toHaveCSS('text-decoration-line', 'line-through');
+    // Both events are there. The one whose item was done is not struck through: there is no done.
+    await expect(event(page, 'Send documents')).toContainText('09:00 – 10:00');
+    const done = event(page, 'Call supplier');
+    await expect(done).toContainText('09:00 – 10:00');
+    await expect(done.locator('span').nth(1)).toHaveCSS('text-decoration-line', 'none');
+    // What was only waiting in Plan is nowhere: not on the calendar, not in search, not in Calendars.
+    await expect(page.getByText('Renew passport photos')).toHaveCount(0);
+    await page.keyboard.press('/');
+    await page.getByRole('search').getByLabel('Search').fill('passport');
+    await expect(page.getByRole('search')).toContainText('Nothing found.');
+    await page.keyboard.press('Escape');
 
-    // Completed sits collapsed at the foot of Plan.
-    const completed = plan(page).getByRole('button', { name: /Completed/ });
-    await expect(completed).toContainText('1');
-    await expect(plan(page).getByText('Call supplier')).toHaveCount(0);
-    await completed.click();
-    await expect(plan(page).getByText('Call supplier')).toBeVisible();
-    await expect.poll(async () => (await stored(page)).planItems[0]?.status).toBe('completed');
-
-    await reload(page);
-    await event(page, 'Call supplier').click();
-    await popover(page).getByRole('button', { name: 'Not done' }).click();
-    await expect.poll(async () => (await stored(page)).planItems[0]?.status).toBe('open');
-    await expect(event(page, 'Call supplier')).toBeVisible();
-  });
-
-  test('complete and reopen an item inside Plan', async ({ page }) => {
-    await open(page);
-    await page.keyboard.press('p');
-    await addToPlan(page, 'Renew passport photos');
-    await plan(page).getByRole('button', { name: 'Mark done: Renew passport photos' }).click();
-    await expect(plan(page)).toContainText('Nothing waiting');
-    await plan(page).getByRole('button', { name: /Completed/ }).click();
-    await plan(page).getByRole('button', { name: 'Mark not done: Renew passport photos' }).click();
-    await expect(plan(page).getByRole('button', { name: 'Renew passport photos', exact: true })).toBeVisible();
-    await expect(plan(page).getByRole('button', { name: /Completed/ })).toHaveCount(0);
-  });
-
-  test('drag a Plan item onto the calendar', async ({ page }) => {
-    await open(page);
-    await page.keyboard.press('p');
-    await addToPlan(page, 'Project review');
-    const { column, position } = await at(page, today(), '15:00');
-    await plan(page).getByRole('button', { name: 'Project review', exact: true }).dragTo(column, { targetPosition: position });
-    await expect(event(page, 'Project review')).toContainText('15:00 – 16:00');
-    await expect(plan(page)).toContainText('Nothing waiting');
-    await event(page, 'Project review').click();
-    await expect(popover(page).getByRole('button', { name: 'Back to Plan' })).toBeVisible();
-  });
-
-  test('renaming a scheduled item renames it in Plan too', async ({ page }) => {
-    await open(page);
-    await page.keyboard.press('p');
-    await addToPlan(page, 'Gym');
-    await placeFromPlan(page, 'Gym', '07:30');
-    await event(page, 'Gym').click();
-    await popover(page).getByLabel('Title').fill('Gym, legs');
+    // It is edited like any event, and can repeat, which an event from Plan never could.
+    await done.click();
+    await expect(popover(page).getByRole('button', { name: 'Mark done' })).toHaveCount(0);
+    await expect(popover(page).getByRole('button', { name: 'Not done' })).toHaveCount(0);
+    await expect(popover(page).getByRole('button', { name: 'Back to Plan' })).toHaveCount(0);
+    await popover(page).getByLabel('Title').fill('Call the supplier');
     await page.keyboard.press('Enter');
-    await popover(page).getByRole('button', { name: 'Back to Plan' }).click();
-    await expect(plan(page).getByRole('button', { name: 'Gym, legs', exact: true })).toBeVisible();
+    await popover(page).getByLabel('Repeat').selectOption('weekly');
+    await expect.poll(async () => (await stored(page)).events.find((e) => e.id === 'e-done')?.recurrence?.freq).toBe('weekly');
+
+    // And deleted like any event. Nothing that Plan held follows it, or changes with it.
+    await event(page, 'Send documents').click();
+    await popover(page).getByRole('button', { name: 'Delete' }).click();
+    await expect.poll(() => storedTitles(page)).toEqual(['Call the supplier']);
+    const held = async () => JSON.stringify((await stored(page)).planItems.sort((a, b) => a.id.localeCompare(b.id)));
+    const was = JSON.stringify([...before.planItems].sort((a, b) => a.id.localeCompare(b.id)));
+    expect(await held()).toBe(was);
+
+    await reload(page);
+    await expect(event(page, 'Call the supplier')).toBeVisible();
+    await expect(page.getByText('Renew passport photos')).toHaveCount(0);
+    expect(await held()).toBe(was);
+    // The event keeps the mark of where it came from, which means nothing now and is not acted on.
+    expect((await stored(page)).events.map((e) => [e.title, e.planItemId])).toEqual([['Call the supplier', 'p-done']]);
   });
 });
 
@@ -466,13 +468,12 @@ test.describe('look', () => {
       await page.setViewportSize(size);
       await open(page);
       await expect(columns(page)).toHaveCount(7);
-      await page.keyboard.press('p');
-      await expect(plan(page)).toBeVisible();
-      await addToPlan(page, 'Something');
+      await page.keyboard.press('c');
+      await expect(calendars(page)).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       // The drawer leaves the whole week readable beside it.
       const sunday = (await columns(page).last().boundingBox())!;
-      const drawer = (await plan(page).boundingBox())!;
+      const drawer = (await calendars(page).boundingBox())!;
       expect(sunday.x + sunday.width).toBeLessThanOrEqual(drawer.x + 1);
     });
   }
@@ -490,37 +491,50 @@ test.describe('phone', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 
-  test('tap a time to add; tap a Plan item, then a time, to schedule it', async ({ page }) => {
+  test('tap a time to add an event, and tap it to change or delete it', async ({ page }) => {
     await open(page);
     const slot = await at(page, today(), '09:00');
     await slot.column.tap({ position: slot.position });
     await page.getByPlaceholder('What are you doing?').fill('School run');
     await page.keyboard.press('Enter');
-    await expect(event(page, 'School run')).toBeVisible();
+    await expect(event(page, 'School run')).toContainText('09:00 – 10:00');
 
-    await page.getByRole('button', { name: /^Plan/ }).tap();
-    await expect(plan(page)).toBeVisible();
-    await plan(page).getByRole('button', { name: /Add$/ }).tap();
-    await page.getByPlaceholder('Something to do').fill('Send documents');
+    await event(page, 'School run').tap();
+    await expect(popover(page).getByRole('button', { name: 'Mark done' })).toHaveCount(0);
+    await expect(popover(page).getByRole('button', { name: 'Back to Plan' })).toHaveCount(0);
+    await popover(page).getByLabel('Start').fill('1100');
     await page.keyboard.press('Enter');
-    await page.keyboard.press('Escape');
-
-    await plan(page).getByRole('button', { name: 'Send documents', exact: true }).tap();
-    await expect(plan(page)).toBeHidden();
-    await expect(page.getByText('Choose a time for')).toBeVisible();
-    const target = await at(page, today(), '11:00');
-    await target.column.tap({ position: target.position });
-    await expect(event(page, 'Send documents')).toContainText('11:00 – 12:00');
-    await expect(page.getByRole('button', { name: /^Plan/ })).toContainText('Nothing waiting');
-
-    await event(page, 'Send documents').tap();
-    await popover(page).getByRole('button', { name: 'Back to Plan' }).tap();
-    await expect(event(page, 'Send documents')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /^Plan/ })).toContainText('1 thing');
+    await expect(event(page, 'School run')).toContainText('11:00 – 12:00');
 
     await reload(page);
-    await expect(event(page, 'School run')).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Plan/ })).toContainText('1 thing');
+    await event(page, 'School run').tap();
+    await popover(page).getByRole('button', { name: 'Delete' }).tap();
+    await expect(event(page, 'School run')).toHaveCount(0);
+    await expect.poll(() => storedTitles(page)).toEqual([]);
+  });
+
+  test('Calendars is the bar along the foot, one tap from adding an account; nothing is called Plan', async ({ page }) => {
+    await open(page);
+    // Always on screen with the day, not behind a menu: the one bar at the foot.
+    const bar = calendarsButton(page);
+    await expect(bar).toBeVisible();
+    await expect(bar).toContainText('Koyomi');
+    const box = (await bar.boundingBox())!;
+    expect(box.y + box.height).toBeGreaterThan(844 - 2);
+    expect(box.width).toBeGreaterThan(380);
+    await expect(page.getByRole('button', { name: /plan|settings|menu/i })).toHaveCount(0);
+    await expect(page.getByText(/\bPlan\b/)).toHaveCount(0);
+
+    await bar.tap();
+    await expect(calendars(page)).toBeVisible();
+    await expect(calendars(page).getByText('Koyomi', { exact: true })).toBeVisible();
+    await expect(calendars(page).getByRole('button', { name: 'Add calendar account' })).toBeVisible();
+    await expect(calendars(page).getByText(/\bPlan\b|waiting|Completed/)).toHaveCount(0);
+    await expect(calendars(page).getByRole('textbox')).toHaveCount(0);
+
+    // A tap on the day behind it puts it away again.
+    await page.mouse.click(195, 60);
+    await expect(calendars(page)).toBeHidden();
   });
 
   test('the month is a tap away and opens a day', async ({ page }) => {

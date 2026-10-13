@@ -5,15 +5,14 @@ import { request as overHttps } from 'node:https';
 import { chromium, expect, test, type BrowserContextOptions, type Page, type TestInfo } from '@playwright/test';
 import {
   addEvent,
-  addToPlan,
   at,
+  calendars,
+  calendarsButton,
   columns,
   event,
   fits,
   offlineReady,
   open,
-  placeFromPlan,
-  plan,
   popover,
   reload,
   renderedFonts,
@@ -33,7 +32,7 @@ const OTHER_HOST = 'koyomi-preview.example';
 test.use({ launchOptions: { args: [`--host-resolver-rules=MAP ${OTHER_HOST} 127.0.0.1`] } });
 
 const standalone = (page: Page) => page.evaluate(() => matchMedia('(display-mode: standalone)').matches);
-const installOffer = (page: Page) => plan(page).getByRole('button', { name: 'Install Koyomi' });
+const installOffer = (page: Page) => calendars(page).getByRole('button', { name: 'Install Koyomi' });
 
 /**
  * Does what Chrome does when the app can be installed. Left alone, Chrome follows this event with
@@ -165,13 +164,13 @@ test.describe('starting up', () => {
 });
 
 test.describe('install', () => {
-  test('is offered quietly in Plan, only when the browser can install, and never on its own', async ({ page }) => {
+  test('is offered quietly in Calendars, only when the browser can install, and never on its own', async ({ page }) => {
     await open(page);
-    await page.keyboard.press('p');
-    await expect(plan(page)).toBeVisible();
+    await page.keyboard.press('c');
+    await expect(calendars(page)).toBeVisible();
     await expect(installOffer(page)).toHaveCount(0);
 
-    // Koyomi holds back the browser's banner and puts one line at the foot of Plan instead.
+    // Koyomi holds back the browser's banner and puts one line at the foot of Calendars instead.
     expect(await browserOffersInstall(page)).toBe(true);
     await expect(installOffer(page)).toBeVisible();
     await expect(page.locator('body')).not.toHaveAttribute('data-install-dialogs');
@@ -189,11 +188,11 @@ test.describe('install', () => {
 
   test('is never offered at any other address', async ({ page, baseURL }) => {
     await open(page, `http://${OTHER_HOST}:${new URL(baseURL!).port}/`);
-    await page.keyboard.press('p');
-    await expect(plan(page)).toBeVisible();
+    await page.keyboard.press('c');
+    await expect(calendars(page)).toBeVisible();
     // The browser's own banner is still held back; Koyomi just has nothing to add.
     expect(await browserOffersInstall(page)).toBe(true);
-    await expect(plan(page)).toContainText('Nothing waiting.');
+    await expect(calendars(page).getByText('Koyomi', { exact: true })).toBeVisible();
     await expect(installOffer(page)).toHaveCount(0);
   });
 });
@@ -213,17 +212,17 @@ test.describe('in a window of its own', () => {
     try {
       expect(await standalone(page)).toBe(true);
       await expect(columns(page)).toHaveCount(7);
-      // With no address bar, tabs or back button, nothing may lead out of the calendar.
-      await expect(page.locator('a[href]')).toHaveCount(0);
+      // With no address bar, tabs or back button, nothing on the calendar may lead out of it.
+      await expect(page.locator('a[href]').filter({ visible: true })).toHaveCount(0);
 
       await addEvent(page, 'Standup', '10:00');
-      await page.keyboard.press('p');
-      await addToPlan(page, 'Send documents');
+      await page.keyboard.press('c');
+      await expect(calendars(page)).toBeVisible();
       expect(await fits(page)).toBe(true);
 
       // It is installed already: whatever the browser says, there is nothing to install.
       await browserOffersInstall(page);
-      await expect(plan(page).getByRole('button', { name: 'Send documents', exact: true })).toBeVisible();
+      await expect(calendars(page).getByText('Koyomi', { exact: true })).toBeVisible();
       await expect(installOffer(page)).toHaveCount(0);
 
       await reload(page);
@@ -245,20 +244,20 @@ test.describe('in a window of its own', () => {
       const cdp = await context.newCDPSession(page);
       await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { top: 47, bottom: 34 } });
 
-      const bar = page.getByRole('button', { name: /^Plan/ });
+      const bar = calendarsButton(page);
       await expect.poll(async () => (await wordmark(page).boundingBox())!.y).toBeGreaterThanOrEqual(47);
       // The bar's paper runs to the bottom edge; its words stop above the home bar.
       const box = (await bar.boundingBox())!;
       expect(box.y + box.height).toBe(844);
-      const label = (await bar.getByText('Plan', { exact: true }).boundingBox())!;
+      const label = (await bar.getByText('Calendars', { exact: true }).boundingBox())!;
       expect(label.y + label.height).toBeLessThanOrEqual(844 - 34);
       await expect(columns(page)).toHaveCount(1);
       expect(await fits(page)).toBe(true);
 
       await bar.tap();
-      await expect(plan(page)).toHaveCSS('padding-bottom', '34px');
-      await plan(page).getByRole('button', { name: 'Close plan' }).tap();
-      await expect(plan(page)).toBeHidden();
+      await expect(calendars(page)).toHaveCSS('padding-bottom', '34px');
+      await calendars(page).getByRole('button', { name: 'Close calendars' }).tap();
+      await expect(calendars(page)).toBeHidden();
 
       // A shorter phone: the bar is still at the bottom and a time can still be tapped.
       await page.setViewportSize({ width: 360, height: 600 });
@@ -320,11 +319,10 @@ test.describe('on a phone', () => {
     await check();
     await page.keyboard.press('Escape');
 
-    await page.getByRole('button', { name: /^Plan/ }).tap();
-    await plan(page).getByRole('button', { name: /Add$/ }).tap();
-    await expect(page.getByPlaceholder('Something to do')).toBeVisible();
+    await calendarsButton(page).tap();
+    await expect(calendars(page)).toBeVisible();
     await check();
-    expect([...seen].sort()).toEqual(['Date', 'End', 'New Plan item', 'New event', 'Repeat', 'Search', 'Start', 'Title']);
+    expect([...seen].sort()).toEqual(['Date', 'End', 'New event', 'Repeat', 'Search', 'Start', 'Title']);
   });
 });
 
@@ -349,9 +347,8 @@ test.describe('the worker', () => {
     let page = context.pages()[0] ?? (await context.newPage());
     await open(page, baseURL!);
     await addEvent(page, 'Flight to Lisbon', '06:00');
-    await page.keyboard.press('p');
-    await addToPlan(page, 'Pack');
-    await expect.poll(async () => (await stored(page)).planItems.length).toBe(1);
+    await expect.poll(async () => (await stored(page)).events.length).toBe(1);
+    await page.keyboard.press('c');
 
     const cdp = await context.newCDPSession(page);
     const manifest = await cdp.send('Page.getAppManifest');
@@ -365,8 +362,6 @@ test.describe('the worker', () => {
     page = context.pages()[0] ?? (await context.newPage());
     await open(page, baseURL!);
     await expect(event(page, 'Flight to Lisbon')).toContainText('06:00 – 07:00');
-    await page.keyboard.press('p');
-    await expect(plan(page).getByRole('button', { name: 'Pack', exact: true })).toBeVisible();
     await context.close();
   });
 
@@ -414,25 +409,24 @@ test.describe('the worker', () => {
       await expect.poll(() => renderedFonts(page, 'header nav button')).toEqual(['Zen Kaku Gothic New']);
 
       await addEvent(page, 'In the tunnel', '12:00');
-      await page.keyboard.press('p');
-      await addToPlan(page, 'Reply when back online');
-      await expect.poll(() => storedTitles(page)).toEqual(['Before the tunnel', 'In the tunnel']);
+      await addEvent(page, 'Reply when back online', '16:00');
+      await expect.poll(() => storedTitles(page)).toEqual(['Before the tunnel', 'In the tunnel', 'Reply when back online']);
 
       await reload(page);
       await expect(event(page, 'In the tunnel')).toBeVisible();
-      await page.keyboard.press('p');
-      await expect(plan(page).getByRole('button', { name: 'Reply when back online', exact: true })).toBeVisible();
+      await expect(event(page, 'Reply when back online')).toBeVisible();
 
-      // The rest of the calendar works in the tunnel too: editing, scheduling from Plan, sending back.
+      // The rest of the calendar works in the tunnel too: editing, deleting, looking at Calendars.
       await event(page, 'In the tunnel').click();
       await popover(page).getByLabel('Start').fill('13:00');
       await page.keyboard.press('Enter');
       await expect(event(page, 'In the tunnel')).toContainText('13:00 – 14:00');
-      await placeFromPlan(page, 'Reply when back online', '16:00');
       await event(page, 'Reply when back online').click();
-      await popover(page).getByRole('button', { name: 'Back to Plan' }).click();
+      await popover(page).getByRole('button', { name: 'Delete' }).click();
       await expect(event(page, 'Reply when back online')).toHaveCount(0);
-      await expect(plan(page).getByRole('button', { name: 'Reply when back online', exact: true })).toBeVisible();
+      await page.keyboard.press('c');
+      await expect(calendars(page).getByText('Koyomi', { exact: true })).toBeVisible();
+      await page.keyboard.press('c');
       await page.getByRole('button', { name: 'Toggle ink mode' }).click();
       await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(29, 29, 27)');
       // Having no connection is not a failure, and nothing on screen treats it as one.
@@ -501,8 +495,7 @@ test.describe('from one release to the next', () => {
       site.worker = `// An earlier release.\n${readFileSync('public/sw.js', 'utf8')}`;
       await open(page, site.origin);
       await addEvent(page, 'Kept', '10:00');
-      await page.keyboard.press('p');
-      await addToPlan(page, 'Also kept');
+      await addEvent(page, 'Saved too', '12:00');
       await offlineReady(page);
       // What earlier releases leave behind: a cache under a name no longer used, and a script nothing asks for now.
       await page.evaluate(async () => {
@@ -521,15 +514,14 @@ test.describe('from one release to the next', () => {
       // The calendar that was open is the same page, and still works.
       await expect(page.locator('body')).toHaveAttribute('data-open', 'since before the update');
       await addEvent(page, 'Added afterwards', '14:00');
-      await expect.poll(() => storedTitles(page)).toEqual(['Added afterwards', 'Kept']);
+      await expect.poll(() => storedTitles(page)).toEqual(['Added afterwards', 'Kept', 'Saved too']);
 
       // The next launch is the new release, with everything still there and the old script gone.
       await reload(page);
       await expect(page.locator('body')).not.toHaveAttribute('data-open');
       await expect(event(page, 'Kept')).toBeVisible();
       await expect(event(page, 'Added afterwards')).toBeVisible();
-      await page.keyboard.press('p');
-      await expect(plan(page).getByRole('button', { name: 'Also kept', exact: true })).toBeVisible();
+      await expect(event(page, 'Saved too')).toBeVisible();
       await expect
         .poll(() => page.evaluate(async () => !!(await (await caches.open('kayomi-static-v1')).match('/_next/static/chunks/old-release.js'))))
         .toBe(false);
@@ -567,8 +559,7 @@ test.describe('from one release to the next', () => {
   test('what is saved outlives the caches and the worker', async ({ page }) => {
     await open(page);
     await addEvent(page, 'Kept', '10:00');
-    await page.keyboard.press('p');
-    await addToPlan(page, 'Also kept');
+    await addEvent(page, 'Saved too', '12:00');
     await offlineReady(page);
 
     // Everything the worker owns can go. The calendar is not among it.
@@ -578,8 +569,7 @@ test.describe('from one release to the next', () => {
     });
     await reload(page);
     await expect(event(page, 'Kept')).toBeVisible();
-    await page.keyboard.press('p');
-    await expect(plan(page).getByRole('button', { name: 'Also kept', exact: true })).toBeVisible();
+    await expect(event(page, 'Saved too')).toBeVisible();
     // Same database, same version: no release so far has had to migrate anything.
     expect(await page.evaluate(() => indexedDB.databases())).toEqual([{ name: 'kayomi', version: 1 }]);
   });
@@ -591,7 +581,8 @@ test.describe('from one release to the next', () => {
       d.setHours(hour, minute, 0, 0);
       return d.toISOString();
     };
-    // One of everything the first release could save: a series, an event from Plan, and both kinds of Plan item.
+    // One of everything the first release could save: a series, an event scheduled from Plan, and both
+    // kinds of Plan item. Plan is gone since; what it saved is still on the devices that used it.
     const saved: Parameters<typeof seed>[1] = {
       events: [
         { id: 'e-1', title: 'Project review', start: time(10, 0), end: time(11, 30), allDay: false, category: 'work', planItemId: null, recurrence: { freq: 'weekly', until: null, except: [] }, createdAt: stamp, updatedAt: stamp },
@@ -607,11 +598,10 @@ test.describe('from one release to the next', () => {
     await open(page);
     await expect(event(page, 'Project review')).toContainText('10:00 – 11:30');
     await expect(event(page, 'Gym')).toContainText('07:30 – 08:30');
-    await page.keyboard.press('p');
-    await expect(plan(page).getByRole('button', { name: 'Send documents', exact: true })).toBeVisible();
-    await expect(plan(page).getByRole('button', { name: /Completed/ })).toContainText('1');
+    // The events are all there. What Plan held is not shown, and is not thrown away either.
+    await expect(page.getByText('Send documents')).toHaveCount(0);
 
-    // Opening it changes nothing on disk.
+    // Opening it changes nothing on disk: not the events, not the store Plan used to keep.
     expect(await stored(page)).toEqual(saved);
     expect(await page.evaluate(() => indexedDB.databases())).toEqual([{ name: 'kayomi', version: 1 }]);
   });
