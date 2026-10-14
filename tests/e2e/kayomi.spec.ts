@@ -15,6 +15,7 @@ import {
   reload,
   renderedFonts,
   seed,
+  settled,
   stored,
   storedTitles,
   today,
@@ -472,7 +473,9 @@ test.describe('look', () => {
       await page.keyboard.press('c');
       await expect(calendars(page)).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      // The drawer leaves the whole week readable beside it.
+      // The drawer leaves the whole week readable beside it: measured once it has slid in and the
+      // week has drawn in to make room, not while either is still on its way.
+      await settled(page);
       const sunday = (await columns(page).last().boundingBox())!;
       const drawer = (await calendars(page).boundingBox())!;
       expect(sunday.x + sunday.width).toBeLessThanOrEqual(drawer.x + 1);
