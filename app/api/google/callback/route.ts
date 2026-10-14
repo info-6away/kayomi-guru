@@ -1,9 +1,7 @@
-import { cookies } from 'next/headers';
-import { OAUTH_COOKIE, forgetAccess, storeFor } from '@/lib/server/api';
-import { auth } from '@/lib/server/auth';
+import { forgetAccess, storeFor } from '@/lib/server/api';
+import { homeFor, takeFlow } from '@/lib/server/connecting';
 import { accountKey, sealContext } from '@/lib/server/connections';
 import { connectionsConfig } from '@/lib/server/env';
-import { finishFlow } from '@/lib/server/flow';
 import { SCOPES, exchangeCode, primaryCalendarId, revoke } from '@/lib/server/google';
 import { report } from '@/lib/server/log';
 import { seal } from '@/lib/server/seal';
@@ -18,33 +16,29 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: Request) {
   const config = connectionsConfig();
-  if (!config) return new Response(null, { status: 404 });
-  const home = (outcome: string) => Response.redirect(`${config.appUrl}/?calendars=${outcome}`, 303);
+  if (!config?.google) return new Response(null, { status: 404 });
+  const google = config.google;
+  const home = homeFor(config, 'google');
 
-  const url = new URL(request.url);
-  const jar = await cookies();
-  const cookie = jar.get(OAUTH_COOKIE)?.value;
   // Used once: whatever happens next, this attempt cannot be presented a second time.
-  jar.delete({ name: OAUTH_COOKIE, path: '/api/google' });
+  const { url, user, flow } = await takeFlow(request, config, 'google');
 
   // "Cancel" on Google's screen.
   if (url.searchParams.has('error')) return home('cancelled');
 
   // Honoured only for the browser that started it (the sealed cookie), for the state that was
   // sent, within ten minutes, and for the person who started it.
-  const user = await auth.getCurrentUser();
-  const flow = finishFlow(cookie, config.tokenKey, { state: url.searchParams.get('state'), subject: user?.sub ?? null });
   const code = url.searchParams.get('code');
   if (!flow || !code || !user) return home('failed');
 
   try {
     const store = storeFor(config);
-    const tokens = await exchangeCode(config.google, code, flow.verifier);
+    const tokens = await exchangeCode(google, code, flow.verifier);
     // Google lets people untick individual permissions. Koyomi needs both, and keeps nothing
     // from a half-given consent: the grant is withdrawn again.
     const granted = new Set(tokens.scope.split(' '));
     if (!tokens.refreshToken || !SCOPES.every((scope) => granted.has(scope))) {
-      await revoke(config.google, tokens.refreshToken ?? tokens.accessToken);
+      await revoke(google, tokens.refreshToken ?? tokens.accessToken);
       return home('declined');
     }
 
@@ -53,12 +47,12 @@ export async function GET(request: Request) {
     // keep the permission, so nothing is kept and the person is asked to try again.
     let account: string;
     try {
-      account = await primaryCalendarId(config.google, tokens.accessToken);
+      account = await primaryCalendarId(google, tokens.accessToken);
     } catch {
       // Handing the permission back is right only when it cannot be one that is in use. At
       // Google, withdrawing it for an account ends every token of that account, and this may be
       // an account the person has already connected.
-      if (!(await store.list(user.sub)).length) await revoke(config.google, tokens.refreshToken);
+      if (!(await store.list(user.sub)).length) await revoke(google, tokens.refreshToken);
       return home('failed');
     }
 

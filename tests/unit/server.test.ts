@@ -254,19 +254,21 @@ test('calendar connections are off unless every setting is there, and sign-in ne
     }
     const config = withEnv(full)!;
     expect(config.appUrl).toBe('https://app.koyomi.guru');
-    expect(config.google.redirectUri).toBe('https://app.koyomi.guru/api/google/callback');
-    expect(config.google.endpoints.token).toBe('https://oauth2.googleapis.com/token');
+    expect(config.google!.redirectUri).toBe('https://app.koyomi.guru/api/google/callback');
+    expect(config.google!.endpoints.token).toBe('https://oauth2.googleapis.com/token');
+    // Microsoft is not set up here, so it is not offered.
+    expect(config.microsoft).toBeNull();
 
     // The stand-ins the browser tests use work on a developer's machine...
     const { DATABASE_URL: _, ...noDatabase } = full;
     const local = withEnv({ ...noDatabase, KOYOMI_TEST_STORE: 'memory', KOYOMI_TEST_GOOGLE_URL: 'http://localhost:9/google' })!;
     expect(local.database).toBe('memory');
-    expect(local.google.endpoints.token).toBe('http://localhost:9/google/token');
+    expect(local.google!.endpoints.token).toBe('http://localhost:9/google/token');
     // The in-memory store wins over a database address, so a test run cannot reach a real one.
     expect(withEnv({ ...full, KOYOMI_TEST_STORE: 'memory' })!.database).toBe('memory');
     // ...and are ignored on a deployment, whatever its settings say.
     expect(withEnv({ ...noDatabase, KOYOMI_TEST_STORE: 'memory', VERCEL: '1' })).toBeNull();
-    expect(withEnv({ ...full, KOYOMI_TEST_GOOGLE_URL: 'http://localhost:9/google', VERCEL: '1' })!.google.endpoints.token).toBe('https://oauth2.googleapis.com/token');
+    expect(withEnv({ ...full, KOYOMI_TEST_GOOGLE_URL: 'http://localhost:9/google', VERCEL: '1' })!.google!.endpoints.token).toBe('https://oauth2.googleapis.com/token');
 
     // Signing in needs five of the nine and nothing of Google's, so it can be on, and be checked,
     // while connections themselves are still off.

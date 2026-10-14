@@ -1,5 +1,5 @@
 import { expect, type Page } from '@playwright/test';
-import { FAKE, ME, actAs, addButton, cached, closeDrawer, connect, connectionId, external, google, group, ist, nothingConnected, openCalendars, refresh, refreshAndHold, signInOnly, start, test, toggle, view } from './connected';
+import { FAKE, ME, actAs, addAt, addButton, cached, closeDrawer, connect, connectionId, external, google, group, ist, nothingConnected, openCalendars, refresh, refreshAndHold, signInOnly, start, test, toggle, view } from './connected';
 import { addEvent, event, stored } from './helpers';
 
 // The parts of a calendar connection that are about trust rather than calendars: who is signed
@@ -114,7 +114,7 @@ test.describe('a sign-in that has ended is not a connection that is lost', () =>
     // The first person comes back: their connection is exactly where it was. No consent screen.
     await endSession(page);
     await actAs(page, `user-${id}`);
-    await addButton(page).click();
+    await addAt(page, 'Google');
     await expect(toggle(page, 'Personal')).toBeVisible({ timeout: 15_000 });
     await expect(external(page, 'Dentist')).toBeVisible();
     expect(await consents(id)).toBe(1);
@@ -132,7 +132,7 @@ test.describe('signing out', () => {
     await expect(page.getByText('koyomi', { exact: true })).toBeVisible();
     expect(page.url()).toBe(`${APP}/`);
     expect(await session(page)).toBeUndefined();
-    expect((await page.request.get('/api/google/calendars')).status()).toBe(401);
+    expect((await page.request.get('/api/calendars')).status()).toBe(401);
 
     // It is the sign-in that ended. What was read is still here, and Google heard nothing of it.
     await expect(external(page, 'Dentist')).toBeVisible();
@@ -245,7 +245,7 @@ test.describe('the round trip to Google', () => {
     // The code was presented to Google exactly once.
     expect(await google.exchanges(code)).toEqual([{ code, refused: null }]);
     // And the connection made the first time is untouched.
-    expect((await page.request.get('/api/google/calendars')).status()).toBe(200);
+    expect((await page.request.get('/api/calendars')).status()).toBe(200);
   });
 
   test('a return with the wrong state is refused, the code is never redeemed, and the attempt is spent', async ({ page }) => {
@@ -264,7 +264,7 @@ test.describe('the round trip to Google', () => {
     // One wrong try was enough to use the attempt up: the right address no longer works either.
     expect(await flow.finish(page, back)).toBe('failed');
     expect(await google.exchanges(code)).toEqual([]);
-    expect(await (await page.request.get('/api/google/calendars')).json()).toEqual({ connections: [] });
+    expect(await (await page.request.get('/api/calendars')).json()).toEqual({ connections: [] });
   });
 
   test('a return in a browser that did not start it is refused', async ({ page, browser, id }) => {
@@ -283,7 +283,7 @@ test.describe('the round trip to Google', () => {
     expect(await flow.finish(victim, back)).toBe('failed');
     expect(await google.exchanges(code)).toEqual([]);
     // They did not end up connected to the first person's Google account.
-    expect(await (await victim.request.get('/api/google/calendars')).json()).toEqual({ connections: [] });
+    expect(await (await victim.request.get('/api/calendars')).json()).toEqual({ connections: [] });
     await theirs.close();
   });
 
@@ -296,7 +296,7 @@ test.describe('the round trip to Google', () => {
     await signInOnly(page);
     expect(await flow.finish(page, back)).toBe('failed');
     expect(await google.exchanges(code)).toEqual([]);
-    expect(await (await page.request.get('/api/google/calendars')).json()).toEqual({ connections: [] });
+    expect(await (await page.request.get('/api/calendars')).json()).toEqual({ connections: [] });
 
     await endSession(page);
     await actAs(page, `user-${id}`);
@@ -426,22 +426,22 @@ test.describe('cookies and answers', () => {
       answers.push([r.status(), await r.text()]);
     };
 
-    await note(page.request.get('/api/google/calendars'));
-    await note(page.request.post('/api/google/events', { data: ask, headers: origin }));
+    await note(page.request.get('/api/calendars'));
+    await note(page.request.post('/api/calendars/events', { data: ask, headers: origin }));
     await signInOnly(page);
-    await note(page.request.get('/api/google/calendars'));
+    await note(page.request.get('/api/calendars'));
     await start(page);
     await connect(page);
     // Asked about a connection that is not theirs, then about their own.
-    await note(page.request.post('/api/google/events', { data: ask, headers: origin }));
+    await note(page.request.post('/api/calendars/events', { data: ask, headers: origin }));
     ask = { ...ask, connectionId: await connectionId(page) };
-    await note(page.request.post('/api/google/events', { data: ask }));
-    await note(page.request.post('/api/google/events', { data: { nonsense: true }, headers: origin }));
-    await note(page.request.post('/api/google/events', { data: 'not json at all', headers: { ...origin, 'content-type': 'application/json' } }));
+    await note(page.request.post('/api/calendars/events', { data: ask }));
+    await note(page.request.post('/api/calendars/events', { data: { nonsense: true }, headers: origin }));
+    await note(page.request.post('/api/calendars/events', { data: 'not json at all', headers: { ...origin, 'content-type': 'application/json' } }));
     await google.becomes(id, { fail: 'unavailable' });
-    await note(page.request.post('/api/google/events', { data: ask, headers: origin }));
+    await note(page.request.post('/api/calendars/events', { data: ask, headers: origin }));
     await google.becomes(id, { fail: null, revoked: true });
-    await note(page.request.post('/api/google/events', { data: ask, headers: origin }));
+    await note(page.request.post('/api/calendars/events', { data: ask, headers: origin }));
 
     expect(answers).toEqual([
       [401, '{"error":"signed_out"}'],
@@ -475,9 +475,9 @@ test.describe('requests from another site', () => {
           () => statuses.push(-1),
         );
       };
-      await send('/api/google/disconnect', { method: 'POST', body: '{}' });
-      await send('/api/google/disconnect', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' });
-      await send('/api/google/events', { method: 'POST', body: '{}' });
+      await send('/api/calendars/disconnect', { method: 'POST', body: '{}' });
+      await send('/api/calendars/disconnect', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' });
+      await send('/api/calendars/events', { method: 'POST', body: '{}' });
       return statuses.length;
     }, APP);
     expect(sent).toBe(3);
@@ -485,17 +485,17 @@ test.describe('requests from another site', () => {
 
     // Nothing happened: still signed in, still connected, nothing revoked at Google.
     expect(await session(page)).toBeTruthy();
-    expect((await page.request.get('/api/google/calendars')).status()).toBe(200);
+    expect((await page.request.get('/api/calendars')).status()).toBe(200);
     expect((await google.asked(id)).revoked).toBe(false);
     await refresh(page);
     await expect(external(page, 'Dentist')).toBeVisible();
 
     // The same requests without a browser's help: the wrong origin, or none, is refused outright.
     for (const headers of [{ origin: 'https://evil.example' }, { origin: FAKE }, { origin: 'null' }, {}] as Record<string, string>[]) {
-      expect((await page.request.post('/api/google/disconnect', { data: {}, headers })).status(), JSON.stringify(headers)).toBe(403);
+      expect((await page.request.post('/api/calendars/disconnect', { data: {}, headers })).status(), JSON.stringify(headers)).toBe(403);
     }
     // Nothing that changes anything answers to a link, an image or a form's GET.
-    for (const path of ['/api/google/disconnect', '/api/google/events']) expect((await page.request.get(path)).status(), path).toBe(405);
+    for (const path of ['/api/calendars/disconnect', '/api/calendars/events']) expect((await page.request.get(path)).status(), path).toBe(405);
     expect((await google.asked(id)).revoked).toBe(false);
   });
 
@@ -512,15 +512,15 @@ test.describe('requests from another site', () => {
     // Asking by the first person's name gets nothing: there is no parameter that names a person.
     const [connection] = mine.connections;
     const ask = { connectionId: connection.id, timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
-    for (const path of ['/api/google/calendars', `/api/google/calendars?subject=user-${id}`, `/api/google/calendars?user=user-${id}&auth_subject=user-${id}`, `/api/google/calendars?connectionId=${connection.id}`]) {
+    for (const path of ['/api/calendars', `/api/google/calendars?subject=user-${id}`, `/api/google/calendars?user=user-${id}&auth_subject=user-${id}`, `/api/google/calendars?connectionId=${connection.id}`]) {
       expect(await (await stranger.request.get(path, { headers: { 'x-subject': `user-${id}`, 'x-user': `user-${id}` } })).json(), path).toEqual({ connections: [] });
     }
     // Nor does knowing the id of the first person's connection: it is looked for among the
     // asker's own, and is not there.
-    const reached = await stranger.request.post('/api/google/events', { data: { ...ask, subject: `user-${id}` }, headers: origin });
+    const reached = await stranger.request.post('/api/calendars/events', { data: { ...ask, subject: `user-${id}` }, headers: origin });
     expect([reached.status(), await reached.json()]).toEqual([409, { error: 'not_connected' }]);
     // Their own Disconnect of it ends nothing of anybody's.
-    expect((await stranger.request.post('/api/google/disconnect', { data: { connectionId: connection.id, subject: `user-${id}` }, headers: origin })).status()).toBe(200);
+    expect((await stranger.request.post('/api/calendars/disconnect', { data: { connectionId: connection.id, subject: `user-${id}` }, headers: origin })).status()).toBe(200);
     await theirs.close();
 
     expect((await google.asked(id)).revoked).toBe(false);
@@ -541,7 +541,7 @@ test.describe('how much may be asked about one account', () => {
     // A script with this person's cookie asks for the calendar list 140 times in a row.
     const states: string[] = [];
     for (let i = 0; i < 140; i++) {
-      const response = await page.request.get('/api/google/calendars');
+      const response = await page.request.get('/api/calendars');
       expect(response.status()).toBe(200);
       const { connections } = await response.json();
       expect(connections).toHaveLength(1);
@@ -558,7 +558,7 @@ test.describe('how much may be asked about one account', () => {
     // Reading that account's events is refused outright, and costs Google nothing.
     const events = (await google.asked(id)).log.filter((entry) => entry.type === 'events').length;
     const ask = { connectionId: await connectionId(page), timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
-    const refusal = await page.request.post('/api/google/events', { data: ask, headers: { origin: APP } });
+    const refusal = await page.request.post('/api/calendars/events', { data: ask, headers: { origin: APP } });
     expect([refusal.status(), await refusal.text()]).toEqual([429, '{"error":"slow_down"}']);
     expect(Number(refusal.headers()['retry-after'])).toBeGreaterThan(0);
     expect(Number(refusal.headers()['retry-after'])).toBeLessThanOrEqual(60);
@@ -582,7 +582,7 @@ test.describe('how much may be asked about one account', () => {
     const them = await theirs.newPage();
     await start(them);
     await connect(them);
-    expect((await (await them.request.get('/api/google/calendars')).json()).connections.map((entry: { state: string }) => entry.state)).toEqual(['ok']);
+    expect((await (await them.request.get('/api/calendars')).json()).connections.map((entry: { state: string }) => entry.state)).toEqual(['ok']);
     await theirs.close();
   });
 
@@ -594,7 +594,7 @@ test.describe('how much may be asked about one account', () => {
     const count = async (type: string) => (await google.asked(id)).log.filter((entry) => entry.type === type).length;
 
     const lists = await count('calendars');
-    const answers = await Promise.all(Array.from({ length: 8 }, () => page.request.get('/api/google/calendars')));
+    const answers = await Promise.all(Array.from({ length: 8 }, () => page.request.get('/api/calendars')));
     expect(answers.map((answer) => answer.status())).toEqual(new Array(8).fill(200));
     const bodies = await Promise.all(answers.map((answer) => answer.text()));
     expect(new Set(bodies).size).toBe(1);
@@ -602,12 +602,12 @@ test.describe('how much may be asked about one account', () => {
 
     const reads = await count('events');
     const ask = { connectionId: await connectionId(page), timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }, { calendarId: 'work@example.test', syncToken: null }] };
-    const read = await Promise.all(Array.from({ length: 6 }, () => page.request.post('/api/google/events', { data: ask, headers: { origin: APP } })));
+    const read = await Promise.all(Array.from({ length: 6 }, () => page.request.post('/api/calendars/events', { data: ask, headers: { origin: APP } })));
     expect(read.map((answer) => answer.status())).toEqual(new Array(6).fill(200));
     // Two calendars, each read once, not six times.
     expect((await count('events')) - reads).toBe(2);
     // A different question is a different reading.
-    await page.request.post('/api/google/events', { data: { ...ask, calendars: ask.calendars.slice(0, 1) }, headers: { origin: APP } });
+    await page.request.post('/api/calendars/events', { data: { ...ask, calendars: ask.calendars.slice(0, 1) }, headers: { origin: APP } });
     expect((await count('events')) - reads).toBe(3);
   });
 
@@ -652,7 +652,7 @@ test.describe('how much may be asked about one account', () => {
     await connect(page);
     const ask = { connectionId: await connectionId(page), timeMin: '2026-09-01T21:00:00.000Z', timeMax: '2027-04-14T21:00:00.000Z', calendars: [{ calendarId: 'me@example.test', syncToken: null }] };
     const { connectionId: _, ...unnamed } = ask;
-    const status = async (body: unknown) => (await page.request.post('/api/google/events', { data: body, headers: { origin: APP } })).status();
+    const status = async (body: unknown) => (await page.request.post('/api/calendars/events', { data: body, headers: { origin: APP } })).status();
     // The span the app reads is fine...
     expect(await status(ask)).toBe(200);
     const many = (n: number) => Array.from({ length: n }, (_, i) => ({ calendarId: `c${i}@example.test`, syncToken: null }));

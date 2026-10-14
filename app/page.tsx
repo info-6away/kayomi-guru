@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Kayomi from '@/components/Kayomi';
-import { connectionsConfigured } from '@/lib/server/env';
+import { calendarProviders } from '@/lib/server/env';
 
 // The calendar. Its tab title and install details live here rather than in the shared layout,
 // so the landing page (app/home) is not offered for installation.
@@ -13,8 +13,8 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  // Decided when the site is built: whether this deployment has what calendar connections
-  // need. Without it there is Koyomi's own calendar and nothing to connect, and the server is
-  // never asked anything.
-  return <Kayomi calendars={connectionsConfigured()} />;
+  // Decided when the site is built: which providers this deployment has what calendar
+  // connections need for. With none there is Koyomi's own calendar and nothing to connect, and
+  // the server is never asked anything.
+  return <Kayomi calendars={calendarProviders()} />;
 }

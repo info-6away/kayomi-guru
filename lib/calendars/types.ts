@@ -5,7 +5,9 @@
 // the very same ids at their provider. So everything here is named by its connection first, and
 // nothing read from one account can stand in the place of something read from another.
 
-export type Provider = 'google';
+export type Provider = 'google' | 'microsoft';
+/** Every provider Koyomi can read from, in the order they are offered and listed. */
+export const PROVIDERS: readonly Provider[] = ['google', 'microsoft'];
 
 /** A calendar among everything connected on this device: `${connectionId}:${calendarId}`. */
 export const calendarKey = (connectionId: string, calendarId: string) => `${connectionId}:${calendarId}`;
@@ -71,8 +73,12 @@ export interface ExternalConnection {
   provider: Provider;
   /** How the person knows the account: its address at the provider. Null until that has been read. */
   account: string | null;
-  /** `reconnect`: the provider no longer honours the permission. What was read before stays. */
-  status: 'connected' | 'reconnect';
+  /**
+   * - `reconnect`: the provider no longer honours the permission. What was read before stays.
+   * - `blocked`: the provider will not let this account's calendar be read at all, and
+   *   consenting again would not change that.
+   */
+  status: 'connected' | 'reconnect' | 'blocked';
 }
 
 /** One connected account as the server lists it, with the calendars it can see. */
@@ -85,10 +91,11 @@ export interface ConnectionListing {
    * - `ok`: its calendars follow.
    * - `reconnect`: the provider no longer honours the permission for this account.
    * - `busy`: it could not be read just now (the provider is failing, or was asked too often).
+   * - `blocked`: the provider will not let it be read at all (for Microsoft: no mailbox in the cloud).
    *
    * Each account answers for itself: one that cannot be read says so, and the rest are listed.
    */
-  state: 'ok' | 'reconnect' | 'busy';
+  state: 'ok' | 'reconnect' | 'busy' | 'blocked';
   calendars: CalendarInfo[];
 }
 
@@ -115,7 +122,9 @@ export type CalendarResult =
       syncToken: string | null;
     }
   /** The calendar is no longer there for this account. */
-  | { calendarId: string; gone: true };
+  | { calendarId: string; gone: true }
+  /** This one calendar could not be read. What was read of it before stays as it was. */
+  | { calendarId: string; failed: true };
 
 export interface EventsResponse {
   calendars: CalendarResult[];
@@ -127,7 +136,8 @@ export interface EventsResponse {
  * - `not_connected`: signed in, but the account asked about is not one of this person's connections.
  * - `reconnect`: the provider no longer honours the stored permission for that account.
  * - `busy`: the provider is unavailable or limiting requests; try later.
- * - `slow_down`: this account has been asked about too often in the last minute; try later.
+ * - `slow_down`: this account has been asked about too often, here or by the provider; try later.
+ * - `blocked`: the provider will not let that account's calendar be read at all.
  * - `unavailable`: calendar connections are not set up on this server.
  */
-export type ApiError = 'signed_out' | 'not_connected' | 'reconnect' | 'busy' | 'slow_down' | 'unavailable' | 'bad_request';
+export type ApiError = 'signed_out' | 'not_connected' | 'reconnect' | 'busy' | 'slow_down' | 'blocked' | 'unavailable' | 'bad_request';

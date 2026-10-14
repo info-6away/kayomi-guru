@@ -26,16 +26,18 @@ export interface Connection {
 
 /**
  * Which account a connection is for, as the table holds it. The provider's own identifier for
- * the account (for Google, the id of its primary calendar, which is its address) is not kept:
- * what is kept is a word made from it with the server's key, together with whose connection it
- * is. The same person connecting the same account again comes to the same word, so their row is
- * found and replaced, not doubled. Nobody without the key can turn the word back into an
- * address, and two people who connect the same account get two different words.
+ * the account (for Google, the id of its primary calendar, which is its address; for Microsoft,
+ * its tenant and the subject Microsoft gives Koyomi for it) is not kept: what is kept is a word
+ * made from it with the server's key, together with whose connection it is. The same person
+ * connecting the same account again comes to the same word, so their row is found and replaced,
+ * not doubled. Nobody without the key can turn the word back into an identifier, and two people
+ * who connect the same account get two different words.
  *
  * @param tokenKey The key provider tokens are sealed with (seal.ts).
  */
 export const accountKey = (tokenKey: string, subject: string, provider: Provider, providerAccountId: string) =>
-  fingerprint(providerAccountId.trim().toLowerCase(), tokenKey, `account\n${subject}\n${provider}`);
+  // An address is the same address in any case. Microsoft's subject is not: its case is part of it.
+  fingerprint(provider === 'google' ? providerAccountId.trim().toLowerCase() : providerAccountId.trim(), tokenKey, `account\n${subject}\n${provider}`);
 
 /** What a token's seal is tied to: it only opens on the row it was made for. */
 export const sealContext = (connection: Pick<Connection, 'subject' | 'provider' | 'accountKey'>) => `${connection.subject}:${connection.provider}:${connection.accountKey}`;
@@ -71,6 +73,12 @@ export interface ConnectionStore {
    * Always leaves it active, and touches no other row. Returns the connection's id.
    */
   save(subject: string, provider: Provider, accountKey: string, sealedToken: string, scope: string): Promise<string>;
+  /**
+   * Puts the refresh token a provider has just handed out in place of the one it was traded
+   * for (Microsoft issues a new one with every use). Only if the row still holds that one: a
+   * token from a reconnection made meanwhile is never overwritten by an older grant's.
+   */
+  renewToken(subject: string, id: string, was: string, sealedToken: string): Promise<void>;
   setStatus(subject: string, id: string, status: Connection['status']): Promise<void>;
   remove(subject: string, id: string): Promise<void>;
 }
@@ -141,6 +149,12 @@ export function sqlStore(sql: Sql): ConnectionStore {
         returning connection_id`;
       return String(row.connection_id);
     },
+    async renewToken(subject, id, was, sealedToken) {
+      if (!isConnectionId(id)) return;
+      await sql`
+        update calendar_connections set refresh_token_sealed = ${sealedToken}, updated_at = now()
+        where auth_subject = ${subject} and connection_id = ${id} and refresh_token_sealed = ${was}`;
+    },
     async setStatus(subject, id, status) {
       if (!isConnectionId(id)) return;
       await sql`
@@ -191,6 +205,10 @@ export function memoryStore(): ConnectionStore {
       const id = before?.id ?? randomUUID();
       rows.set(id, { id, subject, provider, accountKey, sealedToken, scope, status: 'active', windowStart: before?.windowStart ?? 0, spent: before?.spent ?? 0 });
       return id;
+    },
+    async renewToken(subject, id, was, sealedToken) {
+      const row = mine(subject, id);
+      if (row?.sealedToken === was) row.sealedToken = sealedToken;
     },
     async setStatus(subject, id, status) {
       const row = mine(subject, id);
