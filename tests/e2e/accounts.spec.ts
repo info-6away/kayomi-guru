@@ -3,6 +3,7 @@ import { check } from './contrast';
 import {
   FAKE,
   ME,
+  NOW,
   actAs,
   addButton,
   allDay,
@@ -212,6 +213,33 @@ test.describe('adding a second account', () => {
     expect((await cached(page)).connections).toHaveLength(1);
     await closeDrawer(page);
     await expect(external(page, 'Dentist')).toHaveCount(1);
+  });
+
+  test('an account that was not added is said so, and stays said while the first is read on its own', async ({ page, context, id }) => {
+    await start(page);
+    await connect(page);
+    // Some minutes at Google, deciding against it: long enough that the first account is due a
+    // reading the moment the calendar opens again. Meanwhile something changed there.
+    await page.clock.setFixedTime(new Date(NOW.getTime() + 10 * 60_000));
+    await google.changes(id, { calendarId: ME, cancel: ['dentist'] });
+    await context.addCookies([{ name: 'fake_google', value: `deny:${id}`, url: FAKE }]);
+    await addButton(page).click();
+
+    // Back with nothing added. The first account was read at once, unasked, and its change is here.
+    await expect(view(page).getByText('Read 13:20')).toBeVisible(BACK);
+    await expect(view(page).getByText('Refreshing…')).toHaveCount(0);
+    await expect(external(page, 'Dentist')).toHaveCount(0);
+    await expect(view(page).getByRole('group')).toHaveCount(1);
+    // That reading was not the person's doing, so it has not taken away what they were just told.
+    await expect(view(page).getByRole('status')).toHaveText('Google Calendar was not connected.');
+
+    // Asking for something themselves does: they have seen it.
+    await toggle(page, 'Holidays').click();
+    await expect(view(page).getByRole('status')).toHaveCount(0);
+    await addButton(page).click();
+    await expect(view(page).getByRole('status')).toHaveText('Google Calendar was not connected.', BACK);
+    await view(page).getByRole('button', { name: 'Refresh' }).click();
+    await expect(view(page).getByRole('status')).toHaveCount(0);
   });
 });
 
