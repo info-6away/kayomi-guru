@@ -263,6 +263,8 @@ ask for descriptions, locations, guest lists or meeting links, and Google does n
 | **What the server keeps** | The one row above for each connected account. It keeps no events: they pass through on their way to your device. It keeps no account address either, only a keyed hash that stands for it |
 | **What an account's Disconnect removes** | That account's permission, at Google. Its row, on the server. Its part of the local copy. With the last account, also your Koyomi sign-in on that device. Your Koyomi events are in a different database and are not touched |
 | **What is never done** | Event contents are not sent to any AI service, not used for analytics, and not logged |
+| **How it is protected** | Refresh tokens sealed with AES-256-GCM, bound to their row, with the key only in the server's environment and never in the database. HTTPS everywhere: plain HTTP is redirected, and HSTS is sent. Every look in the table is among the signed-in person's own rows. Nothing token-like reaches the log (`lib/server/log.ts`). Read-only permissions only. The device's copy is in the browser's storage for Koyomi's own origin. Only the people who run Koyomi at 6Away can reach the production settings and database |
+| **How long it is kept** | A connection's row: until that account is disconnected, or deletion is asked for. The device's copy of a calendar: until it is hidden, its account is disconnected, or someone else signs in on that device |
 
 If Google cannot be reached at the moment of disconnecting, Koyomi still deletes its token, which
 makes the permission useless. It stays listed in your Google account until you remove it there.

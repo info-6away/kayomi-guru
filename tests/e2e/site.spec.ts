@@ -171,6 +171,20 @@ test.describe('privacy and terms', () => {
       expect(said, part).toContain(part);
     }
 
+    // How it is protected, as Google's review asks a privacy policy to say: each one a fact of the code.
+    for (const part of [
+      'Koyomi protects your Google user data with these technical and organisational security measures',
+      'Google’s refresh token is encrypted with AES-256-GCM before it is stored, and bound to your own record',
+      'The encryption key is kept only in the server’s settings, separate from the database that holds the tokens.',
+      'Everything is sent encrypted, over HTTPS (TLS)',
+      'Each connection can be used only by the person who made it.',
+      'neither tokens nor events are written to its log',
+      'Koyomi holds read-only permission only',
+      'Only the people who run Koyomi at 6Away can reach the production server’s settings and its database.',
+    ]) {
+      expect(said, part).toContain(part);
+    }
+
     // What it is never used for, in Google's required words.
     expect(said).toContain('Your Google Calendar data is not sold.');
     expect(said).toContain('not used for advertising, not used for analytics or to build a profile of you, and not used to train artificial-intelligence or machine-learning models');
@@ -190,9 +204,11 @@ test.describe('privacy and terms', () => {
       expect(said, part).toContain(part);
     }
 
-    // Disconnecting, and deleting.
+    // How long things are kept, disconnecting, and deleting.
     for (const part of [
+      'Our server keeps nothing of your Google data except the connection records described above.',
       'A connection record is kept until you disconnect that account or ask us to delete it.',
+      'The copy on your device is kept until you hide that calendar, disconnect that account, or a different person signs in on that device.',
       'Each connected account has its own Disconnect, in Koyomi’s Calendars pane.',
       'It asks Google to revoke Koyomi’s access to that account, deletes that account’s record from our server and deletes the device’s copy of that account’s calendars.',
       'Your other connected accounts are not affected. Disconnecting the last one also signs that device out.',

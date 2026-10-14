@@ -6,7 +6,7 @@ import { A, H2, LegalPage, List, Mail, OPERATOR, P, legalMetadata } from '@/comp
 
 export const metadata = legalMetadata('Privacy', 'What Koyomi keeps, where it keeps it, and what it is used for.', '/privacy');
 
-const UPDATED = '13 October 2026';
+const UPDATED = '14 October 2026';
 
 export default function Privacy() {
   return (
@@ -96,6 +96,28 @@ export default function Privacy() {
         these, our database keeps only the identifier.
       </P>
 
+      <H2>How your Google data is protected</H2>
+      <P>Koyomi protects your Google user data with these technical and organisational security measures:</P>
+      <List>
+        <li>
+          Google’s refresh token is encrypted with AES-256-GCM before it is stored, and bound to your own record, so that a copy moved to another
+          record cannot be decrypted. The encryption key is kept only in the server’s settings, separate from the database that holds the tokens.
+        </li>
+        <li>
+          Everything is sent encrypted, over HTTPS (TLS): between your browser and Koyomi, and between Koyomi’s server and Google, 6Away and the
+          database. A visit over plain HTTP is redirected to HTTPS, and browsers are told to use only HTTPS for Koyomi.
+        </li>
+        <li>
+          Each connection can be used only by the person who made it. The server knows who is asking only from their sign-in cookie, and looks
+          for a connection only among that person’s own. Asking for anyone else’s finds nothing.
+        </li>
+        <li>Google’s tokens never reach your browser. Your events are not stored on our server, and neither tokens nor events are written to its log.</li>
+        <li>Koyomi holds read-only permission only, so nothing it does can change your Google Calendar.</li>
+        <li>On your device, the copy of your Google calendars and events is kept in your browser’s storage for Koyomi, which other websites cannot read.</li>
+        <li>Only the people who run Koyomi at 6Away can reach the production server’s settings and its database.</li>
+      </List>
+      <P>Disconnecting an account removes what Koyomi holds of it, as described below.</P>
+
       <H2>What your Google data is never used for</H2>
       <P>
         Your Google Calendar data is not sold. It is not used for advertising, not used for analytics or to build a profile of you, and not used
@@ -129,8 +151,12 @@ export default function Privacy() {
         service, under their own terms and privacy policies. Your calendar itself comes from Google, under Google’s own terms.
       </P>
 
-      <H2>Disconnecting, and deleting</H2>
-      <P>A connection record is kept until you disconnect that account or ask us to delete it.</P>
+      <H2>How long things are kept, and deleting them</H2>
+      <P>
+        Our server keeps nothing of your Google data except the connection records described above. A connection record is kept until you
+        disconnect that account or ask us to delete it. The copy on your device is kept until you hide that calendar, disconnect that account,
+        or a different person signs in on that device.
+      </P>
       <P>
         Each connected account has its own Disconnect, in Koyomi’s Calendars pane. It asks Google to revoke Koyomi’s access to that account,
         deletes that account’s record from our server and deletes the device’s copy of that account’s calendars. Your other connected accounts
