@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { EVENT_FIELDS, type GoogleEvent } from '../calendars/normalize';
 import type { CalendarInfo } from '../calendars/types';
 import { report } from './log';
+import { ProviderError } from './provider';
 
 // Everything Koyomi says to Google, and nothing more: the consent screen, the token exchange,
 // and three read-only calls. Plain fetch, so there is no SDK between this file and the wire.
@@ -52,9 +53,9 @@ export interface GoogleClient {
  * - `not_found`: that calendar is not there for this account any more.
  * - `busy`: Google is unreachable, slow, failing or limiting requests. Nothing is wrong; try later.
  */
-export class GoogleError extends Error {
-  constructor(public readonly kind: 'reconnect' | 'gone' | 'not_found' | 'busy') {
-    super(`Google: ${kind}`);
+export class GoogleError extends ProviderError {
+  constructor(kind: 'reconnect' | 'gone' | 'not_found' | 'busy') {
+    super('Google', kind);
   }
 }
 

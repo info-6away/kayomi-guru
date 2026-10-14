@@ -1,7 +1,8 @@
 # Calendar connections
 
-Koyomi shows calendars from elsewhere beside its own. The first provider is Google Calendar, it
-is read-only, and a person can connect as many Google accounts as they have.
+Koyomi shows calendars from elsewhere beside its own. There are two providers, Google Calendar
+and Microsoft (Outlook, for personal and for work or school accounts). Both are read-only, and a
+person can connect as many accounts at each as they have, side by side.
 
 - External calendars are **context**: meetings that already occupy the time.
 - Koyomi's own calendar is **yours to write in**: what you decide to do with the rest.
@@ -15,21 +16,25 @@ else: no sign-in, no request to the server, nothing more on their device.
 ```
  Browser (app.koyomi.guru)            Koyomi's server (Vercel)              Elsewhere
  ─────────────────────────            ────────────────────────              ─────────
- Calendars → Add calendar account ──▶ /api/google/connect
+ Calendars → Add calendar account
+   → Google (or Microsoft) ─────────▶ /api/google/connect (/api/microsoft/connect)
                                         not signed in? ───────────────────▶ 6Away Auth (sign in)
                                       ◀──────────────────────────────────── signed in
-                                        ──────────────────────────────────▶ Google (which account?
+                                        ──────────────────────────────────▶ Google or Microsoft
+                                                                              (which account?
                                                                               then its consent)
                                       /api/google/callback ◀─────────────── code
-                                        trades the code for tokens ◀──────▶ Google
-                                        asks which account it is ◀────────▶ Google Calendar API
+                                      (/api/microsoft/callback)
+                                        trades the code for tokens ◀──────▶ the provider
+                                        tells which account it is
                                         seals the refresh token
                                         stores it as that account's ──────▶ Postgres (Neon)
  back on the calendar ◀─────────────
- asks for accounts and calendars ───▶ /api/google/calendars
- asks for each account's events ────▶ /api/google/events
+ asks for accounts and calendars ───▶ /api/calendars
+ asks for each account's events ────▶ /api/calendars/events
                                         opens that account's token, gets
                                         an access token, reads ◀──────────▶ Google Calendar API
+                                                                            or Microsoft Graph
  titles and times ◀─────────────────    reduces to what Koyomi shows
  kept in their own local database,
  filed by account
@@ -37,7 +42,15 @@ else: no sign-in, no request to the server, nothing more on their device.
 
 Three things are worth knowing about that picture.
 
-**Google's tokens never reach the browser.** The code Google sends back is exchanged on the
+Only adding an account is the provider's own: each provider has its own connect and callback
+addresses, and Google's are where they have always been (they are registered with Google).
+Everything after that is one set of addresses for every provider (`app/api/calendars/`), which
+reads which provider a connection is at from its row, never from the browser, and asks that
+provider (`lib/server/providers.ts`). The addresses the calendar used before there were two,
+`/api/google/calendars`, `/events` and `/disconnect`, answer as the new ones do, for a copy of
+the app loaded before then; the first lists Google accounts alone, the only kind that copy knows.
+
+**A provider's tokens never reach the browser.** The code the provider sends back is exchanged on the
 server. The refresh token is sealed with AES-256-GCM (`lib/server/seal.ts`) before it is stored,
 with a key that exists only in the server's environment, and tied to the row it belongs to (the
 person, the provider and the account), so a sealed token copied onto another row cannot be
@@ -55,12 +68,12 @@ names, not an email address:
 | --- | --- |
 | `connection_id` | Koyomi's own name for the row: a random id, and all a browser is ever told of it |
 | `auth_subject` | The 6Away id of the person: opaque and stable |
-| `provider` | `google` |
+| `provider` | `google` or `microsoft` |
 | `provider_account_id` | Which account it is, as a keyed hash (see "Several accounts"). Not the account's address |
 | `refresh_token_sealed` | That account's refresh token, sealed |
 | `scope` | The permissions that were granted |
-| `status` | `active`, or `reconnect` once Google has refused the token |
-| `window_started_at`, `window_spent` | How much has been asked of Google about this account in the current minute (see "How much may be asked") |
+| `status` | `active`, or `reconnect` once the provider has refused the token |
+| `window_started_at`, `window_spent` | How much has been asked of the provider about this account in the current minute (see "How much may be asked") |
 | `created_at`, `updated_at` | |
 
 The row's key is `connection_id`, and the table's rule is **one row for each person, provider
@@ -254,6 +267,96 @@ From each event Koyomi asks Google for the title, the start and end, whether it 
 the link to it, and your own reply to it (so that what you declined is left out). It does not
 ask for descriptions, locations, guest lists or meeting links, and Google does not send them.
 
+## Microsoft
+
+The same feature, at Microsoft: personal Microsoft accounts (Outlook.com) and work or school
+accounts (Microsoft 365) alike, through Microsoft's identity platform (v2.0, the `common`
+authority) and Microsoft Graph v1.0 (`lib/server/microsoft.ts`). It is on by two settings of its
+own; without them Koyomi offers Google alone and looks exactly as it did before.
+
+**What is asked for.** Three things, and no others:
+
+- `openid`: sign-in, which is what tells Koyomi which Microsoft account it is (below);
+- `offline_access`: a refresh token, so the calendar can be read again later;
+- `Calendars.ReadBasic`: read the person's own calendars and their events, except bodies,
+  attachments and extensions. Microsoft lists it as the least permission for both calls Koyomi
+  makes, for both kinds of account, and it needs no administrator by definition.
+
+No `profile`, no `email`, no `User.Read`, nothing that writes, and not `Calendars.Read.Shared`:
+Koyomi reads no calendar that someone else owns. Microsoft's own screen shows its list of
+accounts every time (`prompt=select_account`), so a second account can be chosen rather than the
+one already signed in; it asks for consent whenever it does not already hold it for that account.
+
+| Call | What for | What is asked for |
+| --- | --- | --- |
+| `GET /me/calendars` | Which calendars an account has, which is its own, and its address | `$select=id,name,isDefaultCalendar,canEdit,owner` |
+| `GET /me/calendars/{id}/calendarView` | The events of a calendar being shown, in the span, repeating ones as their occurrences | `$select=id,subject,start,end,isAllDay,isCancelled,showAs,responseStatus,webLink,type,originalStartTimeZone`, `$top=500`, `Prefer: outlook.timezone="UTC"` |
+
+A next page is followed only if Graph's answer points at Graph's own address and path; a
+reading stops after 20 pages (10,000 events) of one calendar, and a list after 10 pages.
+
+**Which account it is.** The ID token that comes with a consent says it: the tenant (`tid`, the
+same fixed id for every personal account, and part of the issuer's address too, which is used
+where the claim is not there) and the subject (`sub`). The subject is Microsoft's
+identifier for this person in Koyomi alone: it is different in every other app, so it cannot be
+used to follow anyone about, and it never changes or passes to someone else. An address does
+both, so it is not used for this. As with Google, the table keeps only a keyed hash of
+`tid:sub` (`accountKey` in `lib/server/connections.ts`), which keeps its case. The token comes
+straight from Microsoft's token endpoint over TLS, in answer to Koyomi's own secret, which is
+what OpenID Connect accepts in place of checking its signature; what is checked is that it was
+issued for Koyomi's client, by Microsoft for the tenant it names, for this attempt (its `nonce`),
+and not long ago (`accountOf`).
+
+**The address shown.** The owner of the account's default calendar, read with the list each
+time and kept nowhere on the server, as Google's is. Calendars someone else owns are left out of
+the list; ones the person cannot change (holidays, birthdays, subscriptions) start hidden.
+
+**Reading.** Graph has a "what changed since" only for the default calendar, and not one that
+can be limited to these fields, so every reading of a Microsoft calendar is a whole one of the
+span. The device takes it as Google's full readings are taken. Times come in UTC, as asked. An
+all-day event comes as its midnights in UTC, which are midnights in the zone it was written in:
+the day is worked out in that zone where its name is a known one, and otherwise as the nearest
+day boundary, which is right for every zone from ten hours behind UTC to almost fourteen ahead
+(the few beyond, by their Windows names, are known by name). Microsoft allows an app four
+requests at once on one mailbox, so Koyomi reads at most three of an account's calendars at once.
+
+**Tokens.** Microsoft hands out a new refresh token every time one is used, and does not end the
+old one at once. The server seals the new one and puts it in place of the old, only if the row
+still holds the old one, so that a reconnection made meanwhile is never undone by it
+(`renewToken`).
+
+**Disconnecting.** Microsoft has no way for an app to withdraw its own permission for one
+person (no revocation endpoint; the Graph calls that come close need an administrator, or end
+every app's sessions). So a Microsoft account's Disconnect deletes its row, with the only copy
+of the token, and the device's copy; the disconnect answer says `revoked: false`. Koyomi stays
+listed among the apps the account has allowed until the person removes it there: in My Apps
+(`myapplications.microsoft.com`) for a work or school account, or among the apps and services in
+the Microsoft account's privacy settings for a personal one.
+
+**When Microsoft says no.**
+
+| Microsoft's answer | What it comes to |
+| --- | --- |
+| `invalid_grant`, `interaction_required`, `consent_required`, `login_required` when a token is refreshed | The permission is gone, or the person's organisation wants them to sign in again: "Needs reconnecting" on that account |
+| `invalid_client` | Koyomi's own client secret is wrong or has expired (they last two years at most). Nobody is asked to reconnect; the log says what to renew |
+| `unauthorized_client` | That account's organisation does not let Koyomi in (an administrator disabled it). "Microsoft doesn’t let Koyomi read this account’s calendar." under it |
+| Graph 401 | The access token, not the permission: a new one is asked for at once, once, and the refresh token's answer decides |
+| Graph 429 | Microsoft asked for a pause. Whatever was under way for that account is let go, and the server that heard it asks nothing more of it for as long as `Retry-After` says (at most an hour), however often Refresh is pressed. Another server instance does not know of the pause; the account's allowance still limits it |
+| `MailboxNotEnabledForRESTAPI`, or 403, on the calendar list | The account has no mailbox in the cloud, or its organisation forbids it. "Microsoft doesn’t let Koyomi read this account’s calendar." under it, and nothing to reconnect |
+| 403 on one calendar | That calendar is passed over this time; the account's others are read |
+| 404 on one calendar | It is gone, with its events |
+| 5xx, or no answer | Nothing is said; what was read stays |
+
+**Work and school accounts.** Microsoft's default for an organisation's tenant does not let its
+people consent to any calendar permission themselves, `Calendars.ReadBasic` included, whether or
+not the app's publisher is verified. In such a tenant an administrator approves Koyomi once for
+everyone; until then Microsoft's screen says so, and coming back from it is "Microsoft calendar
+was not connected." No permission avoids that.
+
+**Publisher domain.** `https://koyomi.guru/.well-known/microsoft-identity-association.json`
+answers with the client id, which is how Microsoft confirms that `koyomi.guru` is the app's
+publisher domain.
+
 ## Privacy
 
 | | |
@@ -268,6 +371,10 @@ ask for descriptions, locations, guest lists or meeting links, and Google does n
 
 If Google cannot be reached at the moment of disconnecting, Koyomi still deletes its token, which
 makes the permission useless. It stays listed in your Google account until you remove it there.
+
+All of the above holds for Microsoft accounts too, with what Microsoft reads in "Microsoft" above,
+and one difference: Microsoft cannot be asked to withdraw the permission at all, so it is always
+listed in the account until it is removed there.
 
 The public version of this section is the Privacy page, `https://koyomi.guru/privacy`
 (`app/privacy/page.tsx`), with the Terms beside it at `/terms`. The two must say the same thing:
@@ -330,6 +437,7 @@ another's: the accounts that can be read are read.
 | Your Koyomi sign-in has ended | One quiet line: "Sign in again to update Google Calendar". Events already read stay. Signing in carries on where it left off |
 | Permission withdrawn or expired at Google for an account | "Needs reconnecting" under that account, and one quiet line on the calendar: "Google Calendar needs reconnecting". Events already read stay until you do. Other accounts carry on |
 | You pressed Refresh many times in a minute | Nothing. The extra requests are not sent on to Google |
+| Something at Microsoft | See "When Microsoft says no" above. Each is that account's alone |
 | A calendar is removed at Google | It disappears from its account's list, with its events |
 | An account disconnected on another device | This device follows the next time it looks: that account goes, the others stay |
 
@@ -441,9 +549,12 @@ So that one browser, or a script holding its cookie, cannot make Koyomi hammer G
 
 ## Setting it up
 
-Calendar connections are **off until all of this is in place**. With any of it missing there is
-no "Add calendar account" and every `/api/google` address is a 404: Calendars shows Koyomi's own
-calendar and nothing to connect, so it is safe to deploy first and configure afterwards.
+Calendar connections are **off until all of this is in place** for at least one provider. With
+any of it missing there is no "Add calendar account" and every address under `/api/google`,
+`/api/microsoft` and `/api/calendars` is a 404: Calendars shows Koyomi's own calendar and nothing
+to connect, so it is safe to deploy first and configure afterwards. Each provider is on by its
+own two settings: with Google's alone, only Google is offered and the button goes straight to it;
+with both, the button first asks which.
 
 **Signing in is the one part that can be on by itself.** With the five sign-in settings
 (`NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_AUTH_URL`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET`,
@@ -490,7 +601,26 @@ the rest is there, and a session opens nothing by itself.
      **Google expires their refresh tokens after seven days**. To open it to everyone, Google has
      to verify the app, which needs a public privacy policy on `koyomi.guru`.
 
-4. **Environment variables** in Vercel, for Production (and Preview, if previews should have it):
+4. **A Microsoft app registration**, for Microsoft accounts (optional: without it only Google is
+   offered). In the Microsoft Entra admin center, from a work or school tenant (one registered
+   from a personal account cannot have its publisher verified), App registrations → New
+   registration:
+   - Name `Koyomi`. Supported account types: accounts in any organizational directory and
+     personal Microsoft accounts (`AzureADandPersonalMicrosoftAccount`).
+   - Redirect URI, platform **Web**: `https://app.koyomi.guru/api/microsoft/callback`, and
+     `http://localhost:3000/api/microsoft/callback` for your own machine.
+   - Certificates & secrets → a client secret. It lasts two years at most: note when it ends.
+   - API permissions: remove the `User.Read` that a new registration starts with, and add
+     Microsoft Graph, delegated: `openid`, `offline_access`, `Calendars.ReadBasic`. Nothing else.
+     No admin consent is needed for personal accounts.
+   - Authentication: no implicit grant, no ID tokens from the authorization endpoint, no public
+     client flows. Koyomi uses the authorization-code flow with PKCE and the secret.
+   - Branding & properties: name, logo, home page `https://koyomi.guru`, terms
+     `https://koyomi.guru/terms`, privacy `https://koyomi.guru/privacy`, and publisher domain
+     `koyomi.guru` (verified by the file above, once `MICROSOFT_CALENDAR_CLIENT_ID` is set).
+   - Optionally, publisher verification, which needs a Microsoft AI Cloud Partner Program id.
+
+5. **Environment variables** in Vercel, for Production (and Preview, if previews should have it):
 
    | Name | What |
    | --- | --- |
@@ -499,6 +629,7 @@ the rest is there, and a session opens nothing by itself.
    | `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET` | From step 2 |
    | `SESSION_SECRET` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"` |
    | `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET` | From step 3 |
+   | `MICROSOFT_CALENDAR_CLIENT_ID`, `MICROSOFT_CALENDAR_CLIENT_SECRET` | From step 4: the application (client) id, and the secret's value |
    | `TOKEN_ENCRYPTION_KEY` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
    | `DATABASE_URL` | From step 1 |
 
@@ -512,12 +643,13 @@ stays beside it until its Disconnect is pressed.
 ## Trying it without any of that
 
 ```sh
-npm run preview:connected   # http://localhost:4310, then Calendars → Add calendar account, twice
+npm run preview:connected   # http://localhost:4310, then Calendars → Add calendar account
 ```
 
-This runs Koyomi against stand-ins for 6Away Auth and Google (`tests/fakes/providers.mjs`) with
-two made-up accounts: the first press connects one, the second the other. No real credentials,
-no real calendar, and nothing kept once it stops.
+This runs Koyomi against stand-ins for 6Away Auth, Google and Microsoft
+(`tests/fakes/providers.mjs`) with made-up accounts: choosing Google connects one Google account,
+and again the other; choosing Microsoft connects a Microsoft one. No real credentials, no real
+calendar, and nothing kept once it stops.
 
 ## Signing in for real on your own machine
 
@@ -569,6 +701,19 @@ in gets neither account, while the first person finds both again.
 - `tests/e2e/connection-security.spec.ts`: sign-in ending against Google refusing, signing out,
   the round trip under tampering (replay, wrong state, another browser, another person),
   redirects, cookies, requests from other sites, other people's connections, and the allowance.
+- `tests/unit/microsoft.test.ts`: the three permissions and nothing more, the consent address,
+  the code exchange, which account an ID token says it is and which tokens are refused, what each
+  of Microsoft's answers comes to, paging only on Graph's own address, nothing a browser sends
+  changing where Koyomi asks, Graph events becoming Koyomi's record of them (time zones and
+  all-day days included), the round trip sealed per provider, the settings, and a refresh token
+  replaced only while the old one is still in place.
+- `tests/e2e/microsoft.spec.ts`: Microsoft in the real app: the choice of provider, personal and
+  work or school accounts, their calendars and events in two device zones, showing and hiding,
+  refreshes, offline, a withdrawn permission and reconnecting, Microsoft down or asking to wait,
+  an account with no mailbox, one calendar that may not be read, two Microsoft accounts with the
+  same ids, Google and Microsoft together with the same ids, disconnecting each, the races, the
+  round trip under tampering, other people's connections, the old addresses and the publisher
+  domain file, and a phone.
 
 ### Checked against the real Google
 
@@ -627,5 +772,11 @@ Not yet checked against the real Google:
 - The allowance is for each connected account. Requests from someone who is not signed in, or
   about a connection that is not theirs, stop at the session check or one row lookup, and are
   limited only by Vercel.
-- Google is the only provider. The table, the device's copy and the requests all say which
-  provider a connection is for, so another can be added beside it; none has been.
+- Microsoft: only the account's own calendars are read. Calendars others share with the person,
+  and delegated ones, would need `Calendars.Read.Shared`, which also reads event bodies, so they
+  are left out. A work or school account in a tenant with Microsoft's default consent setting
+  needs an administrator to approve Koyomi first. Disconnect cannot withdraw the permission at
+  Microsoft (see "Microsoft"). Every reading of a Microsoft calendar is a whole one. Not yet
+  checked against the real Microsoft: everything here was tested against the stand-in, which
+  behaves as Microsoft's documentation says Microsoft does; how Graph gives an all-day event's
+  start and end under a requested zone is not documented, and both possibilities are handled.

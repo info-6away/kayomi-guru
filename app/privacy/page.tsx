@@ -61,6 +61,42 @@ export default function Privacy() {
       </List>
       <P>Koyomi does not ask Google for descriptions, locations, guest lists or meeting links, so Google does not send them.</P>
 
+      <H2>Connecting a Microsoft calendar</H2>
+      <P>
+        Connecting a Microsoft calendar is optional too. You can connect one Microsoft account or several, personal or work and school, beside
+        Google accounts or without them. Koyomi shows their events beside your own, and uses them for nothing else.
+      </P>
+      <P>To connect an account, you first sign in with 6Away. Microsoft then asks which account, and whether you allow Koyomi three things:</P>
+      <List>
+        <li>to sign you in, which tells Koyomi which Microsoft account it is (openid);</li>
+        <li>to go on reading what you allow until you disconnect, without asking each time (offline_access);</li>
+        <li>to read basic details of your calendars, which leaves out the body of an event, its attachments and its extensions (Calendars.ReadBasic).</li>
+      </List>
+      <P>
+        Koyomi asks Microsoft for no other permission: not your profile, not your email address, and not calendars other people share with you.
+        It cannot create, change or delete anything in your Microsoft calendar. A work or school account may need its organisation to approve
+        Koyomi first.
+      </P>
+
+      <H2>What Koyomi reads from Microsoft</H2>
+      <P>
+        Koyomi reads the names and identifiers of the account’s calendars, and for each whether it is the account’s main one, whether you can
+        change it, and who owns it. The owner of the main calendar is the account’s address: Koyomi shows it to you beside that account’s
+        calendars, and leaves out calendars that someone else owns.
+      </P>
+      <P>
+        When you connect an account, Microsoft also tells Koyomi which account it is: an identifier Microsoft gives that account for Koyomi
+        alone, and the identifier of its organisation. Koyomi uses them to tell your connected accounts apart.
+      </P>
+      <P>For the calendars you choose to show in Koyomi, it reads these details of each event, from five weeks back to twenty-seven weeks ahead:</P>
+      <List>
+        <li>its identifier at Microsoft, its title, its start and end, whether it lasts all day, and the time zone it was written in;</li>
+        <li>whether it is cancelled, shown as tentative, or one occurrence of a repeating event;</li>
+        <li>a link to the event in Outlook;</li>
+        <li>your own reply to an invitation, used only to leave out events you declined.</li>
+      </List>
+      <P>Koyomi does not ask Microsoft for bodies, locations, attendees, attachments or online-meeting details, so Microsoft does not send them.</P>
+
       <H2>Where it is kept</H2>
       <P>
         On your device. The calendar names and identifiers and the event details above are kept in your browser, apart from your Koyomi calendar, so
@@ -85,7 +121,15 @@ export default function Privacy() {
       </List>
       <P>It holds no email address, no calendar names and no events.</P>
       <P>
+        Each Microsoft account you connect has a record of the same kind: your 6Away identifier; a keyed hash made from the identifiers
+        Microsoft gives that account, which cannot be turned back into them; the refresh token Microsoft issued, encrypted with AES-256-GCM;
+        the permissions Microsoft granted and whether the connection is working; when the record was made and last changed; and a count of
+        recent requests. Microsoft issues a new refresh token each time one is used, and the record keeps only the latest. Microsoft’s events
+        pass through our server in the same way, and are not stored there or written to its log.
+      </P>
+      <P>
         Google’s tokens never reach your browser. The short-lived access token used to read your calendar is held only in the server’s memory.
+        The same is true of Microsoft’s.
       </P>
 
       <H2>Signing in with 6Away</H2>
@@ -117,6 +161,7 @@ export default function Privacy() {
         <li>Only the people who run Koyomi at 6Away can reach the production server’s settings and its database.</li>
       </List>
       <P>Disconnecting an account removes what Koyomi holds of it, as described below.</P>
+      <P>The same measures protect your Microsoft calendar data.</P>
 
       <H2>What your Google data is never used for</H2>
       <P>
@@ -129,6 +174,7 @@ export default function Privacy() {
         <A href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</A>, including the
         Limited Use requirements.
       </P>
+      <P>The same is true of your Microsoft calendar data: it is used only to show your events beside your own, and for nothing else.</P>
 
       <H2>Who helps us run Koyomi</H2>
       <P>Koyomi runs on services from three companies. What each one handles is different:</P>
@@ -150,6 +196,11 @@ export default function Privacy() {
         As infrastructure providers they process technical information, such as IP addresses and request logs, in order to deliver and protect the
         service, under their own terms and privacy policies. Your calendar itself comes from Google, under Google’s own terms.
       </P>
+      <P>
+        A Microsoft calendar comes from Microsoft, under Microsoft’s own terms. Its events and calendar names pass through Vercel’s server in
+        the same way, and are not stored there. Neon stores only the connection records described above, and receives no events and no
+        calendar names. 6Away receives none of them, and none of Microsoft’s tokens.
+      </P>
 
       <H2>How long things are kept, and deleting them</H2>
       <P>
@@ -166,6 +217,14 @@ export default function Privacy() {
       <P>
         If you remove Koyomi’s access in your Google Account instead, Koyomi can read nothing further from that account. Its record stays on our
         server, marked as needing reconnection, until you reconnect or disconnect.
+      </P>
+      <P>
+        A Microsoft account’s Disconnect deletes its record, with the only copy of Microsoft’s refresh token, from our server, and deletes the
+        device’s copy of that account’s calendars. Microsoft gives apps no way to withdraw their own access, so Microsoft goes on listing Koyomi
+        among the apps that account has allowed until you remove it there: for a personal account, among the apps and services in your
+        Microsoft account’s privacy settings; for a work or school account, in My Apps (myapplications.microsoft.com). Without the token, that
+        access cannot be used. If you remove Koyomi there first, Koyomi can read nothing further from that account once the short-lived
+        access token it holds has expired, at most about an hour later, and its record is then marked as needing reconnection.
       </P>
       <P>
         You can also ask us to delete the record by writing to <Mail />.

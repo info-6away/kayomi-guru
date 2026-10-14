@@ -21,6 +21,8 @@ import {
 } from '@/lib/dates';
 import { showingsByDay } from '@/lib/calendars/showings';
 import { connected, finishDisconnect, initExternal, resume, say, useExternal } from '@/lib/calendars/store';
+import type { Provider } from '@/lib/calendars/types';
+import { which } from '@/lib/calendars/words';
 import { moved, occurrenceKey, occurrencesByDay, type Occurrence } from '@/lib/occurrences';
 import { watchInstall } from '@/lib/install';
 import { addEvent, init, updateEvent, useData, type Data } from '@/lib/store';
@@ -36,8 +38,10 @@ const ROUND = 'rounded-full transition-colors duration-150 hover:bg-wash hover:t
 const TAB = 'relative h-8 px-1.5 text-[13px] tracking-[.03em] transition-colors duration-150 hover:text-ink min-[850px]:px-2.5';
 const HALF_MOON = 'rounded-full border border-current bg-[linear-gradient(90deg,currentColor_50%,transparent_50%)]';
 
-/** @param calendars Whether this deployment can connect calendars from outside. Off, Koyomi's own calendar is all there is. */
-export default function Kayomi({ calendars = false }: { calendars?: boolean }) {
+const NONE: Provider[] = [];
+
+/** @param calendars Which providers this deployment can connect calendars from. None, Koyomi's own calendar is all there is. */
+export default function Kayomi({ calendars = NONE }: { calendars?: Provider[] }) {
   const viewport = useViewport();
   const data = useData();
 
@@ -139,8 +143,11 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
   // address can also be a link from anywhere, so none of these words can do anything on its own:
   // each only prompts a question to the server, or needs something this tab left behind.
   useEffect(() => {
-    const outcome = new URLSearchParams(location.search).get('calendars');
+    const params = new URLSearchParams(location.search);
+    const outcome = params.get('calendars');
     if (!outcome) return;
+    // Only another provider's return says which it was. Anything else is Google, as it always was.
+    const microsoft = params.get('from') === 'microsoft';
     history.replaceState(null, '', location.pathname);
     // Where this deployment connects no calendars, the word means nothing and shows nothing.
     if (!external.available) return;
@@ -149,15 +156,18 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     if (outcome === 'resume') return void resume();
     openCalendars();
     if (outcome === 'connected') void connected();
-    else if (outcome === 'cancelled') say('Google Calendar was not connected.');
-    else if (outcome === 'declined') say('Koyomi needs both permissions to show your calendars, so nothing was connected.');
-    else say('Couldn’t connect to Google Calendar. Try again in a moment.');
+    else if (outcome === 'cancelled') say(microsoft ? 'Microsoft calendar was not connected.' : 'Google Calendar was not connected.');
+    else if (outcome === 'declined') say(microsoft ? 'Koyomi needs permission to read your calendars, so nothing was connected.' : 'Koyomi needs both permissions to show your calendars, so nothing was connected.');
+    else say(microsoft ? 'Couldn’t connect to Microsoft. Try again in a moment.' : 'Couldn’t connect to Google Calendar. Try again in a moment.');
   }, []);
 
   // How many calendars from elsewhere are on screen beside Koyomi's own.
   const shown = external.calendars.filter((calendar) => calendar.visible).length;
-  // One account that Google has stopped honouring. The others, and Koyomi's own calendar, carry on.
+  // One account that its provider has stopped honouring. The others, and Koyomi's own calendar, carry on.
   const needsReconnecting = external.connections.some((connection) => connection.status === 'reconnect');
+  // Which providers the one quiet line below is about.
+  const reconnecting = which(external.connections.filter((connection) => connection.status === 'reconnect').map((connection) => connection.provider));
+  const signedOutOf = which(external.connections.map((connection) => connection.provider));
 
   // A narrow window has no room for the date in full. Its names go to three letters first: a
   // day's below 980px, and a week's below 900px, where the header starts to draw in as well.
@@ -506,7 +516,13 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
             style={mobile ? { bottom: 'calc(76px + env(safe-area-inset-bottom))' } : undefined}
           >
             {/* Sign-in first: until that is mended, nothing can be asked about any account. */}
-            {external.status === 'signin' ? 'Sign in again to update Google Calendar' : 'Google Calendar needs reconnecting'}
+            {external.status === 'signin'
+              ? `Sign in again to update ${signedOutOf === 'microsoft' ? 'your Microsoft calendar' : signedOutOf === 'several' ? 'your calendars' : 'Google Calendar'}`
+              : reconnecting === 'microsoft'
+                ? 'Microsoft calendar needs reconnecting'
+                : reconnecting === 'several'
+                  ? 'Calendars need reconnecting'
+                  : 'Google Calendar needs reconnecting'}
           </button>
         )}
 

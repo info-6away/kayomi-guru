@@ -1,7 +1,8 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { EVENT_FIELDS } from '../../lib/calendars/normalize';
+import { EVENT_FIELDS, MICROSOFT_EVENT_FIELDS } from '../../lib/calendars/normalize';
 import { AHEAD_DAYS, BACK_DAYS } from '../../lib/calendars/window';
 import { SCOPES } from '../../lib/server/google';
+import { MICROSOFT_SCOPES } from '../../lib/server/microsoft';
 import { read } from './contrast';
 
 // The landing page (koyomi.guru) and the calendar (app.koyomi.guru) come from one build.
@@ -220,6 +221,50 @@ test.describe('privacy and terms', () => {
     }
   });
 
+  test('the privacy page says what the Microsoft connection does, beside Google’s and without changing what is said of Google', async ({ page }) => {
+    await page.goto('/privacy');
+    const said = await text(page);
+    await expect(page.getByRole('main').getByRole('heading', { level: 2 })).toContainText(['Connecting Google Calendar', 'What Koyomi reads from Google', 'Connecting a Microsoft calendar', 'What Koyomi reads from Microsoft']);
+
+    // Exactly the permissions the code asks Microsoft for, by name, and what each is for.
+    expect(MICROSOFT_SCOPES.map((scope) => scope.split('/').pop())).toEqual(['openid', 'offline_access', 'Calendars.ReadBasic']);
+    for (const scope of ['(openid)', '(offline_access)', '(Calendars.ReadBasic)']) expect(said, scope).toContain(scope);
+    expect(said).not.toMatch(/Calendars\.(Read\b|Read\.Shared|ReadWrite)|User\.Read|Mail\./);
+    expect(said).toContain('not your profile, not your email address, and not calendars other people share with you');
+    expect(said).toContain('It cannot create, change or delete anything in your Microsoft calendar.');
+    expect(said).toContain('A work or school account may need its organisation to approve Koyomi first.');
+
+    // The fields, and the span. If they change in the code, this page changes with them.
+    expect(MICROSOFT_EVENT_FIELDS).toBe('id,subject,start,end,isAllDay,isCancelled,showAs,responseStatus,webLink,type,originalStartTimeZone');
+    for (const part of [
+      'its identifier at Microsoft, its title, its start and end, whether it lasts all day, and the time zone it was written in',
+      'whether it is cancelled, shown as tentative, or one occurrence of a repeating event',
+      'a link to the event in Outlook',
+      'Koyomi does not ask Microsoft for bodies, locations, attendees, attachments or online-meeting details',
+      'an identifier Microsoft gives that account for Koyomi alone, and the identifier of its organisation',
+      'leaves out calendars that someone else owns',
+    ]) {
+      expect(said, part).toContain(part);
+    }
+    // On the server, and what Disconnect can and cannot do at Microsoft.
+    for (const part of [
+      'Each Microsoft account you connect has a record of the same kind',
+      'the refresh token Microsoft issued, encrypted with AES-256-GCM',
+      'Microsoft issues a new refresh token each time one is used, and the record keeps only the latest.',
+      'The same is true of Microsoft’s.',
+      'The same measures protect your Microsoft calendar data.',
+      'Microsoft gives apps no way to withdraw their own access',
+      'My Apps (myapplications.microsoft.com)',
+      '6Away receives none of them, and none of Microsoft’s tokens.',
+      'once the short-lived access token it holds has expired, at most about an hour later',
+    ]) {
+      expect(said, part).toContain(part);
+    }
+    // What is said of Google is said exactly as before, Limited Use and all.
+    expect(said).toContain(LIMITED_USE);
+    expect(said).toContain('It asks Google to revoke Koyomi’s access to that account');
+  });
+
   test('the terms are short, and say on what terms Koyomi is offered', async ({ page }) => {
     await page.goto('/terms');
     const said = await text(page);
@@ -241,6 +286,8 @@ test.describe('privacy and terms', () => {
       'You may connect one or more Google accounts so that Koyomi shows their calendars beside your own.',
       'A connection is read-only: Koyomi cannot change your Google Calendar.',
       'You can disconnect each account at any time in Koyomi.',
+      'Microsoft accounts can be connected in the same way, and the same is true of them.',
+      'Google or Microsoft for your calendar',
       'your use of them is subject to their own terms',
       'Koyomi is provided as it is and as available.',
       'Use Koyomi lawfully and reasonably.',

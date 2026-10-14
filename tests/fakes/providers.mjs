@@ -1,16 +1,18 @@
-// Stand-ins for the two services a calendar connection talks to, so the browser tests never
-// touch a real account: 6Away Auth (who is signing in) and Google (whose calendar it is).
+// Stand-ins for the services a calendar connection talks to, so the browser tests never touch a
+// real account: 6Away Auth (who is signing in), and Google and Microsoft (whose calendar it is).
 // Started by Playwright alongside the app (see playwright.config.ts). Nothing here is used by
-// the app itself, and no real Google or 6Away address is ever contacted in a test.
+// the app itself, and no real Google, Microsoft or 6Away address is ever contacted in a test.
 //
-//   /idp/...      6Away Auth: OpenID Connect, as auth.6away.ai speaks it
-//   /google/...   Google: the consent screen, the token endpoints and the Calendar API
-//   /__fake/...   how a test sets up an account and sees what was asked of it
+//   /idp/...        6Away Auth: OpenID Connect, as auth.6away.ai speaks it
+//   /google/...     Google: the consent screen, the token endpoints and the Calendar API
+//   /microsoft/...  Microsoft: the account chooser and consent screen, the token endpoint
+//                   (identity platform v2.0) and Microsoft Graph v1.0
+//   /__fake/...     how a test sets up an account and sees what was asked of it
 //
-// Who signs in, and which Google account consents, is chosen by two cookies on this server's
-// own address (`fake_user`, `fake_google`), which a test sets before it adds an account. The
-// second is what picking an account on Google's own list comes to: a test that connects two
-// accounts changes it in between.
+// Who signs in, and which Google or Microsoft account consents, is chosen by cookies on this
+// server's own address (`fake_user`, `fake_google`, `fake_microsoft`), which a test sets before
+// it adds an account. The last two are what picking an account on the provider's own list comes
+// to: a test that connects two accounts changes them in between.
 
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -264,6 +266,167 @@ async function google(req, res, url) {
   send(res, 404, { error: 'not_found' });
 }
 
+// ---------- Microsoft ----------
+
+/** The tenant Microsoft signs every personal account in to. */
+const PERSONAL_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
+/**
+ * One Microsoft account per test:
+ *   kind       'personal' or 'work'
+ *   tenant     its tenant's id: Microsoft's own, for a personal account
+ *   address    its mailbox's address: the owner of its own calendars
+ *   calendars  Map of id -> { entry (the calendar resource), deny, events: Map of id -> event }
+ *   tokens     refresh and access tokens that still work
+ *   log        everything the app asked for, for the test to read back
+ */
+const msAccounts = new Map();
+const msBlank = () => ({ kind: 'personal', tenant: PERSONAL_TENANT, address: null, calendars: new Map(), tokens: new Set(), revoked: false, fail: null, delay: 0, hold: null, waiting: [], log: [], pageSize: 3, foreignNext: false });
+const msAccount = (id) => {
+  if (!msAccounts.has(id)) msAccounts.set(id, msBlank());
+  return msAccounts.get(id);
+};
+/** Who chooses an account next, for someone with no `fake_microsoft` cookie (scripts/preview-connected.mjs). */
+let msTurns = [];
+const msCodes = new Map();
+const MS_SCOPES = ['openid', 'offline_access', 'https://graph.microsoft.com/Calendars.ReadBasic'];
+const MS_CLIENT = { id: 'microsoft-test', secret: 'microsoft-secret' };
+/** The subject Microsoft gives one app for one person: the same every time, different in every other app. Mixed case, as Microsoft's is. */
+const pairwise = (client, tenant, id) => createHash('sha256').update(`${client}:${tenant}:${id}`).digest('base64url').slice(0, 43);
+/** A wall-clock time in UTC as Graph writes one: no offset, seven places after the second. */
+const graphInstant = (dateTime) => Date.parse(`${String(dateTime).slice(0, 19)}Z`);
+
+async function microsoft(req, res, url) {
+  // The account chooser and consent screen. `fake_microsoft` says who is at the keyboard and what they do.
+  if (url.pathname === '/microsoft/common/oauth2/v2.0/authorize') {
+    const q = url.searchParams;
+    const who = cookie(req, 'fake_microsoft') ?? (msTurns.length > 1 ? msTurns.shift() : msTurns[0]) ?? 'nobody';
+    const [choice, id] = who.includes(':') ? who.split(':') : ['allow', who];
+    const acct = msAccount(id);
+    acct.log.push({ type: 'consent', choice, ...Object.fromEntries(q) });
+    const back = new URL(q.get('redirect_uri'));
+    back.searchParams.set('state', q.get('state') ?? '');
+    // "Cancel", or a work account whose organisation needs an administrator to approve Koyomi first.
+    if (choice === 'deny' || choice === 'admin') {
+      back.searchParams.set('error', 'access_denied');
+      back.searchParams.set('error_description', choice === 'admin' ? 'AADSTS90094: admin approval required' : 'the user canceled the authentication');
+      return redirect(res, back.href);
+    }
+    const code = random();
+    // "partial": a sign-in that came back without the permission to read calendars.
+    msCodes.set(code, { id, client: q.get('client_id'), redirect: q.get('redirect_uri'), challenge: q.get('code_challenge'), nonce: q.get('nonce'), scope: choice === 'partial' ? MS_SCOPES.slice(0, 2) : MS_SCOPES });
+    back.searchParams.set('code', code);
+    return redirect(res, back.href);
+  }
+
+  if (url.pathname === '/microsoft/common/oauth2/v2.0/token') {
+    const form = new URLSearchParams(await body(req));
+    const refused = () => send(res, 401, { error: 'invalid_client', error_description: 'AADSTS7000222: The provided client secret keys are expired.' });
+    if (form.get('client_id') !== MS_CLIENT.id || form.get('client_secret') !== MS_CLIENT.secret) return refused();
+
+    if (form.get('grant_type') === 'authorization_code') {
+      const grant = msCodes.get(form.get('code'));
+      // A code is good once, as it is at Microsoft.
+      msCodes.delete(form.get('code'));
+      const problem = !grant
+        ? 'unknown or used code'
+        : grant.client !== form.get('client_id')
+          ? 'another client'
+          : grant.redirect !== form.get('redirect_uri')
+            ? 'another redirect address'
+            : grant.challenge !== s256(form.get('code_verifier') ?? '')
+              ? 'wrong PKCE secret'
+              : null;
+      exchanges.push({ code: form.get('code'), refused: problem });
+      if (problem) return send(res, 400, { error: 'invalid_grant', error_description: `AADSTS70008: ${problem}` });
+      const acct = msAccount(grant.id);
+      if (acct.fail === 'secret') return refused();
+      acct.revoked = false;
+      const access = `mat.${grant.id}.${random()}`;
+      const refresh = `mrt.${grant.id}.${random()}`;
+      acct.tokens.add(access).add(refresh);
+      acct.log.push({ type: 'grant', scope: grant.scope.join(' '), pkce: 'verified', client_id: form.get('client_id'), redirect_uri: form.get('redirect_uri'), asked: form.get('scope') });
+      const idToken = await new SignJWT({ tid: acct.tenant, nonce: grant.nonce, ver: '2.0' })
+        .setProtectedHeader({ alg: 'RS256', kid: jwk.kid })
+        .setIssuer(`${ORIGIN}/microsoft/${acct.tenant}/v2.0`)
+        .setAudience(grant.client)
+        .setSubject(pairwise(grant.client, acct.tenant, grant.id))
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(privateKey);
+      // Microsoft writes what it granted with the resource's address or without it. Both are seen here.
+      const scope = acct.kind === 'work' ? grant.scope.join(' ') : grant.scope.map((s) => s.replace('https://graph.microsoft.com/', '')).join(' ');
+      return send(res, 200, { token_type: 'Bearer', scope, expires_in: 3599, access_token: access, ...(grant.scope.includes('offline_access') ? { refresh_token: refresh } : {}), id_token: idToken });
+    }
+
+    if (form.get('grant_type') === 'refresh_token') {
+      const refresh = form.get('refresh_token') ?? '';
+      const acct = msAccount(refresh.split('.')[1] ?? '');
+      acct.log.push({ type: 'refresh', asked: form.get('scope') });
+      if (acct.fail === 'secret') return refused();
+      if (acct.fail === 'unavailable') return send(res, 503, { error: 'temporarily_unavailable' });
+      if (acct.fail === 'mfa') return send(res, 400, { error: 'interaction_required', error_codes: [50076] });
+      if (acct.revoked || !acct.tokens.has(refresh)) return send(res, 400, { error: 'invalid_grant', error_description: 'AADSTS70000: The refresh token is not valid.', error_codes: [70000] });
+      const id = refresh.split('.')[1];
+      const access = `mat.${id}.${random()}`;
+      // A new refresh token with every use. Microsoft does not revoke the old one: it stays good.
+      const next = `mrt.${id}.${random()}`;
+      acct.tokens.add(access).add(next);
+      return send(res, 200, { token_type: 'Bearer', scope: MS_SCOPES.join(' '), expires_in: 3599, access_token: access, refresh_token: next });
+    }
+    return send(res, 400, { error: 'unsupported_grant_type' });
+  }
+
+  // Microsoft Graph.
+  if (url.pathname.startsWith('/microsoft/graph/v1.0/')) {
+    const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? '';
+    const acct = msAccount(token.split('.')[1] ?? '');
+    if (acct.revoked || !acct.tokens.has(token)) return send(res, 401, { error: { code: 'InvalidAuthenticationToken', message: 'Access token has expired or is not yet valid.' } });
+    if (acct.fail === 'nomailbox') return send(res, 404, { error: { code: 'MailboxNotEnabledForRESTAPI', message: 'The mailbox is either inactive, soft-deleted, or is hosted on-premise.' } });
+    if (acct.fail === 'unavailable') return send(res, 503, { error: { code: 'ServiceNotAvailable' } });
+    if (acct.fail === 'throttled') return send(res, 429, { error: { code: 'ApplicationThrottled', message: 'Application is over its MailboxConcurrency limit.' } }, { 'retry-after': '30' });
+    if (acct.delay) await new Promise((resolve) => setTimeout(resolve, acct.delay));
+    const asks = url.pathname === '/microsoft/graph/v1.0/me/calendars' ? 'calendars' : 'events';
+    if (acct.hold === asks) await new Promise((resolve) => acct.waiting.push(resolve));
+
+    const q = url.searchParams;
+    const select = (q.get('$select') ?? '').split(',').filter(Boolean);
+    // Graph sends only what was asked for.
+    const pick = (resource) => (select.length ? Object.fromEntries(Object.entries(resource).filter(([key]) => select.includes(key))) : resource);
+    const skip = Number(q.get('$skiptoken') ?? 0);
+    const page = (items, size, again) => {
+      const value = items.slice(skip, skip + size);
+      const more = skip + size < items.length;
+      return { value, ...(more ? { '@odata.nextLink': `${again}&$skiptoken=${skip + size}` } : {}) };
+    };
+    const common = { select: q.get('$select'), prefer: req.headers.prefer ?? null, skip };
+
+    if (asks === 'calendars') {
+      acct.log.push({ type: 'calendars', ...common });
+      const all = [...acct.calendars.values()].map((c) => pick(c.entry));
+      // Graph sends ten a page. The stand-in sends two, so that following the next page is tested.
+      const answer = page(all, 2, `${ORIGIN}${url.pathname}?$select=${q.get('$select') ?? ''}`);
+      // A next page on someone else's address: Koyomi must not follow it.
+      if (acct.foreignNext && !answer['@odata.nextLink']) answer['@odata.nextLink'] = 'http://evil.example/graph/v1.0/me/calendars?$skiptoken=9';
+      return send(res, 200, answer);
+    }
+
+    const match = /^\/microsoft\/graph\/v1\.0\/me\/calendars\/([^/]+)\/calendarView$/.exec(url.pathname);
+    if (!match) return send(res, 404, { error: { code: 'BadRequest' } });
+    const calendarId = decodeURIComponent(match[1]);
+    const cal = acct.calendars.get(calendarId);
+    if (!cal) return send(res, 404, { error: { code: 'ErrorItemNotFound' } });
+    if (cal.deny) return send(res, 403, { error: { code: 'ErrorAccessDenied', message: 'Access is denied. Check credentials and try again.' } });
+    const [min, max] = [Date.parse(q.get('startDateTime')), Date.parse(q.get('endDateTime'))];
+    if (Number.isNaN(min) || Number.isNaN(max)) return send(res, 400, { error: { code: 'ErrorInvalidParameter' } });
+    const items = [...cal.events.values()].filter((event) => graphInstant(event.end?.dateTime) > min && graphInstant(event.start?.dateTime) < max);
+    acct.log.push({ type: 'events', calendarId, top: q.get('$top'), startDateTime: q.get('startDateTime'), endDateTime: q.get('endDateTime'), count: items.length, ...common });
+    const again = `${ORIGIN}${url.pathname}?startDateTime=${encodeURIComponent(q.get('startDateTime'))}&endDateTime=${encodeURIComponent(q.get('endDateTime'))}&$select=${q.get('$select') ?? ''}&$top=${q.get('$top') ?? ''}`;
+    return send(res, 200, page(items.map(pick), acct.pageSize, again));
+  }
+
+  send(res, 404, { error: 'not_found' });
+}
+
 // ---------- Test controls ----------
 
 async function control(req, res, url) {
@@ -274,6 +437,13 @@ async function control(req, res, url) {
     turns = JSON.parse((await body(req)) || '[]');
     return send(res, 200, {});
   }
+  // PUT /__fake/microsoft-turns  ["first", "second"]: the same, at Microsoft.
+  if (url.pathname === '/__fake/microsoft-turns') {
+    msTurns = JSON.parse((await body(req)) || '[]');
+    return send(res, 200, {});
+  }
+  const ms = /^\/__fake\/microsoft\/([^/]+)(\/change|\/state)?$/.exec(url.pathname);
+  if (ms) return msControl(req, res, decodeURIComponent(ms[1]), ms[2]);
   const match = /^\/__fake\/google\/([^/]+)(\/change|\/state)?$/.exec(url.pathname);
   if (!match) return send(res, 404, {});
   const id = decodeURIComponent(match[1]);
@@ -321,8 +491,56 @@ async function control(req, res, url) {
   return send(res, 200, {});
 }
 
+async function msControl(req, res, id, what) {
+  // Setting an account up starts it from nothing: no tokens, no history, nothing left from an earlier test.
+  if (req.method === 'PUT') msAccounts.set(id, msBlank());
+  const acct = msAccount(id);
+  if (req.method === 'GET') return send(res, 200, { log: acct.log, revoked: acct.revoked, liveTokens: acct.tokens.size, held: acct.waiting.length, kind: acct.kind, tenant: acct.tenant });
+  const data = JSON.parse((await body(req)) || '{}');
+
+  // PUT /__fake/microsoft/:account  { kind?, tenant?, address, calendars: [{ id, name, isDefaultCalendar?, canEdit?, owner?, deny?, events: [...] }] }
+  if (!what) {
+    acct.kind = data.kind ?? 'personal';
+    acct.tenant = data.tenant ?? (acct.kind === 'work' ? '72f988bf-86f1-41af-91ab-2d7cd011db47' : PERSONAL_TENANT);
+    acct.address = data.address;
+    acct.calendars = new Map(
+      data.calendars.map(({ events = [], deny = false, ...entry }) => [
+        entry.id,
+        { entry: { canEdit: true, isDefaultCalendar: false, owner: { name: 'Test Person', address: data.address }, ...entry }, deny, events: new Map(events.map((e) => [e.id, e])) },
+      ]),
+    );
+    return send(res, 200, {});
+  }
+
+  // POST .../change  { calendarId, upsert?: [...events], cancel?: [...ids] }: something changed at Microsoft.
+  if (what === '/change') {
+    const cal = acct.calendars.get(data.calendarId);
+    for (const event of data.upsert ?? []) cal.events.set(event.id, event);
+    for (const eventId of data.cancel ?? []) cal.events.delete(eventId);
+    return send(res, 200, {});
+  }
+
+  // POST .../state  { revoked?, fail?: null | 'unavailable' | 'throttled' | 'nomailbox' | 'mfa' | 'secret', delay?,
+  //                   hold?: null | 'calendars' | 'events', pageSize?, foreignNext?, removeCalendar?, deny? }
+  if ('revoked' in data) {
+    acct.revoked = data.revoked;
+    if (data.revoked) acct.tokens.clear();
+  }
+  if ('fail' in data) acct.fail = data.fail;
+  if ('delay' in data) acct.delay = data.delay;
+  if ('pageSize' in data) acct.pageSize = data.pageSize;
+  if ('foreignNext' in data) acct.foreignNext = data.foreignNext;
+  if ('hold' in data) {
+    acct.hold = data.hold;
+    if (!data.hold) acct.waiting.splice(0).forEach((answer) => answer());
+  }
+  if (data.removeCalendar) acct.calendars.delete(data.removeCalendar);
+  if (data.deny) acct.calendars.get(data.deny).deny = true;
+  return send(res, 200, {});
+}
+
 createServer((req, res) => {
   const url = new URL(req.url, ORIGIN);
-  const handler = url.pathname.startsWith('/idp/') ? idp : url.pathname.startsWith('/google/') ? google : control;
+  const handler = url.pathname.startsWith('/idp/') ? idp : url.pathname.startsWith('/google/') ? google : url.pathname.startsWith('/microsoft/') ? microsoft : control;
   handler(req, res, url).catch((error) => send(res, 500, { error: String(error?.message ?? error) }));
 }).listen(PORT, () => console.log(`fake providers on ${ORIGIN}`));

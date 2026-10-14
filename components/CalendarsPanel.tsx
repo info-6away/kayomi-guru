@@ -1,6 +1,9 @@
 'use client';
 
-import { addAccount, disconnect, refresh, showCalendar, signIn, type External } from '@/lib/calendars/store';
+import { useEffect, useState } from 'react';
+import { addAccount, disconnect, reconnect, refresh, showCalendar, signIn, type External } from '@/lib/calendars/store';
+import { PROVIDERS } from '@/lib/calendars/types';
+import { WORDS, which } from '@/lib/calendars/words';
 import { hm } from '@/lib/dates';
 import { install, useCanInstall } from '@/lib/install';
 
@@ -11,8 +14,6 @@ const GROUP = 'px-3.5 text-[10.5px] tracking-[.18em] text-dow';
 
 /** What Koyomi reads from a connected calendar, where it is kept and what it is used for. */
 const PRIVACY = 'https://koyomi.guru/privacy';
-
-const PROVIDERS = [{ id: 'google', heading: 'GOOGLE', unnamed: 'Google account' }] as const;
 
 const readAt = (iso: string) => {
   const d = new Date(iso);
@@ -35,10 +36,19 @@ interface Props {
  * no settings.
  */
 export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Props) {
-  const { available, status, connections, calendars, syncing, note } = external;
+  const { available, providers, status, connections, calendars, syncing, note } = external;
   const canInstall = useCanInstall();
   const slideMs = mobile ? 260 : 220;
   const read = calendars.reduce<string | null>((latest, c) => (c.fetchedAt && (!latest || c.fetchedAt > latest) ? c.fetchedAt : latest), null);
+  // Where more than one provider is offered, adding an account first asks which. Nothing more.
+  const [choosing, setChoosing] = useState(false);
+  useEffect(() => {
+    if (!open) setChoosing(false);
+  }, [open]);
+  const add = () => (providers.length > 1 ? setChoosing(!choosing) : addAccount(providers[0]));
+  // What the words below are about: the providers of the accounts there are, or that could be added.
+  const connected = which(connections.map((connection) => connection.provider));
+  const offered = which(providers);
 
   return (
     <section
@@ -76,11 +86,12 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
           <span className="text-ink2">✓</span>
         </div>
 
-        {PROVIDERS.map((provider) => {
-          const accounts = connections.filter((connection) => connection.provider === provider.id);
+        {PROVIDERS.map((id) => {
+          const accounts = connections.filter((connection) => connection.provider === id);
           if (!accounts.length) return null;
+          const provider = WORDS[id];
           return (
-            <div key={provider.id}>
+            <div key={id}>
               <p className={`${GROUP} mt-4`}>{provider.heading}</p>
               {accounts.map((connection) => {
                 // An account is known by its address. Until that has been read, by what it is.
@@ -107,15 +118,17 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
                       </button>
                     ))}
                     {!own.length && connection.status === 'connected' && <p className="px-3.5 py-2 text-[13px] text-muted">{syncing ? 'Reading its calendars…' : 'No calendars yet.'}</p>}
-                    {/* Only when Google itself has refused this account's permission. The others carry on. */}
+                    {/* Only when the provider itself has refused this account's permission. The others carry on. */}
                     {connection.status === 'reconnect' && (
                       <div className={`${ROW} text-[13px] text-ink2`}>
                         <span className="flex-1">Needs reconnecting</span>
-                        <button onClick={addAccount} aria-label={`Reconnect ${name}`} className={PILL}>
+                        <button onClick={() => reconnect(connection)} aria-label={`Reconnect ${name}`} className={PILL}>
                           Reconnect
                         </button>
                       </div>
                     )}
+                    {/* Not something consenting again would mend, so there is nothing to press but Disconnect. */}
+                    {connection.status === 'blocked' && <p className="px-3.5 py-2 text-[13px] text-muted">{provider.blocked}</p>}
                   </div>
                 );
               })}
@@ -125,10 +138,12 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
 
         {/* Said differently from an account that needs reconnecting, because it is a different thing.
             The sign-in ending leaves every connection where it is, so the way back is to sign in:
-            Google is not asked again. */}
+            no provider is asked again. */}
         {status === 'signin' && (
           <div className={`${ROW} mt-3 text-[13px] text-ink2`}>
-            <span className="flex-1">Sign in again to keep Google Calendar up to date</span>
+            <span className="flex-1">
+              Sign in again to keep {connected === 'microsoft' ? 'your Microsoft calendar' : connected === 'several' ? 'your calendars' : 'Google Calendar'} up to date
+            </span>
             <button onClick={signIn} className={PILL}>
               Sign in
             </button>
@@ -138,15 +153,25 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
         {/* Only where the server is set up for it. Without that, Koyomi's own calendar is all there is. */}
         {available && (
           <button
-            onClick={addAccount}
+            onClick={add}
+            aria-expanded={providers.length > 1 ? choosing : undefined}
             className={`flex min-h-11 w-full items-center gap-1.5 rounded-[4px] pr-3 pl-1.5 text-left text-[14px] text-muted hover:bg-wash hover:text-ink ${connections.length ? 'mt-3' : 'mt-1'}`}
           >
             <span className="w-8 text-center text-[17px] font-light">＋</span>Add calendar account
           </button>
         )}
+        {choosing && (
+          <div className="pl-[38px]">
+            {providers.map((id) => (
+              <button key={id} onClick={() => addAccount(id)} className={`${ROW} w-full text-left text-[14px] text-ink2 hover:bg-wash hover:text-ink`}>
+                {WORDS[id].label}
+              </button>
+            ))}
+          </div>
+        )}
         {available && status === 'off' && (
           <p className="mx-3.5 mt-3 text-[12px] leading-[1.6] text-pretty text-muted">
-            Koyomi can show your Google calendars beside your own, to read only. Adding an account asks you to sign in with 6Away, then to let Koyomi
+            Koyomi can show your {offered === 'microsoft' ? 'Microsoft' : offered === 'several' ? 'Google and Microsoft' : 'Google'} calendars beside your own, to read only. Adding an account asks you to sign in with 6Away, then to let Koyomi
             read its calendars. It can never change them.{' '}
             {/* The policy is a page of the site, not of the calendar, so it opens beside it. */}
             <a href={PRIVACY} target="_blank" rel="noopener noreferrer" className="underline decoration-line underline-offset-4 hover:text-ink2">
@@ -166,7 +191,7 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
         <div className="flex-none px-[26px] pt-2.5 pb-[22px] text-[12px] leading-[1.6] text-muted">
           {status !== 'off' && (
             <>
-              Read only. Koyomi never changes your Google Calendar.
+              Read only. Koyomi never changes your {connected === 'microsoft' ? 'Microsoft calendar' : connected === 'several' ? 'calendars' : 'Google Calendar'}.
               <span className="mt-1 flex flex-wrap items-center gap-x-4">
                 {status === 'connected' && (
                   <button onClick={() => void refresh()} disabled={syncing} className={QUIET}>

@@ -3,14 +3,15 @@
 // Start `npm run preview` in another terminal, then run `npm run screenshots`. The files are committed.
 //
 // The pictures of connected calendars need calendars to connect. For those, start
-// `npm run preview:connected` instead (it stands in for Google with two made-up accounts) and
-// run `npm run screenshots -- --connected`, which takes only those.
+// `npm run preview:connected` instead (it stands in for Google with two made-up accounts, and for
+// Microsoft with one) and run `npm run screenshots -- --connected`, which takes only the Google
+// ones, or `npm run screenshots -- --microsoft`, which takes only the two with Microsoft.
 //
 // Every picture is the production build with one neutral sample week, the clock stopped on
 // Monday 5 October 2026 at 14:25. The sample week exists only here; the app itself starts empty.
 
 import { chromium } from '@playwright/test';
-import { DEMO_ACCOUNTS, FAKE_PORT } from '../tests/fakes/env.mjs';
+import { DEMO_ACCOUNTS, DEMO_MICROSOFT_ACCOUNTS, FAKE_PORT } from '../tests/fakes/env.mjs';
 
 const APP = 'http://localhost:4310/';
 const FAKE = `http://localhost:${FAKE_PORT}`;
@@ -134,10 +135,41 @@ async function connect({ context, page }, mobile, who) {
     ]);
     if (!(await calendars.isVisible())) await openCalendars(page, mobile);
     await page.getByRole('button', { name: 'Add calendar account' }).click();
+    await calendars.getByRole('button', { name: 'Google', exact: true }).click();
     await calendars.getByRole('group', { name: account.calendars[0].id }).getByRole('switch').first().waitFor();
     await calendars.getByText('Refreshing…').waitFor({ state: 'detached' });
   }
   await page.getByText(/^Read \d/).waitFor();
+}
+
+/** Adds the stand-in Microsoft account beside them, as the same person. */
+async function connectMicrosoft({ context, page }, mobile, who) {
+  const calendars = page.getByRole('region', { name: 'Calendars' });
+  for (const [id, account] of Object.entries(DEMO_MICROSOFT_ACCOUNTS)) {
+    await context.addCookies([
+      { name: 'fake_user', value: who, url: FAKE },
+      { name: 'fake_microsoft', value: id, url: FAKE },
+    ]);
+    if (!(await calendars.isVisible())) await openCalendars(page, mobile);
+    await page.getByRole('button', { name: 'Add calendar account' }).click();
+    await calendars.getByRole('button', { name: 'Microsoft', exact: true }).click();
+    await calendars.getByRole('group', { name: account.address }).getByRole('switch').first().waitFor();
+    await calendars.getByText('Refreshing…').waitFor({ state: 'detached' });
+  }
+}
+
+if (process.argv.includes('--microsoft')) {
+  for (const [id, account] of Object.entries(DEMO_ACCOUNTS)) await fetch(`${FAKE}/__fake/google/${id}`, { method: 'PUT', body: JSON.stringify(account) });
+  for (const [id, account] of Object.entries(DEMO_MICROSOFT_ACCOUNTS)) await fetch(`${FAKE}/__fake/microsoft/${id}`, { method: 'PUT', body: JSON.stringify(account) });
+  const desktop = await openApp(browser, { ...DESKTOP, colorScheme: 'light' });
+  await connect(desktop, false, 'pictures-microsoft');
+  await connectMicrosoft(desktop, false, 'pictures-microsoft');
+  await shot(desktop.page, 'docs/design/desktop-calendars-microsoft-light.png');
+  await desktop.page.getByRole('button', { name: 'Add calendar account' }).click();
+  await shot(desktop.page, 'docs/design/desktop-calendars-choice-light.png');
+  await desktop.context.close();
+  await browser.close();
+  process.exit(0);
 }
 
 if (process.argv.includes('--connected')) {
