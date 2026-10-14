@@ -7,6 +7,7 @@ import {
   calendarsButton,
   columns,
   event,
+  headerParts,
   hourHeight,
   open,
   otherDay,
@@ -475,6 +476,39 @@ test.describe('look', () => {
       const sunday = (await columns(page).last().boundingBox())!;
       const drawer = (await calendars(page).boundingBox())!;
       expect(sunday.x + sunday.width).toBeLessThanOrEqual(drawer.x + 1);
+    });
+  }
+
+  // A desktop window can be as narrow as 760px, where the phone layout takes over. These are the
+  // widths at which the header has least to spare: the narrowest, and each one it draws in at.
+  for (const width of [760, 800, 850, 900, 920, 980]) {
+    test(`${width}px wide: nothing in the header overlaps anything else`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      // The days whose dates take the most room: a week across two months, a week inside the
+      // longest month, and the longest weekday in it.
+      for (const day of ['2026-04-27', '2027-09-20', '2028-09-27']) {
+        await page.clock.setFixedTime(new Date(`${day}T10:00:00`));
+        await open(page);
+        for (const view of ['Day', 'Week', 'Month']) {
+          await page.keyboard.press(view[0].toLowerCase());
+          await expect(page.getByRole('navigation').getByRole('button', { name: view })).toHaveAttribute('aria-pressed', 'true');
+          const header = await headerParts(page);
+          const where = `${view} on ${day}`;
+          expect(header.parts.map((part) => part.name), where).toEqual(expect.arrayContaining(['koyomi', 'Previous', 'Next', 'Today', 'Calendars', 'Search', 'Add']));
+          // Nothing runs out of the header, and nothing begins before the thing to its left has ended.
+          expect(header.parts[0].left, where).toBeGreaterThanOrEqual(header.left - 0.5);
+          expect(header.parts.at(-1)!.right, where).toBeLessThanOrEqual(header.right + 0.5);
+          header.parts.slice(1).forEach((part, i) => {
+            const before = header.parts[i];
+            expect(part.left - before.right, `${where}: “${before.name}” and “${part.name}”`).toBeGreaterThanOrEqual(-0.5);
+          });
+          // Nor is anything squeezed to make that so: the arrows are still as wide as they are tall.
+          for (const arrow of ['Previous', 'Next']) {
+            const box = (await page.getByRole('button', { name: arrow, exact: true }).boundingBox())!;
+            expect(box.width, `${where}: ${arrow}`).toBe(box.height);
+          }
+        }
+      }
     });
   }
 });
