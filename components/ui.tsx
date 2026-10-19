@@ -7,6 +7,8 @@ export type View = 'day' | 'week' | 'month';
 export interface Slot {
   date: string;
   min: number;
+  /** Where a new event ends, when its time was marked out by dragging. Otherwise it lasts an hour. */
+  end?: number;
 }
 
 export const CAT: Record<Category, string> = {
