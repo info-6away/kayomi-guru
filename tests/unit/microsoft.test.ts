@@ -180,13 +180,22 @@ test('only a refused grant asks the person to reconnect; a refused client secret
     expect(await kind(400, { error: 'interaction_required', error_codes: [50076] })).toBe('reconnect');
     // Its organisation has shut Koyomi out: nobody's to mend by signing in, and not the secret.
     expect(await kind(400, { error: 'unauthorized_client', error_description: 'AADSTS7000112: Application is disabled.' })).toBe('blocked');
-    expect(logged).toEqual([]);
     // Microsoft is down: nothing is wrong with the connection.
     expect(await kind(503, { error: 'temporarily_unavailable' })).toBe('busy');
     expect(await kind(500, { error: 'server_error' })).toBe('busy');
     // The secret has run out. No connection is to blame, so none is marked; the log says what to renew.
     expect(await kind(401, { error: 'invalid_client', error_description: 'AADSTS7000222: secret expired' })).toBe('busy');
-    expect(logged).toEqual(['[calendars] microsoft: Error: Microsoft refused Koyomi’s client id or secret: a client secret expires, and is renewed in the app registration']);
+    // Each refusal is in the log by its status and Microsoft's codes, and by nothing else.
+    expect(logged).toEqual([
+      '[calendars] microsoft: Error: the token endpoint answered 400 invalid_grant AADSTS70000',
+      '[calendars] microsoft: Error: the token endpoint answered 400 interaction_required',
+      '[calendars] microsoft: Error: the token endpoint answered 400 unauthorized_client AADSTS7000112',
+      '[calendars] microsoft: Error: the token endpoint answered 503 temporarily_unavailable',
+      '[calendars] microsoft: Error: the token endpoint answered 500 server_error',
+      '[calendars] microsoft: Error: the token endpoint answered 401 invalid_client AADSTS7000222',
+      '[calendars] microsoft: Error: Microsoft refused Koyomi’s client id or secret: a client secret expires, and is renewed in the app registration',
+    ]);
+    expect(logged.join('\n')).not.toContain('secret-refresh-token');
     // And nothing Microsoft said, nor any token, goes into the error.
     const error = await withMicrosoft(() => Response.json({ error: 'invalid_grant', error_description: 'M.C123-secret-refresh-token' }, { status: 400 }), () => refreshAccess(CLIENT, 'M.C123-secret-refresh-token').catch((e) => e));
     expect(error).toBeInstanceOf(MicrosoftError);
@@ -207,6 +216,28 @@ test('a refresh brings a new refresh token, which is handed back to be kept', as
       expect(Object.fromEntries(new URLSearchParams(String(asked[0].init.body)))).toMatchObject({ grant_type: 'refresh_token', refresh_token: 'rt-1', scope: MICROSOFT_SCOPES.join(' ') });
     },
   );
+});
+
+test('what Microsoft says beside its codes never reaches the log: no token, no address, no id', async () => {
+  const logged: string[] = [];
+  const real = console.error;
+  console.error = (line: string) => void logged.push(line);
+  try {
+    const told = { error: { code: 'ErrorAccessDenied', message: 'Access to mailbox pat@example.com with token eyJ0eXAiOiJKV1QiLCJub25jZSI6IjEyMzQ1Njc4OTAifQ denied' } };
+    await withMicrosoft(() => Response.json(told, { status: 403 }), () => listCalendars(CLIENT, 'token').catch(() => {}));
+    await withMicrosoft(() => Response.json(told, { status: 403 }), () => listEvents(CLIENT, 'token', 'AAMkADefault=', SPAN).catch(() => {}));
+    // A code that is not shaped like one is left out, whatever it holds.
+    await withMicrosoft(() => Response.json({ error: { code: 'pat@example.com' } }, { status: 400 }), () => listCalendars(CLIENT, 'token').catch(() => {}));
+    await withMicrosoft(() => Response.json({ error: 'invalid_grant', error_description: 'Token for pat@example.com is gone' }, { status: 400 }), () => refreshAccess(CLIENT, 'rt').catch(() => {}));
+    expect(logged).toEqual([
+      '[calendars] microsoft: Error: Graph, asked for the calendar list, answered 403 ErrorAccessDenied',
+      '[calendars] microsoft: Error: Graph, asked for a calendar’s events, answered 403 ErrorAccessDenied',
+      '[calendars] microsoft: Error: Graph, asked for the calendar list, answered 400',
+      '[calendars] microsoft: Error: the token endpoint answered 400 invalid_grant',
+    ]);
+  } finally {
+    console.error = real;
+  }
 });
 
 test('each of Graph’s refusals has its own word: wait, a new access token, an account that cannot be read, a calendar that is gone', async () => {
