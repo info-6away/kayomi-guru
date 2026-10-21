@@ -195,6 +195,25 @@ export const grantedNames = (scope: string) =>
 /** Whether what Microsoft granted includes reading calendars. It may list more that was granted before; only this one matters. */
 export const grantsCalendars = (scope: string) => scope.split(/\s+/).some((granted) => granted.toLowerCase().split('/').pop() === 'calendars.read');
 
+/**
+ * Microsoft's numbers for a work or school account whose organisation does not let its people
+ * allow Koyomi themselves: only an administrator there can, once, for everyone.
+ */
+const NEEDS_ADMIN = new Set(['AADSTS65001', 'AADSTS90093', 'AADSTS90094', 'AADSTS90095']);
+
+/**
+ * Why a sign-in came back from Microsoft without a code, by its codes alone: the error, its
+ * subcode, and the AADSTS number in its description. Nothing else in the description is kept:
+ * it can name the account, and it carries trace ids.
+ */
+export function refusalOf(params: URLSearchParams) {
+  const number = /\bAADSTS\d{5,6}\b/.exec(params.get('error_description') ?? '')?.[0] ?? '';
+  return {
+    needsAdmin: NEEDS_ADMIN.has(number),
+    codes: [code(params.get('error')), code(params.get('error_subcode')), number].filter(Boolean).join(' '),
+  };
+}
+
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** How far apart Koyomi's clock and Microsoft's may be. */
 const SKEW_MS = 5 * 60_000;

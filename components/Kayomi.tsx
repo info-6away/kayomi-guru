@@ -158,6 +158,9 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     if (outcome === 'connected') void connected();
     else if (outcome === 'cancelled') say(microsoft ? 'Microsoft calendar was not connected.' : 'Google Calendar was not connected.');
     else if (outcome === 'declined') say(microsoft ? 'Koyomi needs permission to read your calendars, so nothing was connected.' : 'Koyomi needs both permissions to show your calendars, so nothing was connected.');
+    // Microsoft's work and school accounts only: an organisation that approves apps for its people.
+    else if (microsoft && outcome === 'approval') say('Your organisation’s Microsoft administrator needs to approve Koyomi first.');
+    else if (microsoft && outcome === 'approved') say('Koyomi is approved for your organisation. Its people can now add their Microsoft calendars.');
     else say(microsoft ? 'Couldn’t connect to Microsoft. Try again in a moment.' : 'Couldn’t connect to Google Calendar. Try again in a moment.');
   }, []);
 

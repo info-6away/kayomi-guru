@@ -356,8 +356,25 @@ the Microsoft account's privacy settings for a personal one.
 **Work and school accounts.** Microsoft's default for an organisation's tenant does not let its
 people consent to any calendar permission themselves, `Calendars.Read` included, whether or
 not the app's publisher is verified. In such a tenant an administrator approves Koyomi once for
-everyone; until then Microsoft's screen says so, and coming back from it is "Microsoft calendar
-was not connected." No permission avoids that.
+everyone. Until then Microsoft's screen says so, and Microsoft sends the person back with one of
+its numbers AADSTS65001, 90093, 90094 or 90095: Koyomi then says "Your organisation’s Microsoft
+administrator needs to approve Koyomi first." Any other refusal, Cancel included, is "Microsoft
+calendar was not connected." Either way the log has Microsoft's codes and nothing else, for
+example `[calendars] microsoft: a sign-in came back refused: access_denied cancel AADSTS65004`.
+No permission avoids that.
+
+An administrator approves Koyomi for their organisation with Microsoft's admin consent link,
+signed in as an administrator of that tenant (`<their domain>` is the organisation's own, such
+as `example.com`, and `<client id>` the value of `MICROSOFT_CALENDAR_CLIENT_ID`, which the
+publisher-domain file below also shows):
+
+```
+https://login.microsoftonline.com/<their domain>/v2.0/adminconsent?client_id=<client id>&scope=openid%20offline_access%20https%3A%2F%2Fgraph.microsoft.com%2FCalendars.Read&redirect_uri=https%3A%2F%2Fapp.koyomi.guru%2Fapi%2Fmicrosoft%2Fcallback
+```
+
+It grants those three permissions for that organisation and connects nobody. Coming back says
+"Koyomi is approved for your organisation. Its people can now add their Microsoft calendars."
+The administrator can take it back under Enterprise applications in Microsoft Entra.
 
 **Publisher domain.** `https://koyomi.guru/.well-known/microsoft-identity-association.json`
 answers with the client id, which is how Microsoft confirms that `koyomi.guru` is the app's
