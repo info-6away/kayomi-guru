@@ -164,6 +164,67 @@ test.describe('calendar', () => {
     await expect(page.locator(`[data-day="${otherDay()}"] [data-event]`, { hasText: 'Focus' })).toContainText('11:00 – 13:30');
   });
 
+  test('drag over an empty stretch of a day to give a new event its time, down or up', async ({ page }) => {
+    await open(page);
+    const hour = await hourHeight(page);
+    const day = today();
+    /** A point a few minutes into a time of day, in today's column. */
+    const point = async (time: string) => {
+      const box = (await page.locator(`[data-day="${day}"]`).boundingBox())!;
+      const [h, m] = time.split(':').map(Number);
+      return { x: box.x + 40, y: box.y + ((h * 60 + m) / 60) * hour };
+    };
+
+    // Down: from the quarter-hour pressed to the quarter-hour let go, both included.
+    let from = await point('10:03');
+    let to = await point('11:20');
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await expect(page.locator('[data-making]')).toHaveText('10:00 – 11:30');
+    await page.mouse.up();
+    await expect(page.locator('[data-making]')).toHaveCount(0);
+    const field = page.getByPlaceholder('What are you doing?');
+    await expect(field).toBeFocused();
+    await expect(page.getByText('10:00 – 11:30', { exact: true })).toBeVisible();
+    await page.keyboard.type('Planning');
+    await page.keyboard.press('Enter');
+    await expect(event(page, 'Planning')).toContainText('10:00 – 11:30');
+
+    // Up, from late to early.
+    from = await point('16:05');
+    to = await point('14:40');
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await page.mouse.up();
+    await expect(field).toBeFocused();
+    await page.keyboard.type('Workshop');
+    await page.keyboard.press('Enter');
+    await expect(event(page, 'Workshop')).toContainText('14:30 – 16:15');
+
+    // Let go and thought better of it: Escape, and nothing is made.
+    from = await point('18:00');
+    to = await point('19:00');
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await page.mouse.up();
+    await expect(field).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(field).toHaveCount(0);
+
+    // A click with no drag is still an hour at the half-hour under it.
+    await addEvent(page, 'Call', '17:00');
+    await expect(event(page, 'Call')).toContainText('17:00 – 18:00');
+
+    await expect.poll(() => storedTitles(page)).toEqual(['Call', 'Planning', 'Workshop']);
+    const minutes = Object.fromEntries((await stored(page)).events.map((e) => [e.title, (new Date(e.end).getTime() - new Date(e.start).getTime()) / 60_000]));
+    expect(minutes).toEqual({ Planning: 90, Workshop: 105, Call: 60 });
+    await reload(page);
+    await expect(event(page, 'Planning')).toContainText('10:00 – 11:30');
+  });
+
   test('overlapping events sit side by side', async ({ page }) => {
     await open(page);
     await addEvent(page, 'Workshop', '10:00');

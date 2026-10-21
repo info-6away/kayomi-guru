@@ -455,7 +455,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
               }}
               onQa={setQa}
               onCreate={(slot, title) => {
-                if (title) addEvent({ title, date: slot.date, start: slot.min, end: slot.min + 60 });
+                if (title) addEvent({ title, date: slot.date, start: slot.min, end: slot.end ?? slot.min + 60 });
                 setQa(null);
               }}
               onMove={moveEvent}

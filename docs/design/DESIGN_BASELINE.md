@@ -81,7 +81,10 @@ Month and the phone Calendars sheet are shown in light only: dark changes their 
   Nothing else changes colour: the accent is never darkened as a whole.
 - **The working day is on screen.** The hour height follows the window (44 to 58px) and the timeline
   opens just after 07:30, so about 08:00 to 20:00 is visible without scrolling.
-- **Creation is one line.** Click a time, type, Enter: `14:00 │ What are you doing?`
+- **Creation is one line.** Click a time, type, Enter: `14:00 │ What are you doing?` A click gives
+  the event an hour. To give it another length, drag down (or up) the empty part of the day with a
+  mouse or pen: a quiet outline with a vermilion edge follows in quarter-hours, saying the times
+  (`10:00 – 11:30`), and letting go opens the same one line over that stretch.
 
 ## Calendars, where Plan was
 

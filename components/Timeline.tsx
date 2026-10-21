@@ -73,6 +73,8 @@ export function Timeline(p: Props) {
 
   const [hover, setHover] = useState<Slot | null>(null);
   const [drag, setDrag] = useState<(Span & { key: string }) | null>(null);
+  /** A new event's time, while it is being marked out by dragging over an empty stretch of a day. */
+  const [making, setMaking] = useState<Span | null>(null);
   const [allDayOpen, setAllDayOpen] = useState(false);
   /** Where the top of the visible grid is, for a popover that belongs to the all-day area. */
   const [viewTop, setViewTop] = useState(0);
@@ -144,6 +146,44 @@ export function Timeline(p: Props) {
       justDragged.current = true;
       setTimeout(() => (justDragged.current = false), 0);
       if (last.date !== o.date || last.start !== o.start || last.end !== o.end) p.onMove(o, last);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
+  /**
+   * Marks out a new event's time by dragging up or down an empty stretch of a day, with a mouse
+   * or pen, from the quarter-hour pressed to the quarter-hour let go: both are part of it. The
+   * line to name it then opens over that time. A click without a drag still starts an hour at
+   * the half-hour under it. Touch scrolls instead.
+   */
+  const beginRange = (e: ReactPointerEvent<HTMLDivElement>, date: string) => {
+    if (e.pointerType === 'touch' || e.button !== 0 || e.target !== e.currentTarget) return;
+    const column = e.currentTarget;
+    const quarter = (clientY: number) => clamp(Math.floor(minuteAt(clientY, column) / SNAP) * SNAP, 0, DAY_MIN - SNAP);
+    const from = quarter(e.clientY);
+    const y0 = e.clientY;
+    let last: Span | null = null;
+
+    const onMove = (ev: PointerEvent) => {
+      if (!last && Math.abs(ev.clientY - y0) < 6) return;
+      const to = quarter(ev.clientY);
+      last = { date, start: Math.min(from, to), end: Math.max(from, to) + SNAP };
+      setHover(null);
+      setMaking(last);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      setMaking(null);
+      if (!last) return;
+      // The click that ends the drag must not start an hour of its own as well.
+      justDragged.current = true;
+      setTimeout(() => (justDragged.current = false), 0);
+      if (selected || selectedExternal) p.onSelect(null);
+      p.onQa({ date, min: last.start, end: last.end });
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -376,8 +416,9 @@ export function Timeline(p: Props) {
                 if (selected || selectedExternal) p.onSelect(null);
                 else p.onQa({ date: key, min });
               }}
+              onPointerDown={(e) => beginRange(e, key)}
               onPointerMove={(e) => {
-                if (e.pointerType !== 'mouse' || drag) return;
+                if (e.pointerType !== 'mouse' || drag || making) return;
                 if (e.target !== e.currentTarget) {
                   if (hover) setHover(null);
                   return;
@@ -400,6 +441,17 @@ export function Timeline(p: Props) {
                   style={{ top: yOf(ghost.min) + 1, height: hourH / 2 - 1, width: eventW }}
                 >
                   {hm(ghost.min)}
+                </div>
+              )}
+
+              {/* The time being marked out: from its first quarter-hour to its last, both included. */}
+              {making && making.date === key && (
+                <div
+                  data-making
+                  className="pointer-events-none absolute left-1 z-[5] flex items-start overflow-hidden rounded-[3px] border-l-2 border-verm bg-wash pt-[3px] pr-2 pl-2.5 text-[11.5px] leading-[18px] whitespace-nowrap text-ink2 tabular-nums"
+                  style={{ top: yOf(making.start) + 1, height: Math.max(8, yOf(making.end - making.start) - 2), width: eventW }}
+                >
+                  {hm(making.start)} – {hm(making.end)}
                 </div>
               )}
 
@@ -481,14 +533,15 @@ export function Timeline(p: Props) {
 
               {qa && qa.date === key && (
                 <QuickAdd
-                  key={qa.min}
+                  key={`${qa.min}-${qa.end ?? ''}`}
                   slot={qa}
                   mobile={mobile}
                   onCommit={(title) => p.onCreate(qa, title)}
                   onCancel={() => p.onQa(null)}
                   style={{
                     top: yOf(qa.min) + 1,
-                    height: hourH - 2,
+                    // As long as the time marked out for it, or an hour; never too short to type in.
+                    height: Math.max(30, yOf((qa.end ?? qa.min + 60) - qa.min) - 2),
                     ...(oneDay || mobile
                       ? { left: 4, width: oneDay && !mobile ? eventW : 'calc(100% - 8px)' }
                       : { [i >= 5 ? 'right' : 'left']: 4, width: 'max(calc(100% - 8px), 260px)' }),
@@ -645,7 +698,9 @@ function QuickAdd({
       className="absolute z-[6] flex animate-in items-start gap-2 rounded-[3px] border-l-2 border-verm bg-bg pt-[3px] pr-2.5 pl-3 shadow-[0_10px_28px_-14px_var(--shadow),0_0_0_1px_var(--line)] select-text"
       style={style}
     >
-      <span className="flex-none text-[12px] leading-[26px] tracking-[.03em] text-verm-text tabular-nums">{hm(slot.min)}</span>
+      <span className="flex-none text-[12px] leading-[26px] tracking-[.03em] text-verm-text tabular-nums">
+        {slot.end === undefined ? hm(slot.min) : `${hm(slot.min)} – ${hm(slot.end)}`}
+      </span>
       <span className="mt-[5px] h-4 w-px flex-none bg-line" />
       <input
         ref={input}
