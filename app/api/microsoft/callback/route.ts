@@ -3,7 +3,7 @@ import { homeFor, takeFlow } from '@/lib/server/connecting';
 import { accountKey, sealContext } from '@/lib/server/connections';
 import { connectionsConfig } from '@/lib/server/env';
 import { report } from '@/lib/server/log';
-import { accountOf, exchangeCode, grantsCalendars } from '@/lib/server/microsoft';
+import { accountOf, exchangeCode, grantedNames, grantsCalendars } from '@/lib/server/microsoft';
 import { seal } from '@/lib/server/seal';
 
 export const dynamic = 'force-dynamic';
@@ -35,6 +35,8 @@ export async function GET(request: Request) {
 
   try {
     const tokens = await exchangeCode(microsoft, code, flow.verifier);
+    // What Microsoft granted, by permission name only: how a refusal later can be told apart.
+    console.log(`[calendars] microsoft: a consent came back granting ${grantedNames(tokens.scope) || 'nothing named'}`);
     // Without the permission to read calendars, or without a way to read them again later,
     // there is nothing to keep. Microsoft has no way to hand a permission back: nothing is
     // stored, and its tokens are dropped here.

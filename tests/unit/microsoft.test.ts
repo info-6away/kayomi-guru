@@ -14,6 +14,7 @@ import {
   accountOf,
   authorizeUrl,
   exchangeCode,
+  grantedNames,
   grantsCalendars,
   listCalendars,
   listEvents,
@@ -229,12 +230,17 @@ test('what Microsoft says beside its codes never reaches the log: no token, no a
     // A code that is not shaped like one is left out, whatever it holds.
     await withMicrosoft(() => Response.json({ error: { code: 'pat@example.com' } }, { status: 400 }), () => listCalendars(CLIENT, 'token').catch(() => {}));
     await withMicrosoft(() => Response.json({ error: 'invalid_grant', error_description: 'Token for pat@example.com is gone' }, { status: 400 }), () => refreshAccess(CLIENT, 'rt').catch(() => {}));
+    // A token refused with nothing but a header: its error and its plain words, and nothing that could be an address, an id or a token.
+    const challenge = 'Bearer realm="", authorization_uri="https://login.microsoftonline.com/common/oauth2/authorize", client_id="00000003-0000-0000-c000-000000000000", error="invalid_token", error_description="Invalid audience for pat@example.com, token eyJ0eXAiOiJKV1Qi 12345678 rejected"';
+    await withMicrosoft(() => new Response('', { status: 401, headers: { 'www-authenticate': challenge } }), () => listCalendars(CLIENT, 'token').catch(() => {}));
     expect(logged).toEqual([
       '[calendars] microsoft: Error: Graph, asked for the calendar list, answered 403 ErrorAccessDenied',
       '[calendars] microsoft: Error: Graph, asked for a calendar’s events, answered 403 ErrorAccessDenied',
       '[calendars] microsoft: Error: Graph, asked for the calendar list, answered 400',
       '[calendars] microsoft: Error: the token endpoint answered 400 invalid_grant',
+      '[calendars] microsoft: Error: Graph, asked for the calendar list, answered 401 invalid_token (Invalid audience for token rejected) (no body)',
     ]);
+    expect(grantedNames('https://graph.microsoft.com/Calendars.ReadBasic openid offline_access pat@example.com')).toBe('Calendars.ReadBasic openid offline_access');
   } finally {
     console.error = real;
   }
