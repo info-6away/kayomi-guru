@@ -227,9 +227,10 @@ test.describe('privacy and terms', () => {
     await expect(page.getByRole('main').getByRole('heading', { level: 2 })).toContainText(['Connecting Google Calendar', 'What Koyomi reads from Google', 'Connecting a Microsoft calendar', 'What Koyomi reads from Microsoft']);
 
     // Exactly the permissions the code asks Microsoft for, by name, and what each is for.
-    expect(MICROSOFT_SCOPES.map((scope) => scope.split('/').pop())).toEqual(['openid', 'offline_access', 'Calendars.ReadBasic']);
-    for (const scope of ['(openid)', '(offline_access)', '(Calendars.ReadBasic)']) expect(said, scope).toContain(scope);
-    expect(said).not.toMatch(/Calendars\.(Read\b|Read\.Shared|ReadWrite)|User\.Read|Mail\./);
+    expect(MICROSOFT_SCOPES.map((scope) => scope.split('/').pop())).toEqual(['openid', 'offline_access', 'Calendars.Read']);
+    for (const scope of ['(openid)', '(offline_access)', '(Calendars.Read)']) expect(said, scope).toContain(scope);
+    expect(said).not.toMatch(/Calendars\.(ReadBasic|Read\.Shared|ReadWrite)|User\.Read|Mail\./);
+    expect(said).toContain('Either way, Koyomi asks Microsoft only for the details listed below.');
     expect(said).toContain('not your profile, not your email address, and not calendars other people share with you');
     expect(said).toContain('It cannot create, change or delete anything in your Microsoft calendar.');
     expect(said).toContain('A work or school account may need its organisation to approve Koyomi first.');

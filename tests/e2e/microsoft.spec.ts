@@ -182,7 +182,7 @@ test.describe('adding a Microsoft account', () => {
       response_type: 'code',
       response_mode: 'query',
       redirect_uri: `${APP}/api/microsoft/callback`,
-      scope: 'openid offline_access https://graph.microsoft.com/Calendars.ReadBasic',
+      scope: 'openid offline_access https://graph.microsoft.com/Calendars.Read',
       prompt: 'select_account',
       code_challenge_method: 'S256',
     });
@@ -288,7 +288,7 @@ test.describe('adding a Microsoft account', () => {
     expect(await part(page, 'microsoft', PAT)).toBe(before);
     expect((await microsoft.asked(worker)).log.find((entry) => entry.type === 'consent')!.prompt).toBe('select_account');
     // Microsoft wrote this tenant's grant with the resource's address in it: it was understood all the same.
-    expect((await microsoft.asked(worker)).log.find((entry) => entry.type === 'grant')!.scope).toContain('https://graph.microsoft.com/Calendars.ReadBasic');
+    expect((await microsoft.asked(worker)).log.find((entry) => entry.type === 'grant')!.scope).toContain('https://graph.microsoft.com/Calendars.Read');
     await closeDrawer(page);
     await external(page, 'Board review').click();
     await expect(popover(page).locator('p').nth(2)).toHaveText(`Microsoft · Calendar${WORKER}`);
@@ -839,7 +839,7 @@ test.describe('whose Microsoft connection it is', () => {
     const to = new URL(await location('/api/microsoft/connect?redirect_uri=https://evil.example&scope=Mail.Read', { host: 'evil.example' }));
     expect(to.origin + to.pathname).toBe(`${FAKE}/microsoft/common/oauth2/v2.0/authorize`);
     expect(to.searchParams.get('redirect_uri')).toBe(`${APP}/api/microsoft/callback`);
-    expect(to.searchParams.get('scope')).toBe('openid offline_access https://graph.microsoft.com/Calendars.ReadBasic');
+    expect(to.searchParams.get('scope')).toBe('openid offline_access https://graph.microsoft.com/Calendars.Read');
   });
 
   test('a Microsoft connection can be used, read and ended only by the person who made it', async ({ page, browser, id }) => {

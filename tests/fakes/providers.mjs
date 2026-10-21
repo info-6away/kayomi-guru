@@ -288,7 +288,7 @@ const msAccount = (id) => {
 /** Who chooses an account next, for someone with no `fake_microsoft` cookie (scripts/preview-connected.mjs). */
 let msTurns = [];
 const msCodes = new Map();
-const MS_SCOPES = ['openid', 'offline_access', 'https://graph.microsoft.com/Calendars.ReadBasic'];
+const MS_SCOPES = ['openid', 'offline_access', 'https://graph.microsoft.com/Calendars.Read'];
 const MS_CLIENT = { id: 'microsoft-test', secret: 'microsoft-secret' };
 /** The subject Microsoft gives one app for one person: the same every time, different in every other app. Mixed case, as Microsoft's is. */
 const pairwise = (client, tenant, id) => createHash('sha256').update(`${client}:${tenant}:${id}`).digest('base64url').slice(0, 43);

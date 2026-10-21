@@ -69,9 +69,9 @@ const claims = (over: Record<string, unknown> = {}) => ({
 // ---------- What is asked for ----------
 
 test('Koyomi asks Microsoft to sign the person in, to keep reading later, and to read their calendars: nothing more', () => {
-  expect(MICROSOFT_SCOPES).toEqual(['openid', 'offline_access', 'https://graph.microsoft.com/Calendars.ReadBasic']);
+  expect(MICROSOFT_SCOPES).toEqual(['openid', 'offline_access', 'https://graph.microsoft.com/Calendars.Read']);
   // No profile, no address, no User.Read, nothing shared by others, nothing that writes.
-  for (const scope of MICROSOFT_SCOPES) expect(scope).not.toMatch(/profile|email|User\.|Shared|Write|\.Read$|Mail|\.default/);
+  for (const scope of MICROSOFT_SCOPES) expect(scope).not.toMatch(/profile|email|User\.|Shared|Write|Mail|\.default/);
 
   const url = new URL(authorizeUrl(CLIENT, 'state-1', 'challenge-1', 'nonce-1'));
   expect(url.origin + url.pathname).toBe('https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
@@ -80,7 +80,7 @@ test('Koyomi asks Microsoft to sign the person in, to keep reading later, and to
     response_type: 'code',
     redirect_uri: 'https://app.koyomi.guru/api/microsoft/callback',
     response_mode: 'query',
-    scope: 'openid offline_access https://graph.microsoft.com/Calendars.ReadBasic',
+    scope: 'openid offline_access https://graph.microsoft.com/Calendars.Read',
     state: 'state-1',
     nonce: 'nonce-1',
     code_challenge: 'challenge-1',
@@ -94,24 +94,24 @@ test('Koyomi asks Microsoft to sign the person in, to keep reading later, and to
 });
 
 test('a consent is kept only if it includes reading calendars, however Microsoft writes it', () => {
-  expect(grantsCalendars('openid offline_access Calendars.ReadBasic')).toBe(true);
-  expect(grantsCalendars('https://graph.microsoft.com/Calendars.ReadBasic https://graph.microsoft.com/User.Read openid')).toBe(true);
+  expect(grantsCalendars('openid offline_access Calendars.Read')).toBe(true);
+  expect(grantsCalendars('https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/User.Read openid')).toBe(true);
   expect(grantsCalendars('openid offline_access')).toBe(false);
   expect(grantsCalendars('')).toBe(false);
-  // A wider permission granted some other way is not the one asked for.
-  expect(grantsCalendars('Calendars.Read openid')).toBe(false);
+  // The narrower permission alone reads nothing of a personal account's calendar, so it is not enough.
+  expect(grantsCalendars('Calendars.ReadBasic openid')).toBe(false);
 });
 
 test('the code is traded on the server, with the secret and the PKCE secret, for the same scopes and nothing else', async () => {
   await withMicrosoft(
-    () => Response.json({ access_token: 'at', refresh_token: 'rt', expires_in: 3599, scope: 'openid offline_access Calendars.ReadBasic', id_token: 'x.y.z' }),
+    () => Response.json({ access_token: 'at', refresh_token: 'rt', expires_in: 3599, scope: 'openid offline_access Calendars.Read', id_token: 'x.y.z' }),
     async (asked) => {
-      expect(await exchangeCode(CLIENT, 'code-1', 'verifier-1')).toEqual({ accessToken: 'at', refreshToken: 'rt', expiresIn: 3599, scope: 'openid offline_access Calendars.ReadBasic', idToken: 'x.y.z' });
+      expect(await exchangeCode(CLIENT, 'code-1', 'verifier-1')).toEqual({ accessToken: 'at', refreshToken: 'rt', expiresIn: 3599, scope: 'openid offline_access Calendars.Read', idToken: 'x.y.z' });
       expect(asked[0].url.href).toBe('https://login.microsoftonline.com/common/oauth2/v2.0/token');
       expect(Object.fromEntries(new URLSearchParams(String(asked[0].init.body)))).toEqual({
         client_id: 'client-id',
         client_secret: 'secret',
-        scope: 'openid offline_access https://graph.microsoft.com/Calendars.ReadBasic',
+        scope: 'openid offline_access https://graph.microsoft.com/Calendars.Read',
         grant_type: 'authorization_code',
         code: 'code-1',
         code_verifier: 'verifier-1',
@@ -240,7 +240,7 @@ test('what Microsoft says beside its codes never reaches the log: no token, no a
       '[calendars] microsoft: Error: the token endpoint answered 400 invalid_grant',
       '[calendars] microsoft: Error: Graph, asked for the calendar list, answered 401 invalid_token (Invalid audience for token rejected) (no body)',
     ]);
-    expect(grantedNames('https://graph.microsoft.com/Calendars.ReadBasic openid offline_access pat@example.com')).toBe('Calendars.ReadBasic openid offline_access');
+    expect(grantedNames('https://graph.microsoft.com/Calendars.Read openid offline_access pat@example.com')).toBe('Calendars.Read openid offline_access');
   } finally {
     console.error = real;
   }
