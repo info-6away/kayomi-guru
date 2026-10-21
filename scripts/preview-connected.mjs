@@ -1,8 +1,9 @@
 // Runs Koyomi on http://localhost:4310 with calendar connections switched on, against
-// stand-ins for 6Away Auth and Google. For looking at the feature by hand: "Add calendar
-// account" signs in as a made-up person and connects a made-up Google account, and pressing it
-// again connects a second one beside it. No real credentials and no real calendar are involved,
-// and nothing is kept once this stops.
+// stand-ins for 6Away Auth, Google and Microsoft. For looking at the feature by hand: "Add
+// calendar account", then Google, signs in as a made-up person and connects a made-up Google
+// account, and doing it again connects a second one beside it; Microsoft connects a made-up
+// Microsoft account. No real credentials and no real calendar are involved, and nothing is kept
+// once this stops.
 //
 //   npm run preview:connected
 //
@@ -10,7 +11,7 @@
 // (docs/CALENDAR_CONNECTIONS.md says which).
 
 import { spawn, spawnSync } from 'node:child_process';
-import { DEMO_ACCOUNTS, FAKE_PORT, PORT, TEST_ENV } from '../tests/fakes/env.mjs';
+import { DEMO_ACCOUNTS, DEMO_MICROSOFT_ACCOUNTS, FAKE_PORT, PORT, TEST_ENV } from '../tests/fakes/env.mjs';
 
 const env = { ...process.env, ...TEST_ENV, FAKE_PORT: String(FAKE_PORT) };
 const next = ['node_modules/next/dist/bin/next'];
@@ -33,8 +34,12 @@ app.on('exit', (code) => process.exit(code ?? 0));
 // stand-in has no list of accounts to choose from, as Google's own screen has.
 const tell = (path, body) => fetch(`http://localhost:${FAKE_PORT}/__fake/${path}`, { method: 'PUT', body: JSON.stringify(body) }).then((response) => response.ok, () => false);
 for (let attempt = 0; attempt < 50; attempt++) {
-  const ready = (await Promise.all(Object.entries(DEMO_ACCOUNTS).map(([id, account]) => tell(`google/${id}`, account)))).every(Boolean) && (await tell('turns', Object.keys(DEMO_ACCOUNTS)));
+  const ready =
+    (await Promise.all(Object.entries(DEMO_ACCOUNTS).map(([id, account]) => tell(`google/${id}`, account)))).every(Boolean) &&
+    (await Promise.all(Object.entries(DEMO_MICROSOFT_ACCOUNTS).map(([id, account]) => tell(`microsoft/${id}`, account)))).every(Boolean) &&
+    (await tell('turns', Object.keys(DEMO_ACCOUNTS))) &&
+    (await tell('microsoft-turns', Object.keys(DEMO_MICROSOFT_ACCOUNTS)));
   if (ready) break;
   await new Promise((resolve) => setTimeout(resolve, 200));
 }
-console.log(`\nKoyomi with two stand-in Google accounts: http://localhost:${PORT}  (Calendars, then Add calendar account, twice)\n`);
+console.log(`\nKoyomi with two stand-in Google accounts and a Microsoft one: http://localhost:${PORT}  (Calendars, then Add calendar account)\n`);

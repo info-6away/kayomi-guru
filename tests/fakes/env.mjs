@@ -1,7 +1,7 @@
 // The settings that switch calendar connections on and point them at the stand-in providers
 // (providers.mjs) instead of 6Away Auth and Google. Used by the browser tests and by
 // `npm run preview:connected`. Every value is made up: none is a real secret, and a deployment
-// on Vercel ignores the two KOYOMI_TEST settings whatever they say.
+// on Vercel ignores the KOYOMI_TEST settings whatever they say.
 
 export const PORT = 4310;
 export const FAKE_PORT = 4315;
@@ -20,6 +20,9 @@ export const TEST_ENV = {
   KOYOMI_TEST_STORE: 'memory',
   DATABASE_URL: '',
   KOYOMI_TEST_GOOGLE_URL: `http://localhost:${FAKE_PORT}/google`,
+  MICROSOFT_CALENDAR_CLIENT_ID: 'microsoft-test',
+  MICROSOFT_CALENDAR_CLIENT_SECRET: 'microsoft-secret',
+  KOYOMI_TEST_MICROSOFT_URL: `http://localhost:${FAKE_PORT}/microsoft`,
 };
 
 const local = (day, time) => new Date(`${day}T${time}:00`).toISOString();
@@ -84,3 +87,24 @@ const FIRST_ACCOUNT = {
 
 /** Both, by the id each has at the stand-in, in the order they are offered to someone adding accounts by hand. */
 export const DEMO_ACCOUNTS = { first: FIRST_ACCOUNT, second: SECOND_ACCOUNT };
+
+/** A wall-clock time on this machine, as Microsoft Graph writes it when asked for UTC. */
+const graph = (day, time) => `${local(day, time).slice(0, 19)}.0000000`;
+const MICROSOFT_ACCOUNT = {
+  kind: 'personal',
+  address: 'alex@outlook.example',
+  calendars: [
+    {
+      id: 'AAMkDemoCalendar=',
+      name: 'Calendar',
+      isDefaultCalendar: true,
+      events: [
+        { id: 'pilates', subject: 'Pilates', start: { dateTime: graph('2026-10-06', '18:00'), timeZone: 'UTC' }, end: { dateTime: graph('2026-10-06', '19:00'), timeZone: 'UTC' }, webLink: 'https://outlook.live.com/owa/?itemid=pilates' },
+        { id: 'market', subject: 'Farmers market', isAllDay: true, start: { dateTime: '2026-10-10T00:00:00.0000000', timeZone: 'UTC' }, end: { dateTime: '2026-10-11T00:00:00.0000000', timeZone: 'UTC' } },
+      ],
+    },
+    { id: 'AAMkDemoFamily=', name: 'Family', events: [{ id: 'visit', subject: 'Visit', start: { dateTime: graph('2026-10-08', '19:30'), timeZone: 'UTC' }, end: { dateTime: graph('2026-10-08', '21:00'), timeZone: 'UTC' } }] },
+  ],
+};
+/** The Microsoft account offered to someone adding one by hand, by its id at the stand-in. */
+export const DEMO_MICROSOFT_ACCOUNTS = { personal: MICROSOFT_ACCOUNT };

@@ -5,9 +5,9 @@ your calendars.
 
 - **Koyomi's own calendar.** Events you write here are stored on the device, in the browser's
   IndexedDB. It needs no account, and none of it is sent anywhere.
-- **The calendars you already have.** Google Calendar, read-only, from as many Google accounts
-  as you choose to connect, shown beside your own. That is the only part with a server behind
-  it. See [Calendar connections](docs/CALENDAR_CONNECTIONS.md).
+- **The calendars you already have.** Google Calendar and Microsoft (Outlook) calendars,
+  read-only, from as many accounts at each as you choose to connect, shown beside your own. That
+  is the only part with a server behind it. See [Calendar connections](docs/CALENDAR_CONNECTIONS.md).
 
 Koyomi is a calendar and nothing else. It used to carry a list of things waiting for a time,
 called Plan; that is gone (see "Data model" for what became of what it stored).
@@ -24,7 +24,7 @@ Needs Node 20.9 or newer.
 npm install
 npm run dev                 # http://localhost:3000, no service worker
 npm run preview             # production build on http://localhost:4310, installable, works offline
-npm run preview:connected   # the same, with two stand-in Google accounts to connect (no credentials needed)
+npm run preview:connected   # the same, with stand-in Google and Microsoft accounts to connect (no credentials needed)
 ```
 
 `npm run preview` uses its own port on purpose: the production build registers a service worker for
@@ -86,12 +86,13 @@ The browser tests: `kayomi.spec.ts` (the calendar: quick-add, editing, drag and 
 Day/Week/Month, where Calendars is, that nothing of Plan is left, phone layout, dark mode),
 `pwa.spec.ts` (the installed app, as above), `calendars.spec.ts` (a connected account and the
 all-day row), `accounts.spec.ts` (several connected accounts: adding, colliding ids, one failing
-or disconnected while another carries on), `connection-security.spec.ts` (sign-in, the round trip
+or disconnected while another carries on), `microsoft.spec.ts` (Microsoft accounts, personal and
+work, alone and beside Google ones), `connection-security.spec.ts` (sign-in, the round trip
 to Google, requests from other sites, and how much may be asked), `readability.spec.ts` (the
 contrast of every piece of text, in both themes, at three sizes) and `site.spec.ts` (the landing
 page, Privacy and Terms, and the host names).
 
-No test touches a real account. Signing in and Google are played by stand-ins
+No test touches a real account. Signing in, Google and Microsoft are played by stand-ins
 (`tests/fakes/providers.mjs`) that Playwright starts with the app, and connections are kept in
 memory, never in a database, whatever `DATABASE_URL` the machine happens to have.
 
@@ -108,11 +109,12 @@ memory, never in a database, whatever `DATABASE_URL` the machine happens to have
   `dates.ts`, `recurrence.ts` and `occurrences.ts` are the calendar arithmetic.
 - `lib/calendars/`: connected calendars in the browser: their own local database, filed by
   account, reading them, and where their events land on the calendar. `lib/server/`: the
-  server's part: sealing tokens, the table of connections, and everything said to Google.
+  server's part: sealing tokens, the table of connections, and everything said to Google
+  (`google.ts`) and to Microsoft (`microsoft.ts`), each behind the same few calls (`providers.ts`).
 - `public/sw.js`: the service worker that keeps the app shell available offline.
 - `scripts/`: `make-icons.mjs` draws the icons and `make-screenshots.mjs` takes the pictures in
   `docs/design` and the manifest. `migrate.mjs` applies `migrations/` (one table).
-  `preview-connected.mjs` runs the app against stand-ins for 6Away and Google.
+  `preview-connected.mjs` runs the app against stand-ins for 6Away, Google and Microsoft.
 - `docs/design/`: the approved visual baseline, with screenshots. Read
   [DESIGN_BASELINE.md](docs/design/DESIGN_BASELINE.md) before changing how anything looks.
 

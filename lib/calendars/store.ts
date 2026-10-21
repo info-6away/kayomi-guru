@@ -13,6 +13,7 @@ import {
   type ExternalCalendar,
   type ExternalConnection,
   type ExternalEvent,
+  type Provider,
 } from './types';
 import { covers, spanOfWindow, syncWindow, within } from './window';
 
@@ -20,16 +21,19 @@ import { covers, spanOfWindow, syncWindow, within } from './window';
 // of each, kept in memory and written through to their own database (db.ts). Nothing here runs,
 // and no request is made, for someone who has not connected one.
 //
-// Each account is read, kept and ended by itself. What goes wrong for one (Google refusing it,
-// Google being slow about it, its being disconnected) is that account's alone: the others go on
+// Each account is read, kept and ended by itself, whichever provider it is at. What goes wrong
+// for one (its provider refusing it, or being slow about it, its being disconnected) is that
+// account's alone: the others go on
 // being read and shown.
 
 export interface External {
   /** Whether this server offers calendar connections at all. */
   available: boolean;
+  /** Which providers this server can connect accounts at, in the order they are offered. */
+  providers: Provider[];
   /**
    * - `off`: no account is connected.
-   * - `connected`: at least one is. Whether Google still honours each is said by the account
+   * - `connected`: at least one is. Whether its provider still honours each is said by the account
    *   itself (`ExternalConnection.status`).
    * - `signin`: the Koyomi sign-in on this device has ended. The connections are still there,
    *   on the server, under the same 6Away identity; signing in again picks them up.
@@ -56,7 +60,7 @@ const EVERY_MS = 15 * 60_000;
 /** The most calendars the server reads in one request. More than that are asked for in turns. */
 const BATCH = 25;
 
-const EMPTY: External = { available: false, status: 'off', connections: [], calendars: [], events: [], syncing: false, note: null };
+const EMPTY: External = { available: false, providers: [], status: 'off', connections: [], calendars: [], events: [], syncing: false, note: null };
 let state = EMPTY;
 const listeners = new Set<() => void>();
 function set(next: Partial<External>) {
@@ -275,7 +279,7 @@ async function forget(id: string, only?: string): Promise<'others' | 'ended' | '
 }
 
 /**
- * The person has just been to 6Away or to Google and back. Who is signed in, or what is
+ * The person has just been to 6Away or to a provider and back. Who is signed in, or what is
  * connected, may not be what it was. So every account in the copy is given a new epoch, and the
  * copy a new roster: whatever was asked for before they went, in any tab, for any account, was
  * for the old ones, and will not be kept when it arrives.
@@ -292,7 +296,7 @@ async function renew() {
 
 /**
  * What to do when the server could not say which accounts are connected. Each reason is kept
- * apart: a sign-in that has ended is not a connection that is lost, and neither is Google
+ * apart: a sign-in that has ended is not a connection that is lost, and neither is a provider
  * being slow.
  *
  * @param mine The roster the question was asked under.
@@ -303,7 +307,7 @@ async function failed(error: ApiError | 'offline', mine: string | null) {
   // Nothing was connected before, so nothing is now: no state to mend, nothing to show.
   if (unconfirmed) {
     unconfirmed = false;
-    // If it is only that Google or the network was slow, say what to do; otherwise say nothing.
+    // If it is only that the provider or the network was slow, say what to do; otherwise say nothing.
     const passing = error === 'busy' || error === 'offline' || error === 'slow_down';
     return set({ status: 'off', syncing: false, note: passing ? 'Your calendars couldn’t be read just now. Try adding the account again in a moment.' : null });
   }
@@ -322,7 +326,7 @@ async function failed(error: ApiError | 'offline', mine: string | null) {
  * One account's calendars as the provider lists them, laid over what this device remembers of
  * each. The name and the like are the provider's. Whether a calendar is shown, and how far it
  * has been read, are this device's and are kept. One new to this device starts as it is ticked
- * in Google's own app.
+ * in the provider's own app.
  */
 const listedOver = (remembered: ExternalCalendar[], listed: ConnectionListing): ExternalCalendar[] => {
   const known = new Map(remembered.map((calendar) => [calendar.calendarId, calendar]));
@@ -343,7 +347,7 @@ const listedOver = (remembered: ExternalCalendar[], listed: ConnectionListing): 
 /**
  * The server's list of accounts, laid over what this device holds at this moment. An account
  * the server no longer lists has left, with everything of its own. One that could not be read
- * just now, or that Google refuses, keeps what was read of it before.
+ * just now, or that its provider refuses, keeps what was read of it before.
  */
 function laid(listed: ConnectionListing[]) {
   const staying = new Set(listed.map((entry) => entry.connectionId));
@@ -353,7 +357,7 @@ function laid(listed: ConnectionListing[]) {
       id: entry.connectionId,
       provider: entry.provider,
       account: entry.account ?? known?.account ?? null,
-      status: entry.state === 'ok' ? 'connected' : entry.state === 'reconnect' ? 'reconnect' : (known?.status ?? 'connected'),
+      status: entry.state === 'ok' ? 'connected' : entry.state === 'reconnect' || entry.state === 'blocked' ? entry.state : (known?.status ?? 'connected'),
     };
   });
 
@@ -402,7 +406,7 @@ async function read(id: string, began: number, only?: string): Promise<'stop' | 
   for (let i = 0; i < shown.length; i += BATCH) {
     const asked = shown.slice(i, i + BATCH).map((calendar) => ({ calendarId: calendar.calendarId, syncToken: covers(calendar, today) ? calendar.syncToken : null }));
     const request: EventsRequest = { connectionId: id, ...spanOfWindow(window), calendars: asked };
-    const answer = await call<EventsResponse>('/api/google/events', request);
+    const answer = await call<EventsResponse>('/api/calendars/events', request);
     if (era !== began) return 'stop';
     if (!answer.ok) return refused(id, answer.error, mine);
 
@@ -427,6 +431,8 @@ async function read(id: string, began: number, only?: string): Promise<'stop' | 
         calendars = calendars.filter((calendar) => calendar.id !== key);
         continue;
       }
+      // Not read this time. What was read of it before stays exactly as it was.
+      if ('failed' in result) continue;
       const now = calendars.find((calendar) => calendar.id === key);
       // Hidden since it was asked for: a hidden calendar's events are not kept.
       if (!now?.visible) continue;
@@ -489,7 +495,7 @@ async function refused(id: string, error: ApiError | 'offline', mine: string | u
     return 'stop';
   }
   if (error === 'reconnect') {
-    // Google has refused this account's permission. Only asking Google again mends it.
+    // The provider has refused this account's permission. Only asking it again mends it.
     const kept = await saveConnection(id, mine, { status: 'reconnect' }).catch(() => undefined);
     if (kept === false) {
       await adopt();
@@ -500,7 +506,8 @@ async function refused(id: string, error: ApiError | 'offline', mine: string | u
   }
   // Signed in, and this account is not connected: it was ended somewhere else. This device follows.
   if (error === 'not_connected' && (await forget(id, mine)) !== 'others') return 'stop';
-  // Google busy about this account, or it was asked too often: what was read before is still good.
+  // The provider busy about this account, or asking for a pause, or not letting it be read at
+  // all (the next list of accounts says so of it): what was read before is still good.
 }
 
 /**
@@ -531,7 +538,7 @@ export async function sync(only?: CalendarRef): Promise<void> {
     // The accounts this list is asked under. If one leaves the copy while the list is on its
     // way, the list is late: it is not taken up, and so cannot bring that account back.
     const mine = roster;
-    const answer = await call<CalendarsResponse>('/api/google/calendars');
+    const answer = await call<CalendarsResponse>('/api/calendars');
     if (era !== began) return;
     if (!answer.ok) return failed(answer.error, mine);
     const listed = answer.data.connections;
@@ -590,14 +597,17 @@ export async function showCalendar(id: string, visible: boolean) {
 }
 
 /**
- * Leaves the calendar for 6Away's sign-in (if needed) and then Google, which asks which account
- * and for its consent. A device that shows no account yet says so by leaving `add` out: if the
- * person turns out to have accounts connected already, it is sent back to read those instead.
+ * Leaves the calendar for 6Away's sign-in (if needed) and then the provider, which asks which
+ * account and for its consent. A device that shows no account yet says so by leaving `add` out:
+ * if the person turns out to have accounts connected already, it is sent back to read those instead.
  */
-export const addAccount = () => location.assign(state.connections.length ? '/api/google/connect?add=1' : '/api/google/connect');
+export const addAccount = (provider: Provider) => location.assign(`/api/${provider}/connect${state.connections.length ? '?add=1' : ''}`);
+
+/** Asks the provider of one account for its permission again. The other accounts are not involved. */
+export const reconnect = (connection: ExternalConnection) => location.assign(`/api/${connection.provider}/connect?add=1`);
 
 /**
- * Called when the address says the visitor is back from giving Google's permission. The address
+ * Called when the address says the visitor is back from giving a provider's permission. The address
  * is only a hint: it is the server answering with their accounts that makes it so. Until then
  * nothing is remembered, and if the server says otherwise this device is left as it was.
  */
@@ -609,12 +619,12 @@ export async function connected() {
   await sync();
 }
 
-/** Leaves for 6Away's sign-in, and comes back to carry on. Google is not involved. */
+/** Leaves for 6Away's sign-in, and comes back to carry on. No provider is involved. */
 export const signIn = () => location.assign(`/api/auth/signin?returnTo=${encodeURIComponent('/?calendars=resume')}`);
 
 /**
  * Called when the visitor comes back from signing in to 6Away. Their connections were never
- * gone, so reading simply carries on. If it turns out Google has refused one in the meantime,
+ * gone, so reading simply carries on. If it turns out a provider has refused one in the meantime,
  * or someone else signed in, the reading says so.
  */
 export async function resume() {
@@ -629,9 +639,9 @@ export async function resume() {
 }
 
 /**
- * Ends one account's connection. The server withdraws that account's permission at Google and
- * deletes its token; this device deletes its copy of that account's calendars and events. The
- * other accounts, and Koyomi's own events, are not involved.
+ * Ends one account's connection. The server withdraws that account's permission at its provider,
+ * where the provider offers a way to, and deletes its token; this device deletes its copy of
+ * that account's calendars and events. The other accounts, and Koyomi's own events, are not involved.
  */
 export async function disconnect(id: string): Promise<void> {
   // Whatever is being read is let go, so that it is not what this ends on.
@@ -639,7 +649,7 @@ export async function disconnect(id: string): Promise<void> {
   era++;
   again = false;
   set({ syncing: true, note: null });
-  const done = await call<{ ok: true }>('/api/google/disconnect', { connectionId: id });
+  const done = await call<{ ok: true }>('/api/calendars/disconnect', { connectionId: id });
   if (done.ok || done.error === 'not_connected') {
     // If another tab has begun this account's part again meanwhile, that is not this Disconnect's to end.
     if ((await forget(id, mine)) !== 'others') return;
@@ -666,11 +676,16 @@ export async function finishDisconnect() {
 
 export const say = (note: string | null) => set({ note });
 
-/** Call once, in the browser. Does nothing more than note availability unless a calendar is connected. */
-export function initExternal(available: boolean) {
+/**
+ * Call once, in the browser. Does nothing more than note availability unless a calendar is connected.
+ *
+ * @param providers Which providers this server can connect accounts at. None: the feature is off.
+ */
+export function initExternal(providers: Provider[]) {
   if (started) return;
   started = true;
-  set({ available });
+  const available = providers.length > 0;
+  set({ available, providers });
   if (!available) return;
 
   if (typeof BroadcastChannel !== 'undefined') {

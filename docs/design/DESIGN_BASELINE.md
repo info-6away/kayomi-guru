@@ -98,10 +98,15 @@ connected. It took over Plan's place exactly, so nothing about the frame moved:
   Mincho, with a quiet line beside it for what is on screen: "Koyomi", or "Koyomi and 3 more".
   It opens the same bottom sheet.
 - **The drawer is a list, not a settings page.** "Koyomi", always shown and ticked. Then, under
-  a small "GOOGLE" heading, each connected account: its address as a quiet line with
-  "Disconnect" as text beside it, and its calendars under it, each a row that is on (a tick) or
-  off (a ring). Then "＋ Add calendar account", drawn like Plan's old "＋ Add" row. With nothing
-  connected, one sentence under it says what adding an account means, with a link to Privacy.
+  a small "GOOGLE" heading, and a "MICROSOFT" one below it in the same style, each connected
+  account: its address as a quiet line with "Disconnect" as text beside it, and its calendars
+  under it, each a row that is on (a tick) or off (a ring). A heading is there only when an
+  account is under it. Then "＋ Add calendar account", drawn like Plan's old "＋ Add" row. Where
+  both providers are offered, pressing it opens two quiet rows under it, "Google" and
+  "Microsoft", in the row's own type and indented to its text, and nothing more; pressing it
+  again closes them. Where only one is offered, it goes straight there. With nothing connected,
+  one sentence under it says what adding an account means, naming the providers offered, with a
+  link to Privacy.
   Refresh and when things were last read are text at the foot, with "Install Koyomi" when the
   browser offers it. No avatars, no provider logos, no account screen, nothing about how an
   account is connected.
@@ -116,7 +121,8 @@ an event's details, and the struck-through title of a done event.
 
 For someone who connects nothing, the calendar is as above. These are the additions for someone
 who does. Taken with `npm run screenshots -- --connected` against `npm run preview:connected`,
-which stands in for Google with two made-up accounts.
+which stands in for Google with two made-up accounts, and for Microsoft with one; the two
+pictures with Microsoft with `npm run screenshots -- --microsoft`.
 
 | View | |
 | --- | --- |
@@ -125,6 +131,8 @@ which stands in for Google with two made-up accounts.
 | Calendars with two accounts | [desktop-calendars-light.png](desktop-calendars-light.png) |
 | Phone Calendars with two accounts | [mobile-calendars-google-light.png](mobile-calendars-google-light.png) |
 | Phone Day with Google events | [mobile-day-google-light.png](mobile-day-google-light.png) |
+| Calendars with Google and Microsoft accounts | [desktop-calendars-microsoft-light.png](desktop-calendars-microsoft-light.png) |
+| Add calendar account, choosing where | [desktop-calendars-choice-light.png](desktop-calendars-choice-light.png) |
 
 ![Desktop Week with Google events, light](desktop-week-google-light.png)
 
@@ -134,9 +142,10 @@ which stands in for Google with two made-up accounts.
   never faint: both still meet the same contrast as everything else. No provider logo and no
   provider colours.
 - **It can be looked at, not changed.** Opening one shows its title, time, and "Google Calendar ·"
-  with the calendar's name, then the address of the account that calendar is in on a line of its
-  own, in the same quiet type; beside a ring where a Koyomi event has a coloured dot. The only
-  action is Open in Google Calendar. It cannot be dragged, resized or deleted.
+  (or "Microsoft ·") with the calendar's name, then the address of the account that calendar is
+  in on a line of its own, in the same quiet type; beside a ring where a Koyomi event has a
+  coloured dot. The only action is Open in Google Calendar, or Open in Outlook. It cannot be
+  dragged, resized or deleted. Events from either provider look the same on the calendar.
 - **The all-day row.** A slim row under the day headings, there only when the days in view have
   something in it. Koyomi's all-day events are tinted, external ones outlined, and one that runs
   for several days is a single bar across them. Two rows show; more fold into "+n", which opens
@@ -148,7 +157,10 @@ which stands in for Google with two made-up accounts.
   calendar, and the two are never confused. In Calendars the first is a line with "Sign in", and
   the second is "Needs reconnecting" with "Reconnect", under the one account it is true of; the
   other accounts look as they always do. Being offline, or Google being slow, shows nothing at
-  all.
+  all. The words name the provider of the accounts concerned: "Microsoft calendar needs
+  reconnecting", and "Calendars need reconnecting" or "your calendars" where both are. A
+  Microsoft account that Microsoft will not let be read at all says so under it in one muted
+  line, with nothing to press but Disconnect.
 
 ## Differences from the prototype
 

@@ -1,10 +1,12 @@
 import { expect, type Page } from '@playwright/test';
 import { check } from './contrast';
 import {
+  CALENDAR_API,
   FAKE,
   ME,
   NOW,
   actAs,
+  addAt,
   addButton,
   allDay,
   cached,
@@ -97,7 +99,7 @@ const part = async (page: Page, address: string) => {
 const modes = async (id: string, last: number) => (await google.asked(id)).log.filter((entry) => entry.type === 'events').slice(-last).map((entry) => `${entry.calendarId} ${entry.mode}`).sort();
 /** What was done with an account's permission, as opposed to what was read through it. */
 const grants = async (id: string) => (await google.asked(id)).log.map((entry) => entry.type).filter((type) => ['consent', 'grant', 'account', 'revoke'].includes(type));
-const listed = async (page: Page) => ((await (await page.request.get('/api/google/calendars')).json()) as { connections: { connectionId: string; account: string; state: string }[] }).connections;
+const listed = async (page: Page) => ((await (await page.request.get('/api/calendars')).json()) as { connections: { connectionId: string; account: string; state: string }[] }).connections;
 
 /** Both accounts connected: the first, then the second beside it. Returns the second account's id at the stand-in. */
 async function both(page: Page, id: string) {
@@ -204,7 +206,7 @@ test.describe('adding a second account', () => {
 
     // Add, and at Google choose the account that is already connected.
     await pick(page, id);
-    await addButton(page).click();
+    await addAt(page, 'Google');
     await expect(view(page).getByText(/^Read \d/)).toBeVisible(BACK);
     await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
     await expect(view(page).getByRole('group')).toHaveCount(1);
@@ -223,7 +225,7 @@ test.describe('adding a second account', () => {
     await page.clock.setFixedTime(new Date(NOW.getTime() + 10 * 60_000));
     await google.changes(id, { calendarId: ME, cancel: ['dentist'] });
     await context.addCookies([{ name: 'fake_google', value: `deny:${id}`, url: FAKE }]);
-    await addButton(page).click();
+    await addAt(page, 'Google');
 
     // Back with nothing added. The first account was read at once, unasked, and its change is here.
     await expect(view(page).getByText('Read 13:20')).toBeVisible(BACK);
@@ -236,7 +238,7 @@ test.describe('adding a second account', () => {
     // Asking for something themselves does: they have seen it.
     await toggle(page, 'Holidays').click();
     await expect(view(page).getByRole('status')).toHaveCount(0);
-    await addButton(page).click();
+    await addAt(page, 'Google');
     await expect(view(page).getByRole('status')).toHaveText('Google Calendar was not connected.', BACK);
     await view(page).getByRole('button', { name: 'Refresh' }).click();
     await expect(view(page).getByRole('status')).toHaveCount(0);
@@ -524,7 +526,7 @@ test.describe('disconnecting one account', () => {
 // other account's, is under way: every time, on any machine.
 test.describe('while a refresh is under way', () => {
   /** The answer a tab was waiting for, about one account's events, has arrived in full. */
-  const answerOf = (page: Page) => page.waitForResponse((response) => response.url().endsWith('/api/google/events'));
+  const answerOf = (page: Page) => page.waitForResponse((response) => response.url().endsWith('/api/calendars/events'));
 
   test('a calendar hidden in one account stays hidden, and the other account’s calendar of the same id is read all the same', async ({ page, id }) => {
     const other = await both(page, id);
@@ -615,12 +617,12 @@ test.describe('while a refresh is under way', () => {
     await refreshAndHold(page, id, 'events');
     const answered = answerOf(page);
     const asked: string[] = [];
-    page.on('request', (request) => void (new URL(request.url()).pathname.startsWith('/api/google/') && asked.push(new URL(request.url()).pathname)));
+    page.on('request', (request) => void (CALENDAR_API.test(new URL(request.url()).pathname) && asked.push(new URL(request.url()).pathname)));
 
     // In the other tab the first account is connected again: to Google and back. Every account's
     // part of the copy begins again, so that nothing asked before the trip is kept after it.
     await pick(elsewhere, id);
-    await addButton(elsewhere).click();
+    await addAt(elsewhere, 'Google');
     await expect.poll(async () => Object.values(await marks()).every((mark, i) => mark !== Object.values(before)[i]), BACK).toBe(true);
     expect(Object.keys(await marks()).sort()).toEqual([THEM, ME]);
 
@@ -629,7 +631,7 @@ test.describe('while a refresh is under way', () => {
     await google.becomes(id, { hold: null });
     await (await answered).finished();
     await page.evaluate(() => 0);
-    expect(asked.filter((path) => path === '/api/google/events')).toEqual([]);
+    expect(asked.filter((path) => path === '/api/calendars/events')).toEqual([]);
 
     // Both accounts are there, once each, read by the tab that came back.
     await expect(view(elsewhere).getByText('Refreshing…')).toHaveCount(0, BACK);
@@ -663,7 +665,7 @@ test.describe('whose accounts they are', () => {
     // They cannot read or end either of the first person's connections by naming it.
     const ask = { timeMin: '2026-10-01T00:00:00Z', timeMax: '2026-11-01T00:00:00Z', calendars: [{ calendarId: 'work@example.test', syncToken: null }] };
     for (const connectionId of mine) {
-      const reached = await page.request.post('/api/google/events', { data: { ...ask, connectionId }, headers: { origin: APP } });
+      const reached = await page.request.post('/api/calendars/events', { data: { ...ask, connectionId }, headers: { origin: APP } });
       expect([reached.status(), await reached.json()]).toEqual([409, { error: 'not_connected' }]);
     }
     // Nothing was revoked or deleted on the first person's behalf.
@@ -673,7 +675,7 @@ test.describe('whose accounts they are', () => {
     await page.context().clearCookies({ name: 'koyomi_session' });
     await actAs(page, `user-${id}`);
     await openCalendars(page);
-    await addButton(page).click();
+    await addAt(page, 'Google');
     await expect(group(page, THEM)).toBeVisible(BACK);
     await expect(group(page, ME)).toBeVisible();
     await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);

@@ -104,6 +104,15 @@ export const group = (page: Page, address: string) => view(page).getByRole('grou
 /** A calendar's on/off row. Where two accounts have a calendar of the same name, say which account. */
 export const toggle = (page: Page, name: string, address?: string) => (address ? group(page, address) : view(page)).getByRole('switch', { name });
 export const addButton = (page: Page) => view(page).getByRole('button', { name: 'Add calendar account' });
+/** Where to add an account, once Add calendar account has been pressed: the two quiet choices under it. */
+export const choice = (page: Page, provider: 'Google' | 'Microsoft') => view(page).getByRole('button', { name: provider, exact: true });
+/** Adds an account at a provider, as a person does it: Add calendar account, then which provider. */
+export async function addAt(page: Page, provider: 'Google' | 'Microsoft') {
+  await addButton(page).click();
+  await choice(page, provider).click();
+}
+/** The server's addresses for connected calendars, at every provider. */
+export const CALENDAR_API = /^\/api\/(google|microsoft|calendars)(\/|$)/;
 export const disconnectButton = (page: Page, address?: string) => (address ? group(page, address) : view(page)).getByRole('button', { name: /^Disconnect/ });
 /** What Calendars says while no account is connected: the sentence about what adding one means. */
 export const nothingConnected = (page: Page) => view(page).getByText('It can never change them.');
@@ -140,13 +149,53 @@ export async function closeDrawer(page: Page) {
   });
 }
 
+const postMicrosoft = (path: string, body: unknown, method = 'POST') => fetch(`${FAKE}/__fake/microsoft/${path}`, { method, body: JSON.stringify(body) });
+export const microsoft = {
+  /** Sets up what a Microsoft account holds: personal or work, its mailbox's address, and its calendars. */
+  has: (id: string, data: unknown) => postMicrosoft(id, data, 'PUT'),
+  /** Something changes at Microsoft after Koyomi last looked. */
+  changes: (id: string, change: { calendarId: string; upsert?: unknown[]; cancel?: string[] }) => postMicrosoft(`${id}/change`, change),
+  /** Microsoft starts refusing, failing, asking to wait, or forgetting. */
+  becomes: (
+    id: string,
+    state: {
+      revoked?: boolean;
+      fail?: null | 'unavailable' | 'throttled' | 'nomailbox' | 'mfa' | 'secret';
+      delay?: number;
+      hold?: null | 'calendars' | 'events';
+      pageSize?: number;
+      foreignNext?: boolean;
+      removeCalendar?: string;
+      deny?: string;
+    },
+  ) => postMicrosoft(`${id}/state`, state),
+  /** Everything the app has asked of this account, and how many questions Microsoft is keeping waiting. */
+  asked: async (id: string) =>
+    (await (await fetch(`${FAKE}/__fake/microsoft/${id}`)).json()) as { log: Record<string, string | null>[]; revoked: boolean; liveTokens: number; held: number; kind: string; tenant: string },
+};
+/** Which Microsoft account is at the keyboard the next time Microsoft asks: what picking one from Microsoft's own list comes to. */
+export const pickMicrosoft = (page: Page, account: string) => page.context().addCookies([{ name: 'fake_microsoft', value: account, url: FAKE }]);
+
+/** Adds a Microsoft account beside whatever is connected, and waits until it is listed under its own address with its events read. */
+export async function connectMicrosoft(page: Page, account: string, address: string) {
+  await pickMicrosoft(page, account);
+  await openCalendars(page);
+  await addAt(page, 'Microsoft');
+  await expect(group(page, address)).toBeVisible({ timeout: 15_000 });
+  await expect(group(page, address).getByRole('switch').first()).toBeVisible();
+  await expect(view(page).getByText('Refreshing…')).toHaveCount(0, { timeout: 15_000 });
+}
+
+/** A time in Istanbul as Microsoft Graph writes it when asked for UTC: the UTC wall clock, no offset. */
+export const graphTime = (day: string, time: string) => `${new Date(ist(day, time)).toISOString().slice(0, 19)}.0000000`;
+
 /** Which Google account is at the keyboard the next time Google asks: what picking one from Google's own list comes to. */
 export const pick = (page: Page, googleAccount: string) => page.context().addCookies([{ name: 'fake_google', value: googleAccount, url: FAKE }]);
 
 /** Adds an account and comes back from the stand-ins signed in, with its calendars listed. */
 export async function connect(page: Page) {
   await openCalendars(page);
-  await addButton(page).click();
+  await addAt(page, 'Google');
   // Two round trips and a first reading: allow for a busy machine.
   await expect(toggle(page, 'Personal')).toBeVisible({ timeout: 15_000 });
   await expect(view(page).getByText(/^Read \d/)).toBeVisible();
@@ -159,7 +208,7 @@ export async function connect(page: Page) {
 export async function connectAlso(page: Page, googleAccount: string, address: string) {
   await pick(page, googleAccount);
   await openCalendars(page);
-  await addButton(page).click();
+  await addAt(page, 'Google');
   await expect(group(page, address)).toBeVisible({ timeout: 15_000 });
   await expect(group(page, address).getByRole('switch').first()).toBeVisible();
   await expect(view(page).getByText('Refreshing…')).toHaveCount(0, { timeout: 15_000 });

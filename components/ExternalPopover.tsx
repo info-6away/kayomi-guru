@@ -2,10 +2,9 @@
 
 import type { CSSProperties } from 'react';
 import { daysOf, timeLabel, type Showing } from '@/lib/calendars/showings';
+import { WORDS } from '@/lib/calendars/words';
 import { DOW3, DOWL, MON, MON3, parts, weekday } from '@/lib/dates';
 import { SURFACE } from './ui';
-
-const PROVIDER = { google: 'Google Calendar' };
 
 const short = (day: string) => `${DOW3[weekday(day)]} ${parts(day).d} ${MON3[parts(day).m - 1]}`;
 
@@ -38,14 +37,14 @@ export function ExternalPopover({ s, style, onClose }: { s: Showing; style: CSSP
       <p className="text-[13px] text-ink2 tabular-nums">{when}</p>
       {/* Where it came from, from the outside in: the provider and the calendar, then whose account. */}
       <p className="text-[12px] leading-[1.5] text-muted">
-        {PROVIDER[ev.provider]} · {s.calendar}
+        {WORDS[ev.provider].source} · {s.calendar}
         {s.account && <span className="block truncate">{s.account}</span>}
       </p>
 
       {ev.link && (
         <div className="-mx-2 mt-1.5 flex border-t border-line pt-2">
           <a href={ev.link} target="_blank" rel="noopener noreferrer" className="flex h-8 items-center rounded-[4px] px-2 text-[12.5px] text-ink2 hover:bg-wash">
-            Open in Google Calendar
+            {WORDS[ev.provider].open}
           </a>
         </div>
       )}
