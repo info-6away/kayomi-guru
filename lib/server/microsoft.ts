@@ -117,14 +117,27 @@ async function token(m: MicrosoftClient, params: Record<string, string>) {
   }
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (response.ok) return body;
-  // Whatever else Microsoft said stays here: it is not passed on or logged.
+  // Whatever else Microsoft said stays here: it is not passed on, and only its codes are logged.
   const error = String(body.error ?? '');
+  refused('the token endpoint', response.status, [code(error), /AADSTS\d+/.exec(String(body.error_description ?? ''))?.[0] ?? '']);
   if (ASK_AGAIN.includes(error)) throw new MicrosoftError('reconnect');
   if (error === REFUSED_HERE) throw new MicrosoftError('blocked');
   // A client secret lasts two years at most. When it runs out, every connection looks broken,
   // and none of them is: the log says what to renew.
   if (error === OPERATOR) report('microsoft', new Error('Microsoft refused Koyomi’s client id or secret: a client secret expires, and is renewed in the app registration'));
   throw new MicrosoftError('busy');
+}
+
+/** One of Microsoft's error codes, or nothing: anything that is not shaped like a code is not logged. */
+const code = (value: unknown) => (typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.]{0,63}$/.test(value) ? value : '');
+
+/**
+ * Says in the log that Microsoft refused, with its status and its codes and nothing else: no
+ * token, no address, no id, nothing about a calendar or an event. Without it a refusal is only
+ * an account that shows nothing, and nobody can tell why.
+ */
+function refused(what: string, status: number, codes: string[]) {
+  report('microsoft', new Error(`${what} answered ${status}${codes.filter(Boolean).map((c) => ` ${c}`).join('')}`));
 }
 
 /**
@@ -204,12 +217,13 @@ async function graph<T>(m: MicrosoftClient, accessToken: string, url: string, de
     throw new MicrosoftError('busy');
   }
   if (response.ok) return (await response.json()) as T;
+  const body = (await response.json().catch(() => ({}))) as { error?: { code?: string } };
+  refused(new URL(url).pathname.endsWith('/calendarView') ? 'Graph, asked for a calendar’s events,' : 'Graph, asked for the calendar list,', response.status, [code(body.error?.code)]);
   // Asked to wait: for as long as Microsoft says, and not a moment less.
   if (response.status === 429) {
     const seconds = Number(response.headers.get('retry-after'));
     throw new MicrosoftError('slow_down', seconds > 0 ? Math.min(Math.ceil(seconds), LONGEST_PAUSE) : 60);
   }
-  const body = (await response.json().catch(() => ({}))) as { error?: { code?: string } };
   if (NO_MAILBOX.includes(body.error?.code ?? '')) throw new MicrosoftError('blocked');
   // The access token, not the permission: the refresh token is what says whether that is gone.
   if (response.status === 401) throw new MicrosoftError('expired');
