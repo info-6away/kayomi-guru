@@ -141,6 +141,20 @@ function refused(what: string, status: number, codes: string[]) {
 }
 
 /**
+ * Microsoft's short reason for refusing a token, from the header it sends with a 401, as plain
+ * words only: anything shaped like an address is dropped, and so is any word with a digit in it
+ * or longer than twenty letters, which could be an id or part of a token.
+ */
+export function reasonIn(header: string | null): string {
+  const said = /error_description="([^"]*)"/.exec(header ?? '')?.[1] ?? '';
+  const words = said
+    .replace(/\S+@\S+/g, ' ')
+    .split(/\s+/)
+    .filter((word) => /^[A-Za-z.,:;'()-]{1,20}$/.test(word));
+  return words.length ? `(${words.join(' ').slice(0, 160)})` : '';
+}
+
+/**
  * Trades the code from the consent screen for tokens. Runs on the server only. Microsoft honours
  * it only for this client, this redirect address, and the secret whose hash it was shown.
  */
@@ -164,6 +178,14 @@ export async function refreshAccess(m: MicrosoftClient, refreshToken: string) {
   if (typeof body.access_token !== 'string') throw new MicrosoftError('busy');
   return { accessToken: body.access_token, expiresIn: Number(body.expires_in) || 3600, refreshToken: typeof body.refresh_token === 'string' ? body.refresh_token : undefined };
 }
+
+/** The names of what Microsoft granted, as a log may hold them: permission names alone. */
+export const grantedNames = (scope: string) =>
+  scope
+    .split(/\s+/)
+    .map((granted) => granted.split('/').pop() ?? '')
+    .filter((name) => /^[A-Za-z][A-Za-z._]{0,63}$/.test(name))
+    .join(' ');
 
 /** Whether what Microsoft granted includes reading calendars. It may list more that was granted before; only this one matters. */
 export const grantsCalendars = (scope: string) => scope.split(/\s+/).some((granted) => granted.toLowerCase().split('/').pop() === 'calendars.readbasic');
@@ -217,8 +239,20 @@ async function graph<T>(m: MicrosoftClient, accessToken: string, url: string, de
     throw new MicrosoftError('busy');
   }
   if (response.ok) return (await response.json()) as T;
-  const body = (await response.json().catch(() => ({}))) as { error?: { code?: string } };
-  refused(new URL(url).pathname.endsWith('/calendarView') ? 'Graph, asked for a calendar’s events,' : 'Graph, asked for the calendar list,', response.status, [code(body.error?.code)]);
+  const text = await response.text().catch(() => '');
+  let body: { error?: { code?: string } } = {};
+  try {
+    body = JSON.parse(text);
+  } catch {
+    // Not JSON, or nothing at all: said in the log as such.
+  }
+  const challenge = response.headers.get('www-authenticate');
+  refused(new URL(url).pathname.endsWith('/calendarView') ? 'Graph, asked for a calendar’s events,' : 'Graph, asked for the calendar list,', response.status, [
+    code(body.error?.code),
+    code(/\berror="([^"]*)"/.exec(challenge ?? '')?.[1]),
+    reasonIn(challenge),
+    text.trim() ? '' : '(no body)',
+  ]);
   // Asked to wait: for as long as Microsoft says, and not a moment less.
   if (response.status === 429) {
     const seconds = Number(response.headers.get('retry-after'));
