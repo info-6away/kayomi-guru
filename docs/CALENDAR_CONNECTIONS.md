@@ -278,9 +278,15 @@ own; without them Koyomi offers Google alone and looks exactly as it did before.
 
 - `openid`: sign-in, which is what tells Koyomi which Microsoft account it is (below);
 - `offline_access`: a refresh token, so the calendar can be read again later;
-- `Calendars.ReadBasic`: read the person's own calendars and their events, except bodies,
-  attachments and extensions. Microsoft lists it as the least permission for both calls Koyomi
-  makes, for both kinds of account, and it needs no administrator by definition.
+- `Calendars.Read`: read the person's own calendars and their events.
+
+Not the narrower `Calendars.ReadBasic`, which leaves out bodies and attachments, although
+Microsoft's documentation lists it as enough for both calls Koyomi makes, for both kinds of
+account. Tried on 21 October 2026 with a real personal account: under `Calendars.ReadBasic`
+alone, Graph refused the calendar list, the default calendar and its calendar view (403
+`ErrorAccessDenied` in Graph Explorer; a bare 401 to Koyomi), and under `Calendars.Read` it
+answered. The owner decided on `Calendars.Read` that day. Koyomi still asks Graph only for the
+fields below, so bodies and attachments are never requested.
 
 No `profile`, no `email`, no `User.Read`, nothing that writes, and not `Calendars.Read.Shared`:
 Koyomi reads no calendar that someone else owns. Microsoft's own screen shows its list of
@@ -348,7 +354,7 @@ the Microsoft account's privacy settings for a personal one.
 | 5xx, or no answer | Nothing is said; what was read stays |
 
 **Work and school accounts.** Microsoft's default for an organisation's tenant does not let its
-people consent to any calendar permission themselves, `Calendars.ReadBasic` included, whether or
+people consent to any calendar permission themselves, `Calendars.Read` included, whether or
 not the app's publisher is verified. In such a tenant an administrator approves Koyomi once for
 everyone; until then Microsoft's screen says so, and coming back from it is "Microsoft calendar
 was not connected." No permission avoids that.
@@ -611,7 +617,8 @@ the rest is there, and a session opens nothing by itself.
      `http://localhost:3000/api/microsoft/callback` for your own machine.
    - Certificates & secrets → a client secret. It lasts two years at most: note when it ends.
    - API permissions: remove the `User.Read` that a new registration starts with, and add
-     Microsoft Graph, delegated: `openid`, `offline_access`, `Calendars.ReadBasic`. Nothing else.
+     Microsoft Graph, delegated: `openid`, `offline_access`, `Calendars.Read`. Nothing else
+     (not `Calendars.ReadBasic`: see "Microsoft" above).
      No admin consent is needed for personal accounts.
    - Authentication: no implicit grant, no ID tokens from the authorization endpoint, no public
      client flows. Koyomi uses the authorization-code flow with PKCE and the secret.

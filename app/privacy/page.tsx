@@ -70,12 +70,16 @@ export default function Privacy() {
       <List>
         <li>to sign you in, which tells Koyomi which Microsoft account it is (openid);</li>
         <li>to go on reading what you allow until you disconnect, without asking each time (offline_access);</li>
-        <li>to read basic details of your calendars, which leaves out the body of an event, its attachments and its extensions (Calendars.ReadBasic).</li>
+        <li>to read your calendars (Calendars.Read).</li>
       </List>
       <P>
         Koyomi asks Microsoft for no other permission: not your profile, not your email address, and not calendars other people share with you.
         It cannot create, change or delete anything in your Microsoft calendar. A work or school account may need its organisation to approve
         Koyomi first.
+      </P>
+      <P>
+        Microsoft also has a narrower permission that leaves out an event’s body and attachments, but it does not let a personal Microsoft
+        account’s calendar be read at all, so Koyomi asks for this one. Either way, Koyomi asks Microsoft only for the details listed below.
       </P>
 
       <H2>What Koyomi reads from Microsoft</H2>

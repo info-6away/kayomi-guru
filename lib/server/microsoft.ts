@@ -13,13 +13,18 @@ import { ProviderError, type ProviderErrorKind } from './provider';
 // Microsoft Graph gives; it is followed only if it is on Graph's own origin and path.
 
 /**
- * The whole permission Koyomi asks for. `Calendars.ReadBasic` reads the person's calendars and
- * their events, except bodies, attachments and extensions, and can change nothing. `openid`
- * gives the one identifier that tells one Microsoft account from another (`accountOf`), and
- * `offline_access` a refresh token, so the calendar can be read again later without asking
- * again. No profile, no email address, no `User.Read`, nothing shared by other people.
+ * The whole permission Koyomi asks for. `Calendars.Read` reads the person's own calendars and
+ * their events, and can change nothing. `openid` gives the one identifier that tells one
+ * Microsoft account from another (`accountOf`), and `offline_access` a refresh token, so the
+ * calendar can be read again later without asking again. No profile, no email address, no
+ * `User.Read`, nothing shared by other people, nothing that writes.
+ *
+ * Not the narrower `Calendars.ReadBasic`, which leaves out bodies and attachments: Microsoft does
+ * not honour it for personal Microsoft accounts. Tried on 21 October 2026, a personal account
+ * refused every calendar read under it (403 in Graph Explorer, a bare 401 here) and allowed them
+ * under this one. Koyomi still asks Graph only for the fields it shows (MICROSOFT_EVENT_FIELDS).
  */
-export const MICROSOFT_SCOPES = ['openid', 'offline_access', 'https://graph.microsoft.com/Calendars.ReadBasic'];
+export const MICROSOFT_SCOPES = ['openid', 'offline_access', 'https://graph.microsoft.com/Calendars.Read'];
 
 export interface MicrosoftEndpoints {
   authorize: string;
@@ -188,7 +193,7 @@ export const grantedNames = (scope: string) =>
     .join(' ');
 
 /** Whether what Microsoft granted includes reading calendars. It may list more that was granted before; only this one matters. */
-export const grantsCalendars = (scope: string) => scope.split(/\s+/).some((granted) => granted.toLowerCase().split('/').pop() === 'calendars.readbasic');
+export const grantsCalendars = (scope: string) => scope.split(/\s+/).some((granted) => granted.toLowerCase().split('/').pop() === 'calendars.read');
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** How far apart Koyomi's clock and Microsoft's may be. */
