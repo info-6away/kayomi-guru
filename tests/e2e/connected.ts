@@ -127,11 +127,26 @@ export async function start(page: Page) {
   await open(page);
 }
 
+/** One account's own line in Calendars, which opens and folds it. */
+export const accountLine = (page: Page, address: string) => group(page, address).locator('[data-account]');
+
+/**
+ * Opens every account that is folded. With several accounts connected each starts as one line;
+ * the tests that are not about that want to reach their calendars as they always could.
+ */
+export async function unfold(page: Page) {
+  const folded = view(page).locator('[data-account][aria-expanded="false"]');
+  for (let left = await folded.count(); left > 0; left = await folded.count()) await folded.first().click();
+}
+
+/** Opens Calendars, with every account in it opened. */
 export async function openCalendars(page: Page) {
-  if (await view(page).isVisible()) return;
-  if (mobile(page)) await calendarsButton(page).tap();
-  else await page.keyboard.press('c');
-  await expect(view(page)).toBeVisible();
+  if (!(await view(page).isVisible())) {
+    if (mobile(page)) await calendarsButton(page).tap();
+    else await page.keyboard.press('c');
+    await expect(view(page)).toBeVisible();
+  }
+  await unfold(page);
 }
 
 export async function closeDrawer(page: Page) {
@@ -182,6 +197,7 @@ export async function connectMicrosoft(page: Page, account: string, address: str
   await openCalendars(page);
   await addAt(page, 'Microsoft');
   await expect(group(page, address)).toBeVisible({ timeout: 15_000 });
+  await unfold(page);
   await expect(group(page, address).getByRole('switch').first()).toBeVisible();
   await expect(view(page).getByText('Refreshing…')).toHaveCount(0, { timeout: 15_000 });
 }
@@ -196,8 +212,15 @@ export const pick = (page: Page, googleAccount: string) => page.context().addCoo
 export async function connect(page: Page) {
   await openCalendars(page);
   await addAt(page, 'Google');
-  // Two round trips and a first reading: allow for a busy machine.
-  await expect(toggle(page, 'Personal')).toBeVisible({ timeout: 15_000 });
+  // Two round trips and a first reading: allow for a busy machine. Beside another account it
+  // arrives folded, so it is opened as it comes.
+  await expect
+    .poll(async () => {
+      await unfold(page);
+      return toggle(page, 'Personal').count();
+    }, { timeout: 15_000 })
+    .toBeGreaterThan(0);
+  await expect(toggle(page, 'Personal')).toBeVisible();
   await expect(view(page).getByText(/^Read \d/)).toBeVisible();
 }
 
@@ -210,6 +233,7 @@ export async function connectAlso(page: Page, googleAccount: string, address: st
   await openCalendars(page);
   await addAt(page, 'Google');
   await expect(group(page, address)).toBeVisible({ timeout: 15_000 });
+  await unfold(page);
   await expect(group(page, address).getByRole('switch').first()).toBeVisible();
   await expect(view(page).getByText('Refreshing…')).toHaveCount(0, { timeout: 15_000 });
 }

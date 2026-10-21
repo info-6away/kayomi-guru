@@ -99,10 +99,10 @@ connected. It took over Plan's place exactly, so nothing about the frame moved:
   It opens the same bottom sheet.
 - **The drawer is a list, not a settings page.** "Koyomi", always shown and ticked. Then, under
   a small "GOOGLE" heading, and a "MICROSOFT" one below it in the same style, each connected
-  account: its address as a quiet line with "Disconnect" as text beside it, and its calendars
-  under it, each a row that is on (a tick) or off (a ring). A heading is there only when an
-  account is under it. Then "＋ Add calendar account", drawn like Plan's old "＋ Add" row. Where
-  both providers are offered, pressing it opens two quiet rows under it, "Google" and
+  account: its address as a quiet line, and its calendars under it, each a row that is on (a
+  tick) or off (a ring), then "Disconnect" as small text at the end, on the right. A heading is
+  there only when an account is under it. Then "＋ Add calendar account", drawn like Plan's old
+  "＋ Add" row. Where both providers are offered, pressing it opens two quiet rows under it, "Google" and
   "Microsoft", in the row's own type and indented to its text, and nothing more; pressing it
   again closes them. Where only one is offered, it goes straight there. With nothing connected,
   one sentence under it says what adding an account means, naming the providers offered, with a
@@ -110,6 +110,12 @@ connected. It took over Plan's place exactly, so nothing about the frame moved:
   Refresh and when things were last read are text at the foot, with "Install Koyomi" when the
   browser offers it. No avatars, no provider logos, no account screen, nothing about how an
   account is connected.
+- **With more than one account, each is one line until it is opened.** The address, how many of
+  its calendars are shown ("2 of 3") in muted figures, and a small "›" that turns down when it is
+  open. Pressing the line opens or folds it; the calendars and Disconnect are only inside. Each
+  device remembers which it has open. An account that needs reconnecting, or can't be read,
+  opens by itself; if the person folds it, its line says so instead of the count. With one
+  account there is nothing to fold, and its calendars are simply there.
 - **Accounts are told apart by their address and nothing else.** No colour for each account, on
   the list or on the calendar.
 
@@ -128,7 +134,8 @@ pictures with Microsoft with `npm run screenshots -- --microsoft`.
 | --- | --- |
 | Desktop Week with Google events | [light](desktop-week-google-light.png), [dark](desktop-week-google-dark.png) |
 | A Google event open | [desktop-google-event-light.png](desktop-google-event-light.png) |
-| Calendars with two accounts | [desktop-calendars-light.png](desktop-calendars-light.png) |
+| Calendars with two accounts, folded | [desktop-calendars-light.png](desktop-calendars-light.png) |
+| Calendars with one account opened | [desktop-calendars-open-light.png](desktop-calendars-open-light.png) |
 | Phone Calendars with two accounts | [mobile-calendars-google-light.png](mobile-calendars-google-light.png) |
 | Phone Day with Google events | [mobile-day-google-light.png](mobile-day-google-light.png) |
 | Calendars with Google and Microsoft accounts | [desktop-calendars-microsoft-light.png](desktop-calendars-microsoft-light.png) |
@@ -160,7 +167,8 @@ pictures with Microsoft with `npm run screenshots -- --microsoft`.
   all. The words name the provider of the accounts concerned: "Microsoft calendar needs
   reconnecting", and "Calendars need reconnecting" or "your calendars" where both are. A
   Microsoft account that Microsoft will not let be read at all says so under it in one muted
-  line, with nothing to press but Disconnect.
+  line, with nothing to press but Disconnect. Folded, these show on the account's own line as
+  "Needs reconnecting" or "Can’t be read".
 
 ## Differences from the prototype
 

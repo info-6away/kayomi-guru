@@ -15,6 +15,20 @@ const GROUP = 'px-3.5 text-[10.5px] tracking-[.18em] text-dow';
 /** What Koyomi reads from a connected calendar, where it is kept and what it is used for. */
 const PRIVACY = 'https://koyomi.guru/privacy';
 
+/**
+ * Which accounts the person has opened or closed in Calendars, on this device: a convenience,
+ * nothing more. Without it every account starts as it would on a new device.
+ */
+const FOLDS = 'koyomi-calendars-open';
+const readFolds = (): Record<string, boolean> => {
+  try {
+    const kept = JSON.parse(localStorage.getItem(FOLDS) ?? '{}');
+    return kept && typeof kept === 'object' ? kept : {};
+  } catch {
+    return {};
+  }
+};
+
 const readAt = (iso: string) => {
   const d = new Date(iso);
   const sameDay = d.toDateString() === new Date().toDateString();
@@ -49,6 +63,20 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
   // What the words below are about: the providers of the accounts there are, or that could be added.
   const connected = which(connections.map((connection) => connection.provider));
   const offered = which(providers);
+  // With several accounts, each is one line until it is opened: its address, how many of its
+  // calendars are shown, and the way in. With one, there is nothing to fold away.
+  const [folds, setFolds] = useState<Record<string, boolean>>({});
+  useEffect(() => setFolds(readFolds()), []);
+  const fold = (id: string, opened: boolean) =>
+    setFolds((now) => {
+      const next = { ...now, [id]: opened };
+      try {
+        localStorage.setItem(FOLDS, JSON.stringify(next));
+      } catch {
+        // No storage: the choice lasts as long as this page.
+      }
+      return next;
+    });
 
   return (
     <section
@@ -97,38 +125,63 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
                 // An account is known by its address. Until that has been read, by what it is.
                 const name = connection.account ?? provider.unnamed;
                 const own = calendars.filter((calendar) => calendar.connectionId === connection.id);
+                // Open where the person opened it; otherwise when it is the only account, or when
+                // something about it needs them.
+                const opened = folds[connection.id] ?? (connections.length === 1 || connection.status !== 'connected');
+                const shown = own.filter((calendar) => calendar.visible).length;
+                // Folded, what needs the person is said on the account's own line. Open, it is said below.
+                const attention = connection.status === 'reconnect' ? 'Needs reconnecting' : connection.status === 'blocked' ? 'Can’t be read' : null;
+                const summary = attention ? (opened ? '' : attention) : own.length ? `${shown} of ${own.length}` : '';
+                const body = `account-${connection.id}`;
                 return (
-                  <div key={connection.id} role="group" aria-label={name} className="mt-1.5">
-                    <div className="flex min-h-9 items-center gap-3 px-3.5">
-                      <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink2">{name}</span>
-                      <button onClick={() => void disconnect(connection.id)} disabled={syncing} aria-label={`Disconnect ${name}`} className={`flex-none text-[12px] text-muted ${QUIET}`}>
-                        Disconnect
-                      </button>
-                    </div>
-                    {own.map((c) => (
-                      <button
-                        key={c.id}
-                        role="switch"
-                        aria-checked={c.visible}
-                        onClick={() => void showCalendar(c.id, !c.visible)}
-                        className={`${ROW} w-full text-left text-[15px] hover:bg-wash ${mobile ? 'min-h-[52px]' : ''}`}
-                      >
-                        <span className={`min-w-0 flex-1 truncate ${c.visible ? 'text-ink' : 'text-ink2'}`}>{c.name}</span>
-                        {c.visible ? <span className="text-ink2">✓</span> : <span className="mr-px size-2.5 rounded-full border border-ink2" />}
-                      </button>
-                    ))}
-                    {!own.length && connection.status === 'connected' && <p className="px-3.5 py-2 text-[13px] text-muted">{syncing ? 'Reading its calendars…' : 'No calendars yet.'}</p>}
-                    {/* Only when the provider itself has refused this account's permission. The others carry on. */}
-                    {connection.status === 'reconnect' && (
-                      <div className={`${ROW} text-[13px] text-ink2`}>
-                        <span className="flex-1">Needs reconnecting</span>
-                        <button onClick={() => reconnect(connection)} aria-label={`Reconnect ${name}`} className={PILL}>
-                          Reconnect
-                        </button>
+                  <div key={connection.id} role="group" aria-label={name} className="mt-1">
+                    <button
+                      data-account
+                      aria-expanded={opened}
+                      aria-controls={body}
+                      onClick={() => fold(connection.id, !opened)}
+                      className={`${ROW} w-full text-left hover:bg-wash ${mobile ? 'min-h-[52px]' : ''}`}
+                    >
+                      <span className="min-w-0 flex-1 truncate text-[14px] text-ink2">{name}</span>
+                      {summary && <span className="flex-none text-[12px] text-muted tabular-nums">{summary}</span>}
+                      <span aria-hidden className={`w-3 flex-none text-center text-[14px] text-muted transition-transform duration-150 ${opened ? 'rotate-90' : ''}`}>
+                        ›
+                      </span>
+                    </button>
+                    {opened && (
+                      <div id={body}>
+                        {own.map((c) => (
+                          <button
+                            key={c.id}
+                            role="switch"
+                            aria-checked={c.visible}
+                            onClick={() => void showCalendar(c.id, !c.visible)}
+                            className={`${ROW} w-full text-left text-[15px] hover:bg-wash ${mobile ? 'min-h-[52px]' : ''}`}
+                          >
+                            <span className={`min-w-0 flex-1 truncate ${c.visible ? 'text-ink' : 'text-ink2'}`}>{c.name}</span>
+                            {c.visible ? <span className="text-ink2">✓</span> : <span className="mr-px size-2.5 rounded-full border border-ink2" />}
+                          </button>
+                        ))}
+                        {!own.length && connection.status === 'connected' && <p className="px-3.5 py-2 text-[13px] text-muted">{syncing ? 'Reading its calendars…' : 'No calendars yet.'}</p>}
+                        {/* Only when the provider itself has refused this account's permission. The others carry on. */}
+                        {connection.status === 'reconnect' && (
+                          <div className={`${ROW} text-[13px] text-ink2`}>
+                            <span className="flex-1">Needs reconnecting</span>
+                            <button onClick={() => reconnect(connection)} aria-label={`Reconnect ${name}`} className={PILL}>
+                              Reconnect
+                            </button>
+                          </div>
+                        )}
+                        {/* Not something consenting again would mend, so there is nothing to press but Disconnect. */}
+                        {connection.status === 'blocked' && <p className="px-3.5 py-2 text-[13px] text-muted">{provider.blocked}</p>}
+                        {/* Last, and only once the account is opened: ending it is never one stray tap away. */}
+                        <div className="flex min-h-9 items-center justify-end px-3.5">
+                          <button onClick={() => void disconnect(connection.id)} disabled={syncing} aria-label={`Disconnect ${name}`} className={`text-[12px] text-muted ${QUIET}`}>
+                            Disconnect
+                          </button>
+                        </div>
                       </div>
                     )}
-                    {/* Not something consenting again would mend, so there is nothing to press but Disconnect. */}
-                    {connection.status === 'blocked' && <p className="px-3.5 py-2 text-[13px] text-muted">{provider.blocked}</p>}
                   </div>
                 );
               })}
