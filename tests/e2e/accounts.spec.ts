@@ -6,6 +6,7 @@ import {
   ME,
   NOW,
   actAs,
+  accountLine,
   addAt,
   addButton,
   allDay,
@@ -114,6 +115,55 @@ async function both(page: Page, id: string) {
 test.describe.configure({ timeout: 90_000 });
 /** For an answer on its way back through the server: allow for a busy machine, as `connect` does. */
 const BACK = { timeout: 15_000 };
+
+test.describe('Calendars with several accounts', () => {
+  test('each account is one line until it is opened: its address and how many of its calendars are shown', async ({ page, id }) => {
+    const other = await both(page, id);
+    // As a device that has never opened either: what the tests opened on the way is forgotten.
+    await page.evaluate(() => localStorage.removeItem('koyomi-calendars-open'));
+    await reload(page);
+    await page.keyboard.press('c');
+    await expect(view(page)).toBeVisible();
+
+    // Two lines, folded: nothing of either account's calendars, and no Disconnect to hit by mistake.
+    await expect(accountLine(page, ME)).toHaveAttribute('aria-expanded', 'false');
+    await expect(accountLine(page, THEM)).toHaveAttribute('aria-expanded', 'false');
+    await expect(accountLine(page, ME)).toHaveText(`${ME}2 of 3›`);
+    await expect(accountLine(page, THEM)).toHaveText(`${THEM}3 of 3›`);
+    await expect(view(page).getByRole('switch')).toHaveCount(0);
+    await expect(view(page).getByRole('button', { name: /^Disconnect/ })).toHaveCount(0);
+    await expect(view(page).getByRole('button', { name: 'Refresh' })).toBeVisible();
+
+    // One opened: its calendars and its own Disconnect, last. The other stays as it was.
+    await accountLine(page, ME).click();
+    await expect(accountLine(page, ME)).toHaveAttribute('aria-expanded', 'true');
+    await expect(group(page, ME).getByRole('switch')).toHaveText(['Personal✓', 'Holidays', 'Work✓']);
+    await expect(disconnectButton(page, ME)).toBeVisible();
+    await expect(group(page, THEM).getByRole('switch')).toHaveCount(0);
+    // Hiding one says so on its line straight away.
+    await toggle(page, 'Work', ME).click();
+    await expect(accountLine(page, ME)).toHaveText(`${ME}1 of 3›`);
+
+    // Remembered on this device, account by account.
+    await reload(page);
+    await page.keyboard.press('c');
+    await expect(accountLine(page, ME)).toHaveAttribute('aria-expanded', 'true');
+    await expect(accountLine(page, THEM)).toHaveAttribute('aria-expanded', 'false');
+    await accountLine(page, ME).click();
+    await expect(group(page, ME).getByRole('switch')).toHaveCount(0);
+
+    // An account that needs the person opens by itself, with what to do.
+    await google.becomes(other, { revoked: true });
+    await view(page).getByRole('button', { name: 'Refresh' }).click();
+    await expect(accountLine(page, THEM)).toHaveAttribute('aria-expanded', 'true', BACK);
+    await expect(group(page, THEM).getByRole('button', { name: 'Reconnect' })).toBeVisible();
+    // One the person folded themselves stays folded, and says it on its line instead.
+    await google.becomes(id, { revoked: true });
+    await view(page).getByRole('button', { name: 'Refresh' }).click();
+    await expect(accountLine(page, ME)).toHaveText(`${ME}Needs reconnecting›`, BACK);
+    await expect(accountLine(page, ME)).toHaveAttribute('aria-expanded', 'false');
+  });
+});
 
 test.describe('adding a second account', () => {
   test('goes to Google to choose it, leaves the first as it was, and shows both under their addresses', async ({ page, id }) => {

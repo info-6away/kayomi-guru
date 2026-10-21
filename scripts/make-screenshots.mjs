@@ -136,7 +136,8 @@ async function connect({ context, page }, mobile, who) {
     if (!(await calendars.isVisible())) await openCalendars(page, mobile);
     await page.getByRole('button', { name: 'Add calendar account' }).click();
     await calendars.getByRole('button', { name: 'Google', exact: true }).click();
-    await calendars.getByRole('group', { name: account.calendars[0].id }).getByRole('switch').first().waitFor();
+    // Beside another account it arrives folded, as one line: that line is what there is to wait for.
+    await calendars.getByRole('group', { name: account.calendars[0].id }).locator('[data-account]').waitFor();
     await calendars.getByText('Refreshing…').waitFor({ state: 'detached' });
   }
   await page.getByText(/^Read \d/).waitFor();
@@ -153,7 +154,7 @@ async function connectMicrosoft({ context, page }, mobile, who) {
     if (!(await calendars.isVisible())) await openCalendars(page, mobile);
     await page.getByRole('button', { name: 'Add calendar account' }).click();
     await calendars.getByRole('button', { name: 'Microsoft', exact: true }).click();
-    await calendars.getByRole('group', { name: account.address }).getByRole('switch').first().waitFor();
+    await calendars.getByRole('group', { name: account.address }).locator('[data-account]').waitFor();
     await calendars.getByText('Refreshing…').waitFor({ state: 'detached' });
   }
 }
@@ -177,7 +178,13 @@ if (process.argv.includes('--connected')) {
   for (const theme of ['light', 'dark']) {
     const desktop = await openApp(browser, { ...DESKTOP, colorScheme: theme });
     await connect(desktop, false, `pictures-desktop-${theme}`);
-    if (theme === 'light') await shot(desktop.page, 'docs/design/desktop-calendars-light.png');
+    if (theme === 'light') {
+      await shot(desktop.page, 'docs/design/desktop-calendars-light.png');
+      // One account opened: its calendars, and its Disconnect last.
+      await desktop.page.locator('[data-account]').first().click();
+      await shot(desktop.page, 'docs/design/desktop-calendars-open-light.png');
+      await desktop.page.locator('[data-account]').first().click();
+    }
     await desktop.page.keyboard.press('c');
     await shot(desktop.page, `docs/design/desktop-week-google-${theme}.png`);
     if (theme === 'light') {
