@@ -19,6 +19,7 @@ import {
   listCalendars,
   listEvents,
   microsoftEndpoints,
+  refusalOf,
   readCalendar,
   refreshAccess,
   type MicrosoftClient,
@@ -244,6 +245,18 @@ test('what Microsoft says beside its codes never reaches the log: no token, no a
   } finally {
     console.error = real;
   }
+});
+
+test('a sign-in Microsoft sends back refused says why by its codes alone, and which only an administrator can lift', () => {
+  const back = (query: Record<string, string>) => refusalOf(new URLSearchParams(query));
+  // "Cancel", as Microsoft words it: the person's own choice.
+  expect(back({ error: 'access_denied', error_subcode: 'cancel', error_description: 'AADSTS65004: User declined to consent to access the app.\r\nTrace ID: 0000aaaa-11bb-cccc-dd22-eeeeee333333' })).toEqual({ needsAdmin: false, codes: 'access_denied cancel AADSTS65004' });
+  // An organisation that approves apps for its people.
+  for (const number of ['65001', '90093', '90094', '90095']) {
+    expect(back({ error: 'access_denied', error_description: `AADSTS${number}: pat@example.com needs admin approval.` })).toEqual({ needsAdmin: true, codes: `access_denied AADSTS${number}` });
+  }
+  // Nothing else in the description is kept, and a code not shaped like one is left out.
+  expect(back({ error: 'pat@example.com', error_subcode: 'eyJ0eXAi OiJKV1Qi', error_description: 'Trace ID: 8478d534-5b2c AADSTS for pat@example.com' })).toEqual({ needsAdmin: false, codes: '' });
 });
 
 test('each of Graph’s refusals has its own word: wait, a new access token, an account that cannot be read, a calendar that is gone', async () => {

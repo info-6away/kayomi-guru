@@ -333,13 +333,13 @@ test.describe('adding a Microsoft account', () => {
     expect((await microsoft.asked(pat)).log.filter((entry) => entry.type === 'grant')).toHaveLength(2);
   });
 
-  test('cancelling, an organisation that must approve first, or a sign-in without the calendar permission connects nothing, and says so', async ({ page, context, id }) => {
+  test('cancelling, an organisation that must approve first, its approval, or a sign-in without the calendar permission connects nothing, and says so', async ({ page, context, id }) => {
     const pat = `${id}m`;
     await microsoft.has(pat, personal());
     await start(page);
     for (const [who, said] of [
       [`deny:${pat}`, 'Microsoft calendar was not connected.'],
-      [`admin:${pat}`, 'Microsoft calendar was not connected.'],
+      [`admin:${pat}`, 'Your organisation’s Microsoft administrator needs to approve Koyomi first.'],
       [`partial:${pat}`, 'Koyomi needs permission to read your calendars, so nothing was connected.'],
     ]) {
       await context.addCookies([{ name: 'fake_microsoft', value: who, url: FAKE }]);
@@ -348,6 +348,11 @@ test.describe('adding a Microsoft account', () => {
       await expect(view(page).getByRole('status')).toHaveText(said, BACK);
       await expect(nothingConnected(page)).toBeVisible();
     }
+    // An administrator back from approving Koyomi for everyone there, by Microsoft's admin consent
+    // link: it is said, and nobody was connected by it.
+    await page.goto('/api/microsoft/callback?admin_consent=True&tenant=00000000-0000-0000-0000-000000000001&scope=openid');
+    await expect(view(page).getByRole('status')).toHaveText('Koyomi is approved for your organisation. Its people can now add their Microsoft calendars.', BACK);
+    await expect(nothingConnected(page)).toBeVisible();
     expect(await page.evaluate(() => indexedDB.databases())).toEqual([{ name: 'kayomi', version: 1 }]);
     expect(await page.evaluate(() => localStorage.getItem('koyomi-calendars'))).toBeNull();
     expect(await (await page.request.get('/api/calendars')).json()).toEqual({ connections: [] });

@@ -3,7 +3,7 @@ import { homeFor, takeFlow } from '@/lib/server/connecting';
 import { accountKey, sealContext } from '@/lib/server/connections';
 import { connectionsConfig } from '@/lib/server/env';
 import { report } from '@/lib/server/log';
-import { accountOf, exchangeCode, grantedNames, grantsCalendars } from '@/lib/server/microsoft';
+import { accountOf, exchangeCode, grantedNames, grantsCalendars, refusalOf } from '@/lib/server/microsoft';
 import { seal } from '@/lib/server/seal';
 
 export const dynamic = 'force-dynamic';
@@ -25,8 +25,17 @@ export async function GET(request: Request) {
   const { url, user, flow } = await takeFlow(request, config, 'microsoft');
 
   // "Cancel" on Microsoft's screen, or a work account whose organisation has not let its people
-  // allow Koyomi: Microsoft has already said which, on its own screen.
-  if (url.searchParams.has('error')) return home('cancelled');
+  // allow Koyomi: Microsoft's number for it says which. The log has its codes and nothing else.
+  if (url.searchParams.has('error')) {
+    const refusal = refusalOf(url.searchParams);
+    console.log(`[calendars] microsoft: a sign-in came back refused: ${refusal.codes || 'no code'}`);
+    return home(refusal.needsAdmin ? 'approval' : 'cancelled');
+  }
+
+  // An administrator back from approving Koyomi for their whole organisation, by Microsoft's
+  // admin consent link. Nobody was connected by it, so there is no code. Microsoft's word that it
+  // was approved is only shown back to whoever followed the link; it changes nothing here.
+  if (url.searchParams.get('admin_consent')?.toLowerCase() === 'true' && !url.searchParams.has('code')) return home('approved');
 
   // Honoured only for the browser that started it (the sealed cookie), for the state that was
   // sent, within ten minutes, for Microsoft, and for the person who started it.
