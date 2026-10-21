@@ -6,7 +6,7 @@ import { A, H2, LegalPage, List, Mail, OPERATOR, P, legalMetadata } from '@/comp
 
 export const metadata = legalMetadata('Privacy', 'What Koyomi keeps, where it keeps it, and what it is used for.', '/privacy');
 
-const UPDATED = '14 October 2026';
+const UPDATED = '21 October 2026';
 
 export default function Privacy() {
   return (
