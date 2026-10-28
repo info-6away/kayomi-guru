@@ -1,8 +1,9 @@
 # Calendar connections
 
-Koyomi shows calendars from elsewhere beside its own. There are two providers, Google Calendar
-and Microsoft (Outlook, for personal and for work or school accounts). Both are read-only, and a
-person can connect as many accounts at each as they have, side by side.
+Koyomi shows calendars from elsewhere beside its own. There are three providers: Google Calendar,
+Microsoft (Outlook, for personal and for work or school accounts), and Yahoo Calendar (by
+CalDAV, with an app password). All three are read-only, and a person can connect as many
+accounts at each as they have, side by side.
 
 - External calendars are **context**: meetings that already occupy the time.
 - Koyomi's own calendar is **yours to write in**: what you decide to do with the rest.
@@ -380,6 +381,100 @@ The administrator can take it back under Enterprise applications in Microsoft En
 answers with the client id, which is how Microsoft confirms that `koyomi.guru` is the app's
 publisher domain.
 
+## Yahoo
+
+Yahoo Calendar, read through Yahoo's documented CalDAV service at
+`https://caldav.calendar.yahoo.com`, with the person's Yahoo email and an **app password** they
+create for Koyomi at Yahoo (Account Security, then External connections, then Create app
+password). Koyomi never asks for the normal Yahoo password. Yahoo's OAuth has a calendar scope,
+but it is not offered to apps without Yahoo's commercial approval, so CalDAV is the way in. It is
+on by one setting, `YAHOO_CALENDAR=on`; without it Yahoo is not offered.
+
+**Connecting.** There is no Yahoo page to send anyone to, so Calendars asks for the two things in
+a small form (`YahooForm` in `components/CalendarsPanel.tsx`), after a 6Away sign-in if there is
+none. They are posted once, as JSON, to `POST /api/yahoo/connect`, from the app's own origin. The
+server checks them with Yahoo at once (CalDAV discovery, below) and keeps them only if Yahoo
+says yes: sealed together, as the connection's secret, with AES-256-GCM, bound to the row as
+every provider's token is. They are never sent back, logged or kept anywhere in the browser,
+whose form lets go of the password as it sends it. One person may try five times in ten
+minutes, so that Koyomi is no way to guess at Yahoo passwords. Reconnecting asks only for a new
+app password: the account is the same one, so it is the same row, with the same connection id.
+
+**What an app password is.** Yahoo does not limit one to the calendar: it may also open the
+person's mail. Koyomi uses it only for CalDAV, read only, at Yahoo's one server, and the Privacy
+page says so plainly.
+
+**Discovery** (`discover` in `lib/server/yahoo.ts`):
+
+1. `PROPFIND /.well-known/caldav` (Depth 0, `current-user-principal`). Yahoo answers with a 301
+   to `/principals/` on the same server, which is followed.
+2. The principal it names (`/principals/users/<email>/`): `PROPFIND` for `calendar-home-set`.
+3. The calendar home: `PROPFIND` (Depth 1) for `resourcetype`, `displayname`,
+   `supported-calendar-component-set` and `current-user-privilege-set`. Collections of events
+   are the calendars; lists of tasks are left out; one the person may not change starts hidden.
+
+The account is known to the table by a keyed hash of its principal, which is made from its
+address, in any case. Every request carries Basic credentials, because Yahoo's refusal is a
+JSON 401 with no `WWW-Authenticate` challenge.
+
+**Read only, and one server only** (`lib/server/caldav.ts`). The client sends `PROPFIND` and
+`REPORT` and nothing else: it refuses any other method before anything is sent, and the tests
+also check that no method that writes is named in the code. Every request goes to Yahoo's one
+origin; a redirect is followed only within it, three times at most; an address in an answer that
+leads anywhere else is ignored; and a calendar a browser names is read only if it lies in that
+account's own calendar home, found when it was connected. Answers are read as XML with
+namespaces (`@xmldom/xmldom`), no larger than 10 MB, and any with a document type declaration
+is refused.
+
+**Reading events.** Yahoo has no sync token and does not expand repeating events, and it
+matches a repeating event to a span only by its first occurrence. So each refresh is a whole
+reading of each shown calendar, in two `calendar-query` REPORTs: the span itself, and the five
+years before it with `prop-filter RRULE`, for series that began earlier (without the filter if
+Yahoo refuses it, keeping only what repeats). If the look back cannot be had at all (too large,
+unreadable, or 403), the span is used without it, and the log says so. Both ask for the parts of
+an event Koyomi reads, by name; a server that sends whole events anyway is answered the same way,
+and one that sends none of the parts is asked again for whole events, because everything else is
+dropped as it is read. Events are read with `ical.js` (`lib/calendars/ical.ts`): UID, SUMMARY,
+DTSTART, DTEND or DURATION, all-day dates, TZID, RRULE, RDATE, EXDATE, RECURRENCE-ID, STATUS and
+LAST-MODIFIED. Each occurrence in the span is an event of its own, named `UID::<its start>`;
+excluded ones are left out, changed ones are as changed (moved, renamed, cancelled), and the
+series itself is never one more. Times in a zone the runtime knows by name are read by that zone's
+rules, so a meeting at nine stays at nine across a change of clocks; a zone the object defines
+itself is read by that definition; a time with no zone is read as UTC. Yahoo has no address for a
+single event, so there is no "Open in…" for one.
+
+**Bounds on working events out.** Anyone who can send the person an invitation can put an event
+in their calendar, so expanding repeating events is bounded. A rule is stepped no further than
+the span (`ical.js` is given an end of its own past it, and a rule's own UNTIL is compared as an
+instant); a daily or weekly rule with no COUNT, BYSETPOS, BYWEEKNO, BYYEARDAY or time-of-day parts
+is stepped from just before the span rather than from its start, by whole periods, so it has the
+same occurrences; starts long before the span are passed over without being turned into
+instants. `ical.js` looks for a rule's next occurrence by trying one day (or hour) after another,
+and for a rule that can never happen (`BYMONTH=2;BYMONTHDAY=30` daily) it would try for ever:
+rules whose months and days of the month can never meet are not stepped, and every rule is
+allowed `MAX_TRIES` (10 000) tries and `MAX_STEPS` (20 000) occurrences. One calendar's reading
+has `READING_MS` (3 s) of working out for all of its objects together; what is not worked out in
+time is left out, and the log says so, without naming anything. Rules that repeat every second or
+minute are shown once, at their start. A `RANGE=THISANDFUTURE` exception changes only the one
+occurrence it names.
+
+**When Yahoo says no.**
+
+| Yahoo's answer | What it comes to |
+| --- | --- |
+| 401, twice, a moment apart | The app password is gone or wrong: "Needs reconnecting" on that account, and Reconnect asks for a new one |
+| 401 while connecting | "Yahoo couldn’t authenticate this app password. Create a Yahoo app password rather than using your normal Yahoo password." Nothing is kept |
+| 403 on one calendar | That calendar is passed over this time; the account's others are read |
+| 404 on one calendar | It is gone, with its events |
+| 429 | That account is left alone for as long as `Retry-After` says |
+| An answer that is not readable XML, too large, or with a DOCTYPE | That calendar keeps what it had |
+| 5xx, or no answer | Nothing is said; what was read stays |
+| A redirect to anywhere but Yahoo's own server | Not followed; the log says so, and nothing else |
+
+**Disconnecting.** Yahoo offers no way for an app to cancel an app password. Disconnect deletes
+the row, with Koyomi's only copy, and that account's part of the device's copy, and Calendars
+says where the person can delete the app password at Yahoo too.
+
 ## Privacy
 
 | | |
@@ -461,6 +556,7 @@ another's: the accounts that can be read are read.
 | Permission withdrawn or expired at Google for an account | "Needs reconnecting" under that account, and one quiet line on the calendar: "Google Calendar needs reconnecting". Events already read stay until you do. Other accounts carry on |
 | You pressed Refresh many times in a minute | Nothing. The extra requests are not sent on to Google |
 | Something at Microsoft | See "When Microsoft says no" above. Each is that account's alone |
+| Something at Yahoo | See "When Yahoo says no" above. Each is that account's alone |
 | A calendar is removed at Google | It disappears from its account's list, with its events |
 | An account disconnected on another device | This device follows the next time it looks: that account goes, the others stay |
 
@@ -654,6 +750,7 @@ the rest is there, and a session opens nothing by itself.
    | `SESSION_SECRET` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"` |
    | `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET` | From step 3 |
    | `MICROSOFT_CALENDAR_CLIENT_ID`, `MICROSOFT_CALENDAR_CLIENT_SECRET` | From step 4: the application (client) id, and the secret's value |
+   | `YAHOO_CALENDAR` | `on` to offer Yahoo. Nothing is registered at Yahoo: each person makes an app password for Koyomi themselves |
    | `TOKEN_ENCRYPTION_KEY` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
    | `DATABASE_URL` | From step 1 |
 
@@ -738,6 +835,22 @@ in gets neither account, while the first person finds both again.
   same ids, Google and Microsoft together with the same ids, disconnecting each, the races, the
   round trip under tampering, other people's connections, the old addresses and the publisher
   domain file, and a phone.
+- `tests/unit/ical.test.ts`: iCalendar becoming Koyomi's record of each occurrence: zones named,
+  defined in the object and floating, all-day days, weekly meetings across both changes of clocks,
+  excluded, moved, cancelled and added occurrences, UNTIL in UTC, a series begun long ago, one
+  that never ends, and nothing kept that Koyomi does not show.
+- `tests/unit/yahoo.test.ts`: Yahoo's discovery sequence, redirects followed only within Yahoo's
+  server, addresses in answers that lead elsewhere ignored, the calendar list, the two queries and
+  their fallback, calendars outside the account's home never asked about, each of Yahoo's
+  refusals, that nothing but `PROPFIND` and `REPORT` can be sent, XML read by namespace and
+  without a DOCTYPE, the credential sealed for its row, and the setting.
+- `tests/e2e/yahoo.spec.ts`: Yahoo in the real app, against a stand-in for its CalDAV server on an
+  origin of its own: the form, the app password nowhere in the browser or any answer, its events in
+  two device zones, wrong passwords, redirects away, the limit on tries, showing and hiding,
+  refreshes, offline, a deleted app password and reconnecting with a new one, Yahoo down or
+  answering badly, two Yahoo accounts with the same ids, Google, Microsoft and two Yahoo accounts
+  together, ownership and requests that try to name a server, a sign-in ending with the form open,
+  and a phone. Every test checks that the stand-in was never sent a request that writes.
 
 ### Checked against the real Google
 
@@ -804,3 +917,13 @@ Not yet checked against the real Google:
   checked against the real Microsoft: everything here was tested against the stand-in, which
   behaves as Microsoft's documentation says Microsoft does; how Graph gives an all-day event's
   start and end under a requested zone is not documented, and both possibilities are handled.
+- Yahoo: a repeating series that began more than five years before the span is not seen
+  (Yahoo's server matches it to a span only by its first occurrence). A time written with no
+  zone is read as UTC. A series that repeats every second or minute is shown once; one that
+  repeats hourly, or daily with a COUNT, and began long before the span may be cut short by the
+  bounds on working events out. A `RANGE=THISANDFUTURE` change applies to its one occurrence
+  only. A declined invitation is still shown: telling which reply is the
+  person's would mean reading the guest list, which Koyomi does not keep. Calendars others share
+  with the person are shown only as Yahoo lists them in the account's own home. Yahoo's app
+  passwords are not limited to the calendar, and Yahoo cannot be asked to cancel one. The limit
+  on tries is kept in each server instance's memory. Not yet checked against the real Yahoo.

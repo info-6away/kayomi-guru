@@ -5,7 +5,7 @@ your calendars.
 
 - **Koyomi's own calendar.** Events you write here are stored on the device, in the browser's
   IndexedDB. It needs no account, and none of it is sent anywhere.
-- **The calendars you already have.** Google Calendar and Microsoft (Outlook) calendars,
+- **The calendars you already have.** Google Calendar, Microsoft (Outlook) and Yahoo calendars,
   read-only, from as many accounts at each as you choose to connect, shown beside your own. That
   is the only part with a server behind it. See [Calendar connections](docs/CALENDAR_CONNECTIONS.md).
 
@@ -87,7 +87,8 @@ Day/Week/Month, where Calendars is, that nothing of Plan is left, phone layout, 
 `pwa.spec.ts` (the installed app, as above), `calendars.spec.ts` (a connected account and the
 all-day row), `accounts.spec.ts` (several connected accounts: adding, colliding ids, one failing
 or disconnected while another carries on), `microsoft.spec.ts` (Microsoft accounts, personal and
-work, alone and beside Google ones), `connection-security.spec.ts` (sign-in, the round trip
+work, alone and beside Google ones), `yahoo.spec.ts` (Yahoo accounts by CalDAV and an app
+password, beside the others), `connection-security.spec.ts` (sign-in, the round trip
 to Google, requests from other sites, and how much may be asked), `readability.spec.ts` (the
 contrast of every piece of text, in both themes, at three sizes) and `site.spec.ts` (the landing
 page, Privacy and Terms, and the host names).
@@ -110,7 +111,8 @@ memory, never in a database, whatever `DATABASE_URL` the machine happens to have
 - `lib/calendars/`: connected calendars in the browser: their own local database, filed by
   account, reading them, and where their events land on the calendar. `lib/server/`: the
   server's part: sealing tokens, the table of connections, and everything said to Google
-  (`google.ts`) and to Microsoft (`microsoft.ts`), each behind the same few calls (`providers.ts`).
+  (`google.ts`), to Microsoft (`microsoft.ts`) and to Yahoo (`yahoo.ts`, through the read-only
+  CalDAV client in `caldav.ts`), each behind the same few calls (`providers.ts`).
 - `public/sw.js`: the service worker that keeps the app shell available offline.
 - `scripts/`: `make-icons.mjs` draws the icons and `make-screenshots.mjs` takes the pictures in
   `docs/design` and the manifest. `migrate.mjs` applies `migrations/` (one table).

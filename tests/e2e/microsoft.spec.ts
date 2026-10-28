@@ -160,7 +160,7 @@ test.describe('adding a Microsoft account', () => {
     await pickMicrosoft(page, pat);
     await start(page);
     await openCalendars(page);
-    await expect(view(page)).toContainText('Koyomi can show your Google and Microsoft calendars beside your own, to read only.');
+    await expect(view(page)).toContainText('Koyomi can show your Google, Microsoft and Yahoo calendars beside your own, to read only.');
 
     // Pressing Add calendar account asks where, quietly, and nothing more.
     await expect(choice(page, 'Microsoft')).toHaveCount(0);

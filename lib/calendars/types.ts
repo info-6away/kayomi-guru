@@ -5,9 +5,9 @@
 // the very same ids at their provider. So everything here is named by its connection first, and
 // nothing read from one account can stand in the place of something read from another.
 
-export type Provider = 'google' | 'microsoft';
+export type Provider = 'google' | 'microsoft' | 'yahoo';
 /** Every provider Koyomi can read from, in the order they are offered and listed. */
-export const PROVIDERS: readonly Provider[] = ['google', 'microsoft'];
+export const PROVIDERS: readonly Provider[] = ['google', 'microsoft', 'yahoo'];
 
 /** A calendar among everything connected on this device: `${connectionId}:${calendarId}`. */
 export const calendarKey = (connectionId: string, calendarId: string) => `${connectionId}:${calendarId}`;
@@ -138,6 +138,7 @@ export interface EventsResponse {
  * - `busy`: the provider is unavailable or limiting requests; try later.
  * - `slow_down`: this account has been asked about too often, here or by the provider; try later.
  * - `blocked`: the provider will not let that account's calendar be read at all.
+ * - `refused`: the provider did not accept the credential just given for an account (Yahoo's app password).
  * - `unavailable`: calendar connections are not set up on this server.
  */
-export type ApiError = 'signed_out' | 'not_connected' | 'reconnect' | 'busy' | 'slow_down' | 'blocked' | 'unavailable' | 'bad_request';
+export type ApiError = 'signed_out' | 'not_connected' | 'reconnect' | 'busy' | 'slow_down' | 'blocked' | 'refused' | 'unavailable' | 'bad_request';

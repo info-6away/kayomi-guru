@@ -50,6 +50,22 @@ export interface External {
   syncing: boolean;
   /** The last thing asked for did not happen, in words for the person. */
   note: string | null;
+  /** What the person is being asked for in Calendars, where a provider has no page to send them to (Yahoo). */
+  asking: Asking | null;
+}
+
+/**
+ * Yahoo's app password, asked for in Calendars itself. Only what the form needs: never the
+ * password, which lives in the form for the moment it takes to send and nowhere else.
+ */
+export interface Asking {
+  provider: 'yahoo';
+  /** The account being reconnected, whose address is known already; null when adding one. */
+  connection: ExternalConnection | null;
+  /** Why the last try did not connect, in words for the person. */
+  error: string | null;
+  /** A try is on its way to Yahoo. */
+  sending: boolean;
 }
 
 /** Remembers that a calendar is connected, so the first thing a visit does is not a request. Not a credential. */
@@ -60,7 +76,7 @@ const EVERY_MS = 15 * 60_000;
 /** The most calendars the server reads in one request. More than that are asked for in turns. */
 const BATCH = 25;
 
-const EMPTY: External = { available: false, providers: [], status: 'off', connections: [], calendars: [], events: [], syncing: false, note: null };
+const EMPTY: External = { available: false, providers: [], status: 'off', connections: [], calendars: [], events: [], syncing: false, note: null, asking: null };
 let state = EMPTY;
 const listeners = new Set<() => void>();
 function set(next: Partial<External>) {
@@ -601,10 +617,71 @@ export async function showCalendar(id: string, visible: boolean) {
  * account and for its consent. A device that shows no account yet says so by leaving `add` out:
  * if the person turns out to have accounts connected already, it is sent back to read those instead.
  */
-export const addAccount = (provider: Provider) => location.assign(`/api/${provider}/connect${state.connections.length ? '?add=1' : ''}`);
+export const addAccount = (provider: Provider) => (provider === 'yahoo' ? void askYahoo() : location.assign(`/api/${provider}/connect${state.connections.length ? '?add=1' : ''}`));
 
 /** Asks the provider of one account for its permission again. The other accounts are not involved. */
-export const reconnect = (connection: ExternalConnection) => location.assign(`/api/${connection.provider}/connect?add=1`);
+export const reconnect = (connection: ExternalConnection) => (connection.provider === 'yahoo' ? void askYahoo(connection) : location.assign(`/api/${connection.provider}/connect?add=1`));
+
+/** Where the way back from signing in leads when Yahoo's form is waiting to be shown. */
+const YAHOO_BACK = `/api/auth/signin?returnTo=${encodeURIComponent('/?calendars=yahoo')}`;
+
+/**
+ * Shows Yahoo's form in Calendars: the person's Yahoo email and an app password they make at
+ * Yahoo for Koyomi. A connection belongs to a Koyomi sign-in, so that comes first: without one,
+ * the person signs in with 6Away and is brought back to the form.
+ *
+ * @param connection The account to reconnect, whose address is known: only a new app password is asked for.
+ * @param back Already back from signing in: a sign-in that still did not take is said, not tried again.
+ */
+export async function askYahoo(connection: ExternalConnection | null = null, back = false) {
+  const signed = await call<{ ok: true }>('/api/yahoo/connect');
+  if (signed.ok) return set({ asking: { provider: 'yahoo', connection, error: null, sending: false }, note: null });
+  if (signed.error === 'signed_out' && !back) {
+    intent.leave(connection ? `yahoo:${connection.id}` : 'yahoo');
+    return location.assign(YAHOO_BACK);
+  }
+  set({ note: signed.error === 'offline' ? 'Couldn’t reach Koyomi. Try again when you’re online.' : 'Couldn’t connect to Yahoo. Try again in a moment.' });
+}
+
+/** Back from signing in on the way to Yahoo's form. A bare link opens the form and no more. */
+export async function resumeYahoo() {
+  await ready;
+  const [what, id] = intent.take()?.split(':') ?? [];
+  await askYahoo(what === 'yahoo' && id ? (state.connections.find((connection) => connection.id === id) ?? null) : null, true);
+}
+
+export const stopAsking = () => set({ asking: null });
+
+const YAHOO_SAID: Partial<Record<ApiError | 'offline', string>> = {
+  refused: 'Yahoo couldn’t authenticate this app password. Create a Yahoo app password rather than using your normal Yahoo password.',
+  bad_request: 'Enter your Yahoo email and a Yahoo app password.',
+  slow_down: 'Too many tries for now. Wait a few minutes, then try again.',
+  blocked: 'Yahoo doesn’t let Koyomi read this account’s calendar.',
+  offline: 'Couldn’t reach Koyomi. Try again when you’re online.',
+};
+
+/**
+ * Connects a Yahoo account, or reconnects the one in the form, with an app password. The
+ * password goes to Koyomi's server once, in the body of one request, and is not kept here: the
+ * form has already let go of it, and nothing of it is written to this device.
+ */
+export async function connectYahoo(email: string, appPassword: string): Promise<void> {
+  const asking = state.asking;
+  if (!asking || asking.sending) return;
+  set({ asking: { ...asking, sending: true, error: null } });
+  const done = await call<{ ok: true }>('/api/yahoo/connect', { email, appPassword });
+  if (done.ok) {
+    set({ asking: null });
+    return connected();
+  }
+  if (done.error === 'signed_out') {
+    // Signed out while the form was open. Sign in, and the form is shown again, empty.
+    intent.leave(asking.connection ? `yahoo:${asking.connection.id}` : 'yahoo');
+    location.assign(YAHOO_BACK);
+    return;
+  }
+  set({ asking: { ...asking, sending: false, error: YAHOO_SAID[done.error] ?? 'Couldn’t connect to Yahoo. Try again in a moment.' } });
+}
 
 /**
  * Called when the address says the visitor is back from giving a provider's permission. The address
@@ -648,14 +725,23 @@ export async function disconnect(id: string): Promise<void> {
   const mine = epochs[id];
   era++;
   again = false;
+  // Yahoo cannot be asked to cancel an app password, so the person is told where they can.
+  const told =
+    state.connections.find((connection) => connection.id === id)?.provider === 'yahoo'
+      ? 'Koyomi no longer keeps that Yahoo app password. To stop it working at Yahoo too, delete it there, under Account Security, External connections.'
+      : null;
   set({ syncing: true, note: null });
   const done = await call<{ ok: true }>('/api/calendars/disconnect', { connectionId: id });
   if (done.ok || done.error === 'not_connected') {
     // If another tab has begun this account's part again meanwhile, that is not this Disconnect's to end.
-    if ((await forget(id, mine)) !== 'others') return;
+    if ((await forget(id, mine)) !== 'others') {
+      if (told) set({ note: told });
+      return;
+    }
     // The server has just answered, so this device is signed in. What is still connected is
     // read afresh: whatever was being read for it when this began was let go.
     become('connected');
+    if (told) set({ note: told });
     return sync();
   }
   if (done.error === 'signed_out') {
