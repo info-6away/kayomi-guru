@@ -401,7 +401,7 @@ test.describe('reading a Microsoft account', () => {
     expect(pages.map((entry) => entry.skip)).toEqual([0, 3, 6]);
   });
 
-  test('read again with no network: everything that was read is there, and nothing is said', async ({ page, context, id }) => {
+  test('read again with no network: everything that was read is there, and Refresh says it is offline', async ({ page, context, id }) => {
     const pat = `${id}m`;
     await microsoft.has(pat, personal());
     await start(page);
@@ -415,7 +415,8 @@ test.describe('reading a Microsoft account', () => {
     await openCalendars(page);
     await expect(group(page, PAT).getByRole('switch')).toHaveCount(3);
     await refresh(page);
-    await expect(page.getByText(/reconnect|couldn’t|offline|sign in/i)).toHaveCount(0);
+    await expect(view(page).getByRole('status')).toHaveText('You seem to be offline, so your calendars couldn’t be read. Try again once you’re back online.');
+    await expect(page.getByText(/reconnect|sign in/i)).toHaveCount(0);
     await context.setOffline(false);
   });
 
@@ -444,7 +445,7 @@ test.describe('reading a Microsoft account', () => {
     expect((await listed(page)).map((entry) => [entry.connectionId, entry.state])).toEqual([[first.connectionId, 'ok']]);
   });
 
-  test('Microsoft down, or asking to wait, says nothing and keeps what was read; while it waits it is not asked again', async ({ page, id }) => {
+  test('Microsoft down, or asking to wait, keeps what was read and Refresh says so; while it waits it is not asked again', async ({ page, id }) => {
     const pat = `${id}m`;
     await microsoft.has(pat, personal());
     await start(page);
@@ -453,7 +454,8 @@ test.describe('reading a Microsoft account', () => {
     for (const fail of ['unavailable', 'throttled'] as const) {
       await microsoft.becomes(pat, { fail });
       await refresh(page);
-      await expect(page.getByText(/reconnect|couldn’t|doesn’t let/i)).toHaveCount(0);
+      await expect(view(page).getByRole('status')).toHaveText(`Couldn’t read ${PAT} just now. Try again in a moment.`);
+      await expect(page.getByText(/reconnect|doesn’t let/i)).toHaveCount(0);
       expect(await part(page, 'microsoft', PAT)).toBe(kept);
     }
     // Asked to wait thirty seconds: Microsoft is left alone until then, however often Refresh is pressed.

@@ -564,11 +564,13 @@ test.describe('how much may be asked about one account', () => {
     expect(Number(refusal.headers()['retry-after'])).toBeLessThanOrEqual(60);
     expect((await google.asked(id)).log.filter((entry) => entry.type === 'events').length).toBe(events);
 
-    // In the app this is not an error: pressing Refresh simply changes nothing, and says nothing.
+    // In the app this is not an error: pressing Refresh changes nothing, and says only that the
+    // account could not be read just now.
     await refresh(page);
     await expect(external(page, 'Dentist')).toBeVisible();
     await expect(view(page).getByRole('button', { name: 'Refresh' })).toBeEnabled();
-    await expect(page.getByText(/reconnect|sign in|couldn’t|slow|limit|too many/i)).toHaveCount(0);
+    await expect(view(page).getByRole('status')).toHaveText(`Couldn’t read ${ME} just now. Try again in a moment.`);
+    await expect(page.getByText(/reconnect|sign in|slow|limit|too many/i)).toHaveCount(0);
     expect(await page.evaluate(() => localStorage.getItem('koyomi-calendars'))).toBe('connected');
 
     // Someone else, at the same moment, is answered as usual.

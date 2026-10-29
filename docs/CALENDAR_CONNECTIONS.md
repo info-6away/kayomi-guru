@@ -351,7 +351,7 @@ the Microsoft account's privacy settings for a personal one.
 | `MailboxNotEnabledForRESTAPI`, or 403, on the calendar list | The account has no mailbox in the cloud, or its organisation forbids it. "Microsoft doesn’t let Koyomi read this account’s calendar." under it, and nothing to reconnect |
 | 403 on one calendar | That calendar is passed over this time; the account's others are read |
 | 404 on one calendar | It is gone, with its events |
-| 5xx, or no answer | Nothing is said; what was read stays |
+| 5xx, or no answer | What was read stays. A Refresh you pressed says it couldn’t read that account just now |
 
 **Work and school accounts.** Microsoft's default for an organisation's tenant does not let its
 people consent to any calendar permission themselves, `Calendars.Read` included, whether or
@@ -453,13 +453,13 @@ another's: the accounts that can be read are read.
 
 | What happened | What you see |
 | --- | --- |
-| No connection | Nothing. Events already read stay on screen |
-| Google is failing or limiting requests for an account | Nothing. That account keeps what was read of it and is tried again later; the others are read as usual |
-| The Calendar API is switched off for Koyomi's own Google Cloud project | Nothing, for accounts already connected: their connections are left as they are. Nobody is asked to reconnect, because consenting again cannot mend it. The server's log says what to switch on |
+| No connection | Events already read stay on screen. A Refresh you pressed says "You seem to be offline, so your calendars couldn’t be read. Try again once you’re back online." |
+| Google is failing or limiting requests for an account | That account keeps what was read of it and is tried again later; the others are read as usual. A Refresh you pressed says "Couldn’t read me@example.com just now. Try again in a moment." (naming each account it could not read); a reading Koyomi begins by itself says nothing |
+| The Calendar API is switched off for Koyomi's own Google Cloud project | For accounts already connected, only what a Refresh you pressed says of any account it could not read: their connections are left as they are. Nobody is asked to reconnect, because consenting again cannot mend it. The server's log says what to switch on |
 | Google will not say which account a new consent was for (as when that API is off) | "Couldn’t connect to Google Calendar. Try again in a moment." Nothing was kept, so trying again goes through Google once more |
 | Your Koyomi sign-in has ended | One quiet line: "Sign in again to update Google Calendar". Events already read stay. Signing in carries on where it left off |
 | Permission withdrawn or expired at Google for an account | "Needs reconnecting" under that account, and one quiet line on the calendar: "Google Calendar needs reconnecting". Events already read stay until you do. Other accounts carry on |
-| You pressed Refresh many times in a minute | Nothing. The extra requests are not sent on to Google |
+| You pressed Refresh many times in a minute | "Couldn’t read … just now. Try again in a moment." The extra requests are not sent on to Google |
 | Something at Microsoft | See "When Microsoft says no" above. Each is that account's alone |
 | A calendar is removed at Google | It disappears from its account's list, with its events |
 | An account disconnected on another device | This device follows the next time it looks: that account goes, the others stay |
@@ -554,7 +554,8 @@ So that one browser, or a script holding its cookie, cannot make Koyomi hammer G
   counter on each.) Past it, **Google is not asked**: reading that account's events answers
   `429` with `Retry-After`, and the list of accounts shows that one as not readable just now
   while listing the others. The app treats both like Google being busy: nothing changes on
-  screen and nothing is said. One account asked about too often does not hold back another.
+  screen, and only a Refresh the person pressed says it could not read that account just now.
+  One account asked about too often does not hold back another.
 - **The same question at the same moment is asked once.** Several tabs, a double click or a
   retry wait for the request already in flight and share its answer. In the app, asking for a
   reading while one is under way queues exactly one more, however many times it was asked.
