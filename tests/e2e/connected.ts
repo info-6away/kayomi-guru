@@ -105,14 +105,14 @@ export const group = (page: Page, address: string) => view(page).getByRole('grou
 export const toggle = (page: Page, name: string, address?: string) => (address ? group(page, address) : view(page)).getByRole('switch', { name });
 export const addButton = (page: Page) => view(page).getByRole('button', { name: 'Add calendar account' });
 /** Where to add an account, once Add calendar account has been pressed: the two quiet choices under it. */
-export const choice = (page: Page, provider: 'Google' | 'Microsoft') => view(page).getByRole('button', { name: provider, exact: true });
+export const choice = (page: Page, provider: 'Google' | 'Microsoft' | 'Calendar link') => view(page).getByRole('button', { name: provider, exact: true });
 /** Adds an account at a provider, as a person does it: Add calendar account, then which provider. */
-export async function addAt(page: Page, provider: 'Google' | 'Microsoft') {
+export async function addAt(page: Page, provider: 'Google' | 'Microsoft' | 'Calendar link') {
   await addButton(page).click();
   await choice(page, provider).click();
 }
 /** The server's addresses for connected calendars, at every provider. */
-export const CALENDAR_API = /^\/api\/(google|microsoft|calendars)(\/|$)/;
+export const CALENDAR_API = /^\/api\/(google|microsoft|link|calendars)(\/|$)/;
 export const disconnectButton = (page: Page, address?: string) => (address ? group(page, address) : view(page)).getByRole('button', { name: /^Disconnect/ });
 /** What Calendars says while no account is connected: the sentence about what adding one means. */
 export const nothingConnected = (page: Page) => view(page).getByText('It can never change them.');

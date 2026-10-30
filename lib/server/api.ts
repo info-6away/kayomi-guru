@@ -186,7 +186,8 @@ async function accessFor(ctx: Ctx, id: string, cost: number): Promise<{ token: s
       // write that does not happen loses nothing.
       await ctx.store.renewToken(ctx.subject, id, connection.sealedToken, seal(fresh.refreshToken, ctx.config.tokenKey, sealContext(connection))).catch((error) => report('renewing', error));
     }
-    access().set(id, { token: fresh.accessToken, until: Date.now() + (fresh.expiresIn - 60) * 1000 });
+    // Something good for less than a minute is not worth holding (a calendar link's, which is the link itself, is held for none).
+    if (fresh.expiresIn > 60) access().set(id, { token: fresh.accessToken, until: Date.now() + (fresh.expiresIn - 60) * 1000 });
     return fresh.accessToken;
   });
   return { token, provider };

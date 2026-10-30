@@ -31,7 +31,9 @@ function parse(body: unknown): EventsRequest | null {
     if (c.syncToken != null && (typeof c.syncToken !== 'string' || c.syncToken.length > 4096)) return null;
     calendars.push({ calendarId: c.calendarId, syncToken: c.syncToken ?? null });
   }
-  return { connectionId: b.connectionId, timeMin: new Date(from).toISOString(), timeMax: new Date(to).toISOString(), calendars };
+  // Only ever a part of the question: never used for anything else, and never passed on.
+  const epoch = typeof b.epoch === 'string' && /^[\w-]{1,64}$/.test(b.epoch) ? b.epoch : undefined;
+  return { connectionId: b.connectionId, timeMin: new Date(from).toISOString(), timeMax: new Date(to).toISOString(), calendars, ...(epoch ? { epoch } : {}) };
 }
 
 /**
@@ -48,7 +50,8 @@ export async function POST(request: Request) {
   const asked = parse(await request.json().catch(() => null));
   if (!asked) return respond(no('bad_request', 400));
 
-  // The same question from the same person at the same moment is answered once.
+  // The same question from the same person at the same moment is answered once. A question asked
+  // since that account's part of the device's copy began again (its epoch) is another question.
   const question = createHash('sha256').update(JSON.stringify(asked)).digest('base64url');
   const answer = await once(`${ctx.subject}:events:${question}`, async () =>
     answerOf(

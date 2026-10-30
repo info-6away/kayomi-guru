@@ -131,6 +131,34 @@ for (const kind of ['Postgres', 'memory'] as const) {
   });
 }
 
+for (const kind of ['Postgres', 'memory'] as const) {
+  test(`a calendar link given a new link keeps its connection, and one person's links never share a key (${kind})`, async () => {
+    const store = kind === 'Postgres' ? (await postgres()).store : memoryStore();
+    const work = await store.save('user-1', 'link', 'key-work', 'sealed-work', 'link');
+    const family = await store.save('user-1', 'link', 'key-family', 'sealed-family', 'link');
+    const theirs = await store.save('user-2', 'link', 'key-new', 'sealed-theirs', 'link');
+    await store.setStatus('user-1', work, 'reconnect');
+
+    // In place: the same connection, its new key and secret, and active again.
+    expect(await store.relink('user-1', work, 'key-new', 'sealed-new')).toBe('done');
+    expect(await store.get('user-1', work)).toMatchObject({ id: work, provider: 'link', accountKey: 'key-new', sealedToken: 'sealed-new', status: 'active' });
+    // The same link again is the same connection's own.
+    expect(await store.relink('user-1', work, 'key-new', 'sealed-newer')).toBe('done');
+    // Another of the person's calendars already has that link: refused, and nothing changes.
+    expect(await store.relink('user-1', work, 'key-family', 'sealed-x')).toBe('taken');
+    expect(await store.get('user-1', work)).toMatchObject({ accountKey: 'key-new', sealedToken: 'sealed-newer' });
+    // Someone else's connection, or none at all, is not there to change.
+    expect(await store.relink('user-2', work, 'key-z', 'sealed-z')).toBe('missing');
+    expect(await store.relink('user-1', NOBODYS, 'key-z', 'sealed-z')).toBe('missing');
+    expect(await store.relink('user-1', 'not-an-id', 'key-z', 'sealed-z')).toBe('missing');
+    expect(await store.get('user-2', theirs)).toMatchObject({ accountKey: 'key-new', sealedToken: 'sealed-theirs' });
+    expect((await store.list('user-1')).map((c) => [c.id, c.accountKey])).toEqual([
+      [work, 'key-new'],
+      [family, 'key-family'],
+    ]);
+  });
+}
+
 test('the table holds a sealed token and nothing that names the person, their account or their calendar', async () => {
   const { store, rows } = await postgres();
   const row = { subject: '3f0c7c1e-subject', provider: 'google' as const, accountKey: accountKey(KEY, '3f0c7c1e-subject', 'google', 'someone@example.com') };
