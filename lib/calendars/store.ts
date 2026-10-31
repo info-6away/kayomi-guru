@@ -16,6 +16,7 @@ import {
   type Provider,
 } from './types';
 import { covers, spanOfWindow, syncWindow, within } from './window';
+import { WORDS } from './words';
 
 // Connected calendars on this device: the accounts a person has connected, and what is known
 // of each, kept in memory and written through to their own database (db.ts). Nothing here runs,
@@ -133,8 +134,16 @@ let channel: BroadcastChannel | null = null;
 let started = false;
 /** Settles once this device's copy has been read, so nothing that follows can be overwritten by it. */
 let ready: Promise<void> = Promise.resolve();
-/** Something asked for a reading while one was under way: one more follows it, however many asked. */
-let again = false;
+/**
+ * Something asked for a reading while one was under way: one more follows it, however many
+ * asked. `asked` if the person asked for it themselves, so that it says what it could not read.
+ */
+let again: false | 'unasked' | 'asked' = false;
+/**
+ * What the reading under way could not read, if the person asked for it: the accounts, by id, or
+ * all of it at once. Null for a reading begun unasked, which says nothing of what it could not do.
+ */
+let unread: { accounts: string[]; all: 'busy' | 'offline' | null } | null = null;
 /** The address says an account was just connected, and the server has not yet confirmed it. */
 let unconfirmed = false;
 /**
@@ -335,7 +344,27 @@ async function failed(error: ApiError | 'offline', mine: string | null) {
     return become('signin');
   }
   // Offline, or the server busy: what was read before is still good. Try again later.
+  if (unread) unread.all = error === 'offline' ? 'offline' : 'busy';
   set({ syncing: false });
+  sayUnread();
+}
+
+/** Names in a sentence: "a", "a and b", "a, b and c". */
+const joined = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
+/**
+ * At the end of a reading the person asked for: what it could not read, in one quiet line. What
+ * was read before stays either way. An account the provider refuses, or will not let be read at
+ * all, says so of itself, and is not said again here.
+ */
+function sayUnread() {
+  const was = unread;
+  unread = null;
+  if (!was) return;
+  if (was.all === 'offline') return set({ note: 'You seem to be offline, so your calendars couldn’t be read. Try again once you’re back online.' });
+  if (was.all === 'busy') return set({ note: 'Couldn’t read your calendars just now. Try again in a moment.' });
+  const names = state.connections.filter((connection) => was.accounts.includes(connection.id)).map((connection) => connection.account ?? WORDS[connection.provider].unnamed);
+  if (names.length) set({ note: `Couldn’t read ${joined(names)} just now. Try again in a moment.` });
 }
 
 /**
@@ -507,7 +536,9 @@ async function refused(id: string, error: ApiError | 'offline', mine: string | u
   if (error === 'offline') {
     // No way out to the server at all: the other accounts would be told the same.
     again = false;
+    if (unread) unread.all = 'offline';
     set({ syncing: false });
+    sayUnread();
     return 'stop';
   }
   if (error === 'reconnect') {
@@ -523,7 +554,9 @@ async function refused(id: string, error: ApiError | 'offline', mine: string | u
   // Signed in, and this account is not connected: it was ended somewhere else. This device follows.
   if (error === 'not_connected' && (await forget(id, mine)) !== 'others') return 'stop';
   // The provider busy about this account, or asking for a pause, or not letting it be read at
-  // all (the next list of accounts says so of it): what was read before is still good.
+  // all (the next list of accounts says so of it): what was read before is still good. A
+  // reading the person asked for says it could not read this one, unless the list will.
+  if (error !== 'blocked' && error !== 'not_connected') unread?.accounts.push(id);
 }
 
 /**
@@ -536,18 +569,22 @@ async function refused(id: string, error: ApiError | 'offline', mine: string | u
  *
  * A reading is often begun unasked, when the page opens or comes back into view. So it leaves
  * alone what the person was last told: that goes when they next ask for something themselves.
+ * Only a reading they asked for says what it could not read.
  *
  * @param only Read just this calendar's events, without listing accounts again.
+ * @param asked The person asked for this reading (Refresh).
  */
-export async function sync(only?: CalendarRef): Promise<void> {
+export async function sync(only?: CalendarRef, asked = false): Promise<void> {
   await ready;
   if (off()) return;
   if (state.syncing) {
-    again = true;
+    if (asked || !again) again = asked ? 'asked' : 'unasked';
     return;
   }
   set({ syncing: true });
   const began = era;
+  // Only what this reading could not read is said: not what one before it could not.
+  unread = asked ? { accounts: [], all: null } : null;
 
   let round = only ? [only.connectionId] : [];
   if (!only) {
@@ -578,6 +615,8 @@ export async function sync(only?: CalendarRef): Promise<void> {
     flag.set('connected');
     set({ status: 'connected', connections: orderConnections(now.connections), calendars: order(now.calendars), events: now.events });
     round = listed.filter((entry) => entry.state === 'ok').map((entry) => entry.connectionId);
+    // Listed, but not readable just now: the provider failing, or asked too often.
+    unread?.accounts.push(...listed.filter((entry) => entry.state === 'busy').map((entry) => entry.connectionId));
   }
 
   for (const id of round) if ((await read(id, began, only?.calendarId)) === 'stop') return;
@@ -585,15 +624,21 @@ export async function sync(only?: CalendarRef): Promise<void> {
   set({ syncing: false });
   tell();
   if (again) {
+    // The one that follows says what it could not read, if this one or it was asked for.
+    const asking = asked || again === 'asked';
     again = false;
-    await sync();
+    return sync(undefined, asking);
   }
+  sayUnread();
 }
 
-/** The person asks for the calendars to be read again. Whatever they were last told, they have seen. */
+/**
+ * The person asks for the calendars to be read again. Whatever they were last told, they have
+ * seen; what this reading cannot read, they are told.
+ */
 export function refresh(): Promise<void> {
   set({ note: null });
-  return sync();
+  return sync(undefined, true);
 }
 
 /** Shows or hides one calendar. A hidden calendar is not read, and its events are not kept. */

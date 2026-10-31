@@ -692,8 +692,10 @@ test.describe('when Google or the connection fails', () => {
     await openCalendars(page);
     await refresh(page);
     await expect(toggle(page, 'Personal')).toHaveAttribute('aria-checked', 'true');
-    // Being offline is not something to reconnect, and nothing says it is.
-    await expect(page.getByText(/reconnect|couldn’t|offline/i)).toHaveCount(0);
+    // Being offline is not something to reconnect, and nothing says it is. Refresh, asked for,
+    // says why nothing changed.
+    await expect(view(page).getByRole('status')).toHaveText('You seem to be offline, so your calendars couldn’t be read. Try again once you’re back online.');
+    await expect(page.getByText(/reconnect/i)).toHaveCount(0);
     expect(await cached(page)).toEqual(before);
 
     await context.setOffline(false);
@@ -703,20 +705,28 @@ test.describe('when Google or the connection fails', () => {
     await expect(event(page, 'Written in a tunnel')).toBeVisible();
   });
 
-  test('if Google is failing or limiting requests, what was read stays and nothing is said', async ({ page, id }) => {
+  test('if Google is failing or limiting requests, what was read stays, and only a Refresh says it could not read the account', async ({ page, id }) => {
     await start(page);
     await connect(page);
     for (const fail of ['unavailable', 'limited'] as const) {
       await google.becomes(id, { fail });
       await refresh(page);
+      await expect(view(page).getByRole('status')).toHaveText(`Couldn’t read ${ME} just now. Try again in a moment.`);
       await expect(external(page, 'Dentist')).toBeVisible();
       await expect(toggle(page, 'Work')).toHaveAttribute('aria-checked', 'true');
-      await expect(page.getByText(/reconnect|couldn’t/i)).toHaveCount(0);
+      await expect(page.getByText(/reconnect/i)).toHaveCount(0);
     }
+    // A reading begun unasked says nothing of it: showing a calendar reads that one by itself.
+    await toggle(page, 'Holidays').click();
+    await expect(toggle(page, 'Holidays')).toHaveAttribute('aria-checked', 'true');
+    await expect(view(page).getByText('Refreshing…')).toHaveCount(0);
+    await expect(view(page).getByRole('status')).toHaveCount(0);
+
     await google.becomes(id, { fail: null });
     await google.changes(id, { calendarId: 'me@example.test', cancel: ['dentist'] });
     await refresh(page);
     await expect(event(page, 'Dentist')).toHaveCount(0);
+    await expect(view(page).getByRole('status')).toHaveCount(0);
   });
 
   // Found against the real Google: the Calendar API was not enabled in the app's own Google Cloud
@@ -727,9 +737,11 @@ test.describe('when Google or the connection fails', () => {
     await connect(page);
     await google.becomes(id, { fail: 'disabled' });
     await refresh(page);
-    // What was read stays, nothing is said, and the connection is not marked as needing the person.
+    // What was read stays, and the connection is not marked as needing the person. Refresh says
+    // only that it could not read the account just now.
     await expect(external(page, 'Dentist')).toBeVisible();
-    await expect(page.getByText(/reconnect|couldn’t/i)).toHaveCount(0);
+    await expect(view(page).getByRole('status')).toHaveText(`Couldn’t read ${ME} just now. Try again in a moment.`);
+    await expect(page.getByText(/reconnect/i)).toHaveCount(0);
     await expect(view(page).getByRole('button', { name: 'Refresh' })).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('koyomi-calendars'))).toBe('connected');
 
