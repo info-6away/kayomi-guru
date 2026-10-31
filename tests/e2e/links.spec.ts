@@ -310,6 +310,56 @@ test.describe('a link that stops working', () => {
     await expect(event(page, 'Late from the old link')).toHaveCount(0);
     await expect(external(page, 'Design review')).toBeVisible();
   });
+
+  test('a reading of the old link that fails after the link is replaced says nothing of the new one', async ({ page, id }) => {
+    const [old, fresh] = [`${id}old`, `${id}new`];
+    await feeds.set(old, { ics: WORK() });
+    await feeds.set(fresh, { ics: ics('New rota', vevent('UID:fresh', 'SUMMARY:From the new link', 'DTSTART:20261008T060000Z', 'DTEND:20261008T070000Z')) });
+    await start(page);
+    await subscribe(page, linkTo(old), 'Work calendar');
+    const [work] = await listedLinks(page);
+
+    // Withdrawn just as Refresh asks: that answer is held back while the link is replaced.
+    await feeds.set(old, { status: 404, hold: true });
+    await view(page).getByRole('button', { name: 'Refresh' }).click();
+    await expect.poll(async () => (await feeds.asked(old)).held, BACK).toBeGreaterThan(0);
+    await group(page, 'Work calendar').getByRole('button', { name: 'Update link Work calendar' }).click();
+    await form(page).getByLabel('Calendar link').fill(linkTo(fresh));
+    await form(page).getByRole('button', { name: 'Update link' }).click();
+    await expect(form(page)).toHaveCount(0, BACK);
+    await expect.poll(async () => (await cached(page)).events.map((e) => e.title), BACK).toContain('From the new link');
+
+    // The old link's refusal arrives. The new link is not what refused.
+    await feeds.set(old, { hold: false });
+    await expect.poll(async () => (await feeds.asked(old)).held, BACK).toBe(0);
+    await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
+    await page.waitForTimeout(500);
+    await expect(group(page, 'Work calendar')).not.toContainText('Needs updating');
+    expect((await listedLinks(page)).find((entry) => entry.connectionId === work.connectionId)?.state).toBe('ok');
+    await feeds.set(fresh, { ics: ics('New rota', vevent('UID:fresh', 'SUMMARY:Still read', 'DTSTART:20261008T060000Z', 'DTEND:20261008T070000Z')) });
+    await refresh(page);
+    await expect.poll(async () => (await cached(page)).events.map((e) => e.title), BACK).toContain('Still read');
+  });
+
+  test('a pause the old link asked for is not asked of the new one', async ({ page, id }) => {
+    const [old, fresh] = [`${id}old`, `${id}new`];
+    await feeds.set(old, { ics: WORK() });
+    await feeds.set(fresh, { ics: ics('New rota', vevent('UID:fresh', 'SUMMARY:From the new link', 'DTSTART:20261008T060000Z', 'DTEND:20261008T070000Z')) });
+    await start(page);
+    await subscribe(page, linkTo(old), 'Work calendar');
+
+    // Where the old link is kept asks Koyomi to leave it alone for a minute.
+    await feeds.set(old, { status: 429 });
+    const asked = (await feeds.asked(old)).asked.length;
+    await refresh(page);
+    await expect.poll(async () => (await feeds.asked(old)).asked.length, BACK).toBeGreaterThan(asked);
+
+    await group(page, 'Work calendar').getByRole('button', { name: 'Update link Work calendar' }).click();
+    await form(page).getByLabel('Calendar link').fill(linkTo(fresh));
+    await form(page).getByRole('button', { name: 'Update link' }).click();
+    await expect(form(page)).toHaveCount(0, BACK);
+    await expect.poll(async () => (await cached(page)).events.map((e) => e.title), BACK).toContain('From the new link');
+  });
 });
 
 test.describe('beside Google and Microsoft', () => {

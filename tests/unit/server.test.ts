@@ -142,6 +142,11 @@ for (const kind of ['Postgres', 'memory'] as const) {
     // In place: the same connection, its new key and secret, and active again.
     expect(await store.relink('user-1', work, 'key-new', 'sealed-new')).toBe('done');
     expect(await store.get('user-1', work)).toMatchObject({ id: work, provider: 'link', accountKey: 'key-new', sealedToken: 'sealed-new', status: 'active' });
+    // A reading of the old link, refused only now, says nothing of the new one. The new one's own does.
+    expect(await store.setStatus('user-1', work, 'reconnect', 'key-work')).toBe(false);
+    expect(await store.get('user-1', work)).toMatchObject({ status: 'active' });
+    expect(await store.setStatus('user-1', work, 'reconnect', 'key-new')).toBe(true);
+    expect(await store.get('user-1', work)).toMatchObject({ status: 'reconnect' });
     // The same link again is the same connection's own.
     expect(await store.relink('user-1', work, 'key-new', 'sealed-newer')).toBe('done');
     // Another of the person's calendars already has that link: refused, and nothing changes.

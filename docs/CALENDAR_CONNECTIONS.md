@@ -458,7 +458,9 @@ and the account key replaced, on the same connection (`relink`), which keeps its
 its calendars the device shows. A link that is already another of the person's calendars is
 refused. The device then begins every account's part of its copy again (as after any
 connection), so a reading of the old link still on its way is not kept; and since the events
-request carries that part's epoch, the server never answers a new question with an old one.
+request carries that part's epoch, the server never answers a new question with an old one. What
+the old link says from then on is about the old link alone: a refusal marks a connection only if
+it is still the account that was refused, and a pause is the account's, not the connection's.
 It can be used at any time, not only once the link has stopped working.
 
 **Remove calendar** deletes the row and the device's copy of that calendar. It cannot stop the

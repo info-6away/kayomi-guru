@@ -135,15 +135,23 @@ const STATUS: Partial<Record<ApiError, number>> = { not_connected: 409, reconnec
 export const answerOf = <T>(read: Read<T>): Answer =>
   'error' in read ? no(read.error, STATUS[read.error] ?? 503, read.retryAfter ? { 'retry-after': String(read.retryAfter) } : undefined) : { status: 200, body: read.data };
 
-/** Marks the connection as needing the person, and says so. Only the provider refusing its token leads here. */
-async function needsReconnect(ctx: Ctx, id: string): Promise<{ error: ApiError }> {
+/**
+ * Marks the connection as needing the person, and says so. Only the provider refusing its token
+ * leads here. `account` is the account that was refused: a calendar link replaced while it was
+ * being read has become another, and the old link's refusal says nothing of the new one.
+ */
+async function needsReconnect(ctx: Ctx, id: string, account?: string): Promise<{ error: ApiError }> {
   forgetAccess(id);
-  await ctx.store.setStatus(ctx.subject, id, 'reconnect').catch(() => {});
-  return { error: 'reconnect' };
+  const marked = await ctx.store.setStatus(ctx.subject, id, 'reconnect', account).catch(() => true);
+  return { error: marked ? 'reconnect' : 'busy' };
 }
 
-/** Until when a provider has asked for one connection to be left alone (`Retry-After`). */
+/**
+ * Until when a provider has asked for one connection's account to be left alone (`Retry-After`).
+ * By the account as well: what was asked of a calendar link is not asked of the link replacing it.
+ */
 const paused = () => (shared.koyomiPaused ??= new Map());
+const pauseKey = (id: string, account?: string) => `${id}:${account}`;
 
 /**
  * A short-lived access token for one of this person's connections, and its provider, or the
@@ -154,18 +162,20 @@ const paused = () => (shared.koyomiPaused ??= new Map());
  * its own connection, and asked for once however many requests are waiting.
  *
  * @param cost What this read counts for against the account's allowance.
+ * @param reached Told which account this is, as soon as that is known.
  */
-async function accessFor(ctx: Ctx, id: string, cost: number): Promise<{ token: string; provider: CalendarProvider } | { error: ApiError; retryAfter?: number }> {
+async function accessFor(ctx: Ctx, id: string, cost: number, reached: { account?: string }): Promise<{ token: string; provider: CalendarProvider } | { error: ApiError; retryAfter?: number }> {
   const spent = await ctx.store.spend(ctx.subject, id, cost, ALLOWANCE);
   if (!spent) return { error: 'not_connected' };
   const { connection } = spent;
+  reached.account = connection.accountKey;
   if (!spent.allowed) return { error: 'slow_down', retryAfter: spent.retryAfter };
   if (connection.status === 'reconnect') return { error: 'reconnect' };
   // A connection made while this server was set up for its provider, and it no longer is.
   const provider = providerFor(ctx.config, connection.provider);
   if (!provider) return { error: 'busy' };
   // The provider asked for a pause, and it is not over: nothing is asked of it until it is.
-  const until = paused().get(id) ?? 0;
+  const until = paused().get(pauseKey(id, connection.accountKey)) ?? 0;
   if (until > Date.now()) return { error: 'slow_down', retryAfter: Math.ceil((until - Date.now()) / 1000) };
 
   const held = access().get(id);
@@ -199,21 +209,22 @@ async function accessFor(ctx: Ctx, id: string, cost: number): Promise<{ token: s
  * What goes wrong for one connection is that connection's alone: nothing here touches another row.
  */
 export async function reading<T>(ctx: Ctx, id: string, cost: number, work: (token: string, provider: CalendarProvider) => Promise<T>): Promise<Read<T>> {
+  const reached: { account?: string } = {};
   for (let attempt = 0; ; attempt++) {
     try {
       // A second attempt is the same reading, and is not counted again.
-      const got = await accessFor(ctx, id, attempt ? 0 : cost);
+      const got = await accessFor(ctx, id, attempt ? 0 : cost, reached);
       return 'token' in got ? { data: await work(got.token, got.provider) } : got;
     } catch (error) {
       if (!(error instanceof ProviderError)) {
         report('reading', error);
         return { error: 'busy' };
       }
-      if (error.kind === 'reconnect') return needsReconnect(ctx, id);
+      if (error.kind === 'reconnect') return needsReconnect(ctx, id, reached.account);
       if (error.kind === 'blocked') return { error: 'blocked' };
       if (error.kind === 'slow_down') {
         const seconds = error.retryAfter ?? 60;
-        paused().set(id, Date.now() + seconds * 1000);
+        paused().set(pauseKey(id, reached.account), Date.now() + seconds * 1000);
         return { error: 'slow_down', retryAfter: seconds };
       }
       // The access token was refused, not necessarily the permission. Once, at once, a new one is
