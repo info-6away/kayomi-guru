@@ -110,7 +110,9 @@ memory, never in a database, whatever `DATABASE_URL` the machine happens to have
 - `lib/calendars/`: connected calendars in the browser: their own local database, filed by
   account, reading them, and where their events land on the calendar. `lib/server/`: the
   server's part: sealing tokens, the table of connections, and everything said to Google
-  (`google.ts`) and to Microsoft (`microsoft.ts`), each behind the same few calls (`providers.ts`).
+  (`google.ts`) and to Microsoft (`microsoft.ts`), and calendar links (`link.ts`, fetched only
+  through `fetchlink.ts`, which keeps the server off private networks), each behind the same few
+  calls (`providers.ts`). `lib/calendars/ical.ts` works out a published calendar's occurrences.
 - `public/sw.js`: the service worker that keeps the app shell available offline.
 - `scripts/`: `make-icons.mjs` draws the icons and `make-screenshots.mjs` takes the pictures in
   `docs/design` and the manifest. `migrate.mjs` applies `migrations/` (one table).

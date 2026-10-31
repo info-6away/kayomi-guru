@@ -380,6 +380,93 @@ The administrator can take it back under Enterprise applications in Microsoft En
 answers with the client id, which is how Microsoft confirms that `koyomi.guru` is the app's
 publisher domain.
 
+## Calendar links
+
+A calendar link is a published, read-only calendar (an `.ics` feed) that a person subscribes to
+by its private address: Outlook's "Publish a calendar" link, or anything else that publishes
+one. It is the way round an organisation that will not let its people consent to Koyomi, with
+no invitation forwarded and no attendee added. It is a provider like the others (`link`, in
+`lib/server/link.ts`), with one calendar per connection, and goes through the same routes,
+allowance, device copy and epochs. It is not an import: each reading fetches the calendar again
+and shows it as it is, and its events are never Koyomi events.
+
+**The link is a secret.** Whoever has it can read the calendar. It reaches the server once, in
+the body of `POST /api/link/connect` (signed in, same origin, ten tries in ten minutes), and is
+fetched before anything is kept: only a link that gives a calendar is stored. It is sealed with
+the calendar's name as the connection's secret (AES-256-GCM, bound to the row, as every
+provider's token is), and opened only for a reading. It is never sent back, logged, put in an
+error, or kept in the browser, whose form lets go of it as it sends it; the browser only ever
+names the connection. The row's account key is an HMAC of the link in a canonical form (host in
+lower case, `:443` and any fragment left out, path and query exactly as given), so the same link
+added again is the same connection. A person keeps at most twenty.
+
+**Where the server may go** (`lib/server/fetchlink.ts`):
+
+- `https` only (a pasted `webcal://` is written as `https://`), port 443, no user name or
+  password, at most 2048 characters, not Koyomi's own host, not a name without a dot or one under
+  `localhost`, `local`, `internal`, `home.arpa` and the like.
+- Every address a name has is checked against fixed lists: loopback, private, shared address
+  space, link-local (where the cloud's metadata service answers, `169.254.169.254`),
+  documentation, benchmarking, multicast and reserved ranges, and in IPv6 the same with every
+  form that carries an IPv4 address inside it refused whole. If any address is in them, none is
+  used. An address written as numbers, in any of its spellings, is checked the same way.
+- **DNS rebinding.** The check is the connection's own lookup (`lookup` on Node's `https`
+  request): the address checked is the address connected to, and there is no second lookup to
+  answer differently. No connection is kept for reuse (`agent: false`), and proxy settings are
+  not used.
+- **Redirects** are followed by hand, at most three; each new address is checked from the start,
+  and a loop or a fourth is refused.
+- **Limits.** Five seconds to connect, ten for the answer to begin, twenty in all (within the
+  route's own 25). At most 10 MB, counted after unpacking (gzip, deflate or brotli); a busy
+  calendar with years of history is a few. The body must begin and end as a `VCALENDAR`, whatever
+  its content type says. Each link is fetched at most once every ten seconds by one server, on
+  top of the account's allowance.
+
+**Reading.** `ical.js` reads the calendar and `lib/calendars/ical.ts` works out the occurrences
+in the span, with exactly the rules described for repeating events there: RRULE, RDATE, EXDATE,
+RECURRENCE-ID, cancelled occurrences, the later version of an event by SEQUENCE, named zones by
+their own rules, zones the calendar defines itself (Outlook writes Windows names such as "Pacific
+Standard Time" with their definitions), and floating times as UTC. Everything Koyomi does not
+show (DESCRIPTION, LOCATION, ORGANIZER, ATTENDEE, CONTACT, COMMENT, ATTACH, alarms, conference
+details, anything private to the calendar that wrote it) is dropped as it is read. Expanding is
+bounded: anyone who can put an event in the calendar can write a rule that never ends.
+
+**Asking whether it has changed.** A reading's cursor holds the calendar server's ETag and
+Last-Modified, with a keyed mark of the link it was read from, and is kept on the device like any
+cursor. The next reading sends them back (`If-None-Match`, `If-Modified-Since`); a `304` is
+"nothing has changed" and nothing is parsed. Once the link is replaced, the mark no longer
+matches and the cursor is not used. Nothing of the calendar is kept on the server.
+
+**When the link says no.**
+
+| What came back | What it comes to |
+| --- | --- |
+| 401, 403, 404 or 410; a page that is not a calendar; a redirect somewhere Koyomi does not fetch; a redirect that ends in a 500 sent as a web page | "Needs updating", "This calendar link no longer returns a valid calendar." and **Update link**. Nothing more is fetched until it is updated; what was read stays |
+| 429 | That link is left alone for as long as `Retry-After` says |
+| More than 10 MB | That calendar keeps what it had, and the log says so |
+| Any other 5xx, no answer, no such name | What was read stays. A Refresh you pressed says it couldn’t read that calendar just now |
+
+The redirect that ends in a 500 is how Outlook answers once a calendar is no longer published: two
+redirects on its own host, then an error page. A 500 asked for directly, or any gateway's 502, 503
+or 504 wherever it comes from, is the source having a bad moment, and the link is left as it is.
+The price is a link that always redirects and whose destination has a bad moment just then: it
+asks to be updated, and the same link can be given again. Telling Koyomi nothing would be worse:
+a withdrawn calendar would go on looking current for ever.
+
+**Update link** asks only for the new link. It is fetched first; only then are the sealed link
+and the account key replaced, on the same connection (`relink`), which keeps its id and which of
+its calendars the device shows. A link that is already another of the person's calendars is
+refused. The device then begins every account's part of its copy again (as after any
+connection), so a reading of the old link still on its way is not kept; and since the events
+request carries that part's epoch, the server never answers a new question with an old one. What
+the old link says from then on is about the old link alone: a refusal marks a connection only if
+it is still the account that was refused, and a pause is the account's, not the connection's.
+It can be used at any time, not only once the link has stopped working.
+
+**Remove calendar** deletes the row and the device's copy of that calendar. It cannot stop the
+link working, and Calendars says so: to stop it, turn off or reset publishing where the calendar
+lives.
+
 ## Privacy
 
 | | |
@@ -459,6 +546,7 @@ another's: the accounts that can be read are read.
 | Google will not say which account a new consent was for (as when that API is off) | "Couldn’t connect to Google Calendar. Try again in a moment." Nothing was kept, so trying again goes through Google once more |
 | Your Koyomi sign-in has ended | One quiet line: "Sign in again to update Google Calendar". Events already read stay. Signing in carries on where it left off |
 | Permission withdrawn or expired at Google for an account | "Needs reconnecting" under that account, and one quiet line on the calendar: "Google Calendar needs reconnecting". Events already read stay until you do. Other accounts carry on |
+| A calendar link stopped working | "Needs updating" under it, and one quiet line on the calendar: "Calendar link needs updating". Its events stay until it is updated or removed |
 | You pressed Refresh many times in a minute | "Couldn’t read … just now. Try again in a moment." The extra requests are not sent on to Google |
 | Something at Microsoft | See "When Microsoft says no" above. Each is that account's alone |
 | A calendar is removed at Google | It disappears from its account's list, with its events |
@@ -573,7 +661,10 @@ So that one browser, or a script holding its cookie, cannot make Koyomi hammer G
 
 ## Setting it up
 
-Calendar connections are **off until all of this is in place** for at least one provider. With
+Calendar connections are **off until all of this is in place** for at least one provider.
+Calendar links need no client of anyone's: `CALENDAR_LINKS=on` switches them on, beside the
+other providers or by themselves, with the sign-in settings, `TOKEN_ENCRYPTION_KEY` and the
+database below. With
 any of it missing there is no "Add calendar account" and every address under `/api/google`,
 `/api/microsoft` and `/api/calendars` is a 404: Calendars shows Koyomi's own calendar and nothing
 to connect, so it is safe to deploy first and configure afterwards. Each provider is on by its
@@ -785,6 +876,11 @@ Not yet checked against the real Google:
   is one permission at Google. One of them disconnecting withdraws it for both.
 - Events outside the span (more than five weeks back or twenty-seven ahead) are not shown.
 - Search does not look in connected calendars.
+- Calendar links: a link is read only as often as Koyomi reads its other calendars, and the
+  calendar's publisher may itself publish changes some time after they are made. Removing a link in Koyomi does not stop it working. A link is `https` on port 443
+  only. A repeating series that repeats every second or minute is shown once. A
+  `RANGE=THISANDFUTURE` change applies to its one occurrence only. Not yet checked against a
+  real published Outlook calendar.
 - A meeting you declined is hidden; one you have not answered is shown.
 - A Koyomi all-day event lasts one day. Multi-day ones can only come from Google.
 - The Koyomi sign-in lasts thirty days and is not extended by use, so about once a month you

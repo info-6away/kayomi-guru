@@ -1,7 +1,8 @@
 import type { Provider } from './types';
 
 // How the calendar speaks of the providers a person's calendars come from. Where only Google is
-// involved, it says exactly what it always has.
+// involved, it says exactly what it always has. A calendar link is not an account: it is not
+// reconnected but updated, not disconnected but removed, and it is known by its name.
 
 export interface ProviderWords {
   /** Above its accounts in Calendars. */
@@ -16,7 +17,23 @@ export interface ProviderWords {
   open: string;
   /** Said of an account the provider will not let Koyomi read. */
   blocked: string;
+  /** Said of one that needs the person: its permission refused, or (for a link) the link no longer working. */
+  needs: string;
+  /** Said under it, where there is more to say than that. */
+  needsWhy: string | null;
+  /** The way to mend it. */
+  mend: string;
+  /** The way to end it. */
+  end: string;
+  /** On the calendar itself, while one needs the person. */
+  pill: string;
+  /** Kept up to date by signing in again: "Sign in again to keep … up to date". */
+  kept: string;
+  /** Never changed by Koyomi: "Koyomi never changes your …". */
+  yours: string;
 }
+
+const ACCOUNT = { needs: 'Needs reconnecting', needsWhy: null, mend: 'Reconnect', end: 'Disconnect' };
 
 export const WORDS: Record<Provider, ProviderWords> = {
   google: {
@@ -26,6 +43,10 @@ export const WORDS: Record<Provider, ProviderWords> = {
     source: 'Google Calendar',
     open: 'Open in Google Calendar',
     blocked: 'Google doesn’t let Koyomi read this account’s calendar.',
+    ...ACCOUNT,
+    pill: 'Google Calendar needs reconnecting',
+    kept: 'Google Calendar',
+    yours: 'Google Calendar',
   },
   microsoft: {
     heading: 'MICROSOFT',
@@ -34,6 +55,25 @@ export const WORDS: Record<Provider, ProviderWords> = {
     source: 'Microsoft',
     open: 'Open in Outlook',
     blocked: 'Microsoft doesn’t let Koyomi read this account’s calendar.',
+    ...ACCOUNT,
+    pill: 'Microsoft calendar needs reconnecting',
+    kept: 'your Microsoft calendar',
+    yours: 'Microsoft calendar',
+  },
+  link: {
+    heading: 'CALENDAR LINKS',
+    unnamed: 'Calendar link',
+    label: 'Calendar link',
+    source: 'Calendar link',
+    open: '',
+    blocked: 'This calendar link no longer returns a valid calendar.',
+    needs: 'Needs updating',
+    needsWhy: 'This calendar link no longer returns a valid calendar.',
+    mend: 'Update link',
+    end: 'Remove calendar',
+    pill: 'Calendar link needs updating',
+    kept: 'your calendar links',
+    yours: 'calendar',
   },
 };
 

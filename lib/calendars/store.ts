@@ -51,6 +51,22 @@ export interface External {
   syncing: boolean;
   /** The last thing asked for did not happen, in words for the person. */
   note: string | null;
+  /** What the person is being asked for in Calendars, where there is no provider's page to send them to (a calendar link). */
+  asking: Asking | null;
+}
+
+/**
+ * A calendar link, asked for in Calendars itself. Only what the form needs: never the link, which
+ * lives in the form for the moment it takes to send and nowhere else.
+ */
+export interface Asking {
+  provider: 'link';
+  /** The calendar whose link is being updated, whose name is known already; null when adding one. */
+  connection: ExternalConnection | null;
+  /** Why the last try did not work, in words for the person. */
+  error: string | null;
+  /** A try is on its way. */
+  sending: boolean;
 }
 
 /** Remembers that a calendar is connected, so the first thing a visit does is not a request. Not a credential. */
@@ -61,7 +77,7 @@ const EVERY_MS = 15 * 60_000;
 /** The most calendars the server reads in one request. More than that are asked for in turns. */
 const BATCH = 25;
 
-const EMPTY: External = { available: false, providers: [], status: 'off', connections: [], calendars: [], events: [], syncing: false, note: null };
+const EMPTY: External = { available: false, providers: [], status: 'off', connections: [], calendars: [], events: [], syncing: false, note: null, asking: null };
 let state = EMPTY;
 const listeners = new Set<() => void>();
 function set(next: Partial<External>) {
@@ -434,7 +450,7 @@ async function read(id: string, began: number, only?: string): Promise<'stop' | 
 
   for (let i = 0; i < shown.length; i += BATCH) {
     const asked = shown.slice(i, i + BATCH).map((calendar) => ({ calendarId: calendar.calendarId, syncToken: covers(calendar, today) ? calendar.syncToken : null }));
-    const request: EventsRequest = { connectionId: id, ...spanOfWindow(window), calendars: asked };
+    const request: EventsRequest = { connectionId: id, ...spanOfWindow(window), calendars: asked, ...(mine ? { epoch: mine } : {}) };
     const answer = await call<EventsResponse>('/api/calendars/events', request);
     if (era !== began) return 'stop';
     if (!answer.ok) return refused(id, answer.error, mine);
@@ -646,10 +662,76 @@ export async function showCalendar(id: string, visible: boolean) {
  * account and for its consent. A device that shows no account yet says so by leaving `add` out:
  * if the person turns out to have accounts connected already, it is sent back to read those instead.
  */
-export const addAccount = (provider: Provider) => location.assign(`/api/${provider}/connect${state.connections.length ? '?add=1' : ''}`);
+export const addAccount = (provider: Provider) => (provider === 'link' ? void askLink() : location.assign(`/api/${provider}/connect${state.connections.length ? '?add=1' : ''}`));
 
-/** Asks the provider of one account for its permission again. The other accounts are not involved. */
-export const reconnect = (connection: ExternalConnection) => location.assign(`/api/${connection.provider}/connect?add=1`);
+/** Asks the provider of one account for its permission again, or a calendar link for a new link. The other accounts are not involved. */
+export const reconnect = (connection: ExternalConnection) => (connection.provider === 'link' ? void askLink(connection) : location.assign(`/api/${connection.provider}/connect?add=1`));
+
+/** Where the way back from signing in leads when the form for a calendar link is waiting to be shown. */
+const LINK_BACK = `/api/auth/signin?returnTo=${encodeURIComponent('/?calendars=link')}`;
+
+/**
+ * Shows the form for a calendar link in Calendars. A calendar belongs to a Koyomi sign-in, so
+ * that comes first: without one, the person signs in with 6Away and is brought back to the form.
+ *
+ * @param connection The calendar whose link is to be updated; null to add one.
+ * @param back Already back from signing in: a sign-in that still did not take is said, not tried again.
+ */
+export async function askLink(connection: ExternalConnection | null = null, back = false) {
+  const signed = await call<{ ok: true }>('/api/link/connect');
+  if (signed.ok) return set({ asking: { provider: 'link', connection, error: null, sending: false }, note: null });
+  if (signed.error === 'signed_out' && !back) {
+    intent.leave(connection ? `link:${connection.id}` : 'link');
+    return location.assign(LINK_BACK);
+  }
+  set({ note: signed.error === 'offline' ? 'Couldn’t reach Koyomi. Try again when you’re online.' : 'Couldn’t add a calendar link just now. Try again in a moment.' });
+}
+
+/** Back from signing in on the way to the form. A bare link opens the form and no more. */
+export async function resumeLink() {
+  await ready;
+  const [what, id] = intent.take()?.split(':') ?? [];
+  await askLink(what === 'link' && id ? (state.connections.find((connection) => connection.id === id) ?? null) : null, true);
+}
+
+export const stopAsking = () => set({ asking: null });
+
+const LINK_SAID: Partial<Record<ApiError | 'offline', string>> = {
+  bad_link: 'That isn’t a calendar link Koyomi can use. Paste the calendar’s private https or webcal link.',
+  bad_request: 'Paste a calendar link.',
+  not_calendar: 'This link did not return a valid calendar.',
+  unreachable: 'Couldn’t reach that link just now. Try again in a moment.',
+  too_large: 'This calendar is larger than Koyomi can read.',
+  taken: 'That link is already one of your calendars.',
+  too_many: 'You have as many calendar links as Koyomi keeps. Remove one to add another.',
+  slow_down: 'Too many tries for now. Wait a few minutes, then try again.',
+  not_connected: 'That calendar is no longer here.',
+  offline: 'Couldn’t reach Koyomi. Try again when you’re online.',
+};
+
+/**
+ * Subscribes to a calendar link, or gives the calendar in the form a new one. The link goes to
+ * Koyomi's server once, in the body of one request, and is not kept here: the form has already
+ * let go of it, and nothing of it is written to this device. Once it is in place, everything is
+ * read afresh, and whatever was on its way from the old link is not kept.
+ */
+export async function connectLink(link: string, name: string): Promise<void> {
+  const asking = state.asking;
+  if (!asking || asking.sending) return;
+  set({ asking: { ...asking, sending: true, error: null } });
+  const done = await call<{ ok: true }>('/api/link/connect', asking.connection ? { link, connectionId: asking.connection.id } : { link, name });
+  if (done.ok) {
+    set({ asking: null });
+    return connected();
+  }
+  if (done.error === 'signed_out') {
+    // Signed out while the form was open. Sign in, and the form is shown again, empty.
+    intent.leave(asking.connection ? `link:${asking.connection.id}` : 'link');
+    location.assign(LINK_BACK);
+    return;
+  }
+  set({ asking: { ...asking, sending: false, error: LINK_SAID[done.error] ?? 'Couldn’t add a calendar link just now. Try again in a moment.' } });
+}
 
 /**
  * Called when the address says the visitor is back from giving a provider's permission. The address
@@ -693,14 +775,24 @@ export async function disconnect(id: string): Promise<void> {
   const mine = epochs[id];
   era++;
   again = false;
-  set({ syncing: true, note: null });
+  // Nobody but the calendar's owner can withdraw a published link, where it was published: the
+  // person is told so, and Koyomi claims nothing more than that it no longer keeps it.
+  const told =
+    state.connections.find((connection) => connection.id === id)?.provider === 'link'
+      ? 'Koyomi no longer keeps that calendar link. It still works wherever else it is used: to stop it working, turn off or reset that calendar’s publishing where it lives.'
+      : null;
+  set({ syncing: true, note: null, asking: null });
   const done = await call<{ ok: true }>('/api/calendars/disconnect', { connectionId: id });
   if (done.ok || done.error === 'not_connected') {
     // If another tab has begun this account's part again meanwhile, that is not this Disconnect's to end.
-    if ((await forget(id, mine)) !== 'others') return;
+    if ((await forget(id, mine)) !== 'others') {
+      if (told) set({ note: told });
+      return;
+    }
     // The server has just answered, so this device is signed in. What is still connected is
     // read afresh: whatever was being read for it when this began was let go.
     become('connected');
+    if (told) set({ note: told });
     return sync();
   }
   if (done.error === 'signed_out') {

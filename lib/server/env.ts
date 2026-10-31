@@ -1,5 +1,6 @@
 import type { Provider } from '../calendars/types';
 import { googleEndpoints, type GoogleClient } from './google';
+import type { LinkConfig } from './link';
 import { microsoftEndpoints, type MicrosoftClient } from './microsoft';
 
 // What calendar connections need from the server's environment. When any of it is missing the
@@ -31,6 +32,8 @@ export interface ConnectionsConfig {
   google: GoogleClient | null;
   /** Null where this server is not set up to connect Microsoft accounts. */
   microsoft: MicrosoftClient | null;
+  /** Null where this server does not subscribe to calendar links. */
+  link: LinkConfig | null;
   /** 64 hexadecimal characters: the key that seals provider tokens. */
   tokenKey: string;
   /** A Postgres connection string, or 'memory' in the browser tests. */
@@ -58,15 +61,19 @@ export function connectionsConfig(): ConnectionsConfig | null {
     microsoftId && microsoftSecret
       ? { clientId: microsoftId, clientSecret: microsoftSecret, redirectUri: `${appUrl}/api/microsoft/callback`, endpoints: microsoftEndpoints(testOnly('KOYOMI_TEST_MICROSOFT_URL')) }
       : null;
-  if (!google && !microsoft) return null;
-  return { appUrl, google, microsoft, tokenKey, database };
+  // Calendar links need no client of anyone's: only that they are switched on.
+  const pace = Number(testOnly('KOYOMI_TEST_LINK_PACE_MS'));
+  const link: LinkConfig | null =
+    env('CALENDAR_LINKS') === 'on' ? { own: new URL(appUrl).hostname, test: testOnly('KOYOMI_TEST_LINK_ORIGIN') ?? null, paceMs: Number.isFinite(pace) && pace >= 0 ? pace : 10_000 } : null;
+  if (!google && !microsoft && !link) return null;
+  return { appUrl, google, microsoft, link, tokenKey, database };
 }
 
 /** Which providers this server can connect, in the order they are offered. None: the feature is off. */
 export function calendarProviders(): Provider[] {
   const config = connectionsConfig();
   if (!config) return [];
-  return [...(config.google ? (['google'] as const) : []), ...(config.microsoft ? (['microsoft'] as const) : [])];
+  return [...(config.google ? (['google'] as const) : []), ...(config.microsoft ? (['microsoft'] as const) : []), ...(config.link ? (['link'] as const) : [])];
 }
 
 export const connectionsConfigured = () => connectionsConfig() !== null;

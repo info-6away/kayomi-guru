@@ -5,6 +5,8 @@
 
 export const PORT = 4310;
 export const FAKE_PORT = 4315;
+/** Where the stand-in for published calendars answers (feeds.mjs): the one address a calendar link may name as it is, in tests. */
+export const FAKE_LINK_PORT = 4317;
 
 export const TEST_ENV = {
   NEXT_PUBLIC_APP_URL: `http://localhost:${PORT}`,
@@ -23,6 +25,10 @@ export const TEST_ENV = {
   MICROSOFT_CALENDAR_CLIENT_ID: 'microsoft-test',
   MICROSOFT_CALENDAR_CLIENT_SECRET: 'microsoft-secret',
   KOYOMI_TEST_MICROSOFT_URL: `http://localhost:${FAKE_PORT}/microsoft`,
+  CALENDAR_LINKS: 'on',
+  KOYOMI_TEST_LINK_ORIGIN: `http://localhost:${FAKE_LINK_PORT}`,
+  // A link may be read again at once in a test, which a real server spaces out.
+  KOYOMI_TEST_LINK_PACE_MS: '0',
 };
 
 const local = (day, time) => new Date(`${day}T${time}:00`).toISOString();
