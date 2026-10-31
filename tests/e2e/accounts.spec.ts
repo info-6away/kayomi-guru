@@ -399,14 +399,15 @@ test.describe('two accounts with the same calendar and event ids', () => {
     await expect(group(page, ME).getByRole('switch')).toHaveCount(3);
     await expect(group(page, THEM).getByRole('switch')).toHaveCount(3);
     await refresh(page);
-    await expect(page.getByText(/reconnect|couldn’t|offline|sign in/i)).toHaveCount(0);
+    await expect(view(page).getByRole('status')).toHaveText('You seem to be offline, so your calendars couldn’t be read. Try again once you’re back online.');
+    await expect(page.getByText(/reconnect|sign in/i)).toHaveCount(0);
     expect(await part(page, THEM)).toBe(untouched);
     await context.setOffline(false);
   });
 });
 
 test.describe('one account in trouble', () => {
-  test('Google failing for one account does not stop the other being read, and nothing is said', async ({ page, id }) => {
+  test('Google failing for one account does not stop the other being read, and Refresh names only that one', async ({ page, id }) => {
     const other = await both(page, id);
     for (const fail of ['unavailable', 'limited', 'disabled'] as const) {
       await google.becomes(id, { fail });
@@ -415,7 +416,8 @@ test.describe('one account in trouble', () => {
       // The account Google would not answer for keeps what was read of it. The other one is up to date.
       await expect(external(page, `Added while ${fail}`)).toBeVisible();
       await expect(external(page, 'Dentist')).toBeVisible();
-      await expect(page.getByText(/reconnect|couldn’t|sign in/i)).toHaveCount(0);
+      await expect(view(page).getByRole('status')).toHaveText(`Couldn’t read ${ME} just now. Try again in a moment.`);
+      await expect(page.getByText(/reconnect|sign in/i)).toHaveCount(0);
       expect((await listed(page)).map((entry) => entry.state)).toEqual(['busy', 'ok']);
     }
     expect((await copy(page))[ME]).toEqual({ status: 'connected', calendars: ['Holidays (hidden)', 'Personal', 'Work'], events: MINE });
@@ -427,6 +429,11 @@ test.describe('one account in trouble', () => {
     await refresh(page);
     await expect(event(page, 'Dentist')).toHaveCount(0);
     await expect(external(page, 'Board meeting')).toBeVisible();
+    await expect(view(page).getByRole('status')).toHaveText(`Couldn’t read ${THEM} just now. Try again in a moment.`);
+    // Both at once: one line, naming both, as Calendars lists them.
+    await google.becomes(id, { fail: 'unavailable' });
+    await refresh(page);
+    await expect(view(page).getByRole('status')).toHaveText(`Couldn’t read ${THEM} and ${ME} just now. Try again in a moment.`);
   });
 
   test('Google refusing one account says so of that account, the other carries on, and reconnecting mends the one', async ({ page, id }) => {
