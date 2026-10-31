@@ -441,10 +441,17 @@ matches and the cursor is not used. Nothing of the calendar is kept on the serve
 
 | What came back | What it comes to |
 | --- | --- |
-| 401, 403, 404 or 410; a page that is not a calendar; a redirect somewhere Koyomi does not fetch | "Needs updating", "This calendar link no longer returns a valid calendar." and **Update link**. Nothing more is fetched until it is updated; what was read stays |
+| 401, 403, 404 or 410; a page that is not a calendar; a redirect somewhere Koyomi does not fetch; a redirect that ends in a 500 sent as a web page | "Needs updating", "This calendar link no longer returns a valid calendar." and **Update link**. Nothing more is fetched until it is updated; what was read stays |
 | 429 | That link is left alone for as long as `Retry-After` says |
 | More than 10 MB | That calendar keeps what it had, and the log says so |
-| 5xx, no answer, no such name | Nothing is said; what was read stays |
+| Any other 5xx, no answer, no such name | Nothing is said; what was read stays |
+
+The redirect that ends in a 500 is how Outlook answers once a calendar is no longer published: two
+redirects on its own host, then an error page. A 500 asked for directly, or any gateway's 502, 503
+or 504 wherever it comes from, is the source having a bad moment, and the link is left as it is.
+The price is a link that always redirects and whose destination has a bad moment just then: it
+asks to be updated, and the same link can be given again. Telling Koyomi nothing would be worse:
+a withdrawn calendar would go on looking current for ever.
 
 **Update link** asks only for the new link. It is fetched first; only then are the sealed link
 and the account key replaced, on the same connection (`relink`), which keeps its id and which of

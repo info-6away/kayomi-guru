@@ -104,6 +104,9 @@ function pace(connectionId: string, paceMs: number) {
   fetched().set(connectionId, now);
 }
 
+/** Forgets when a connection's link was last fetched: a new link in its place has not been fetched at all. */
+export const forgetPace = (connectionId: string) => fetched().delete(connectionId);
+
 /**
  * A failure of the link, as the rest of the server takes it. A link that no longer gives a
  * calendar needs the person to update it, and is not fetched again until they do: that includes

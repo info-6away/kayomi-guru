@@ -39,7 +39,7 @@ export const FETCH_TIMEOUT_MS = 20_000;
  * - `bad_link`: not a link Koyomi follows (scheme, port, password, length, a private name).
  * - `forbidden`: it leads, by its address or a redirect, somewhere Koyomi never fetches.
  * - `refused`: the source no longer gives it (401, 403, 404, 410).
- * - `not_calendar`: an answer, but not a calendar (a sign-in page, an error, too many redirects).
+ * - `not_calendar`: an answer, but not a calendar (a sign-in page, an error, a redirect to an error page, too many redirects).
  * - `too_large`: more than MAX_FEED_BYTES.
  * - `slow_down`: the source asked for a pause (429).
  * - `busy`: unreachable, slow or failing just now.
@@ -335,7 +335,12 @@ export async function fetchLink(start: URL, options: FetchOptions = {}): Promise
     }
     if (status >= 500 || status === 408) {
       response.resume();
-      throw new LinkError('busy');
+      // A server failing is a bad moment, and the link is left as it is. A link sent on to an error
+      // page is not one: that is how a published calendar is answered once it is withdrawn (Outlook:
+      // a redirect or two, then a web page saying 500). A gateway's 502, 503 or 504 says nothing of
+      // the link, wherever it comes from.
+      const sentAway = hop > 0 && status === 500 && /^text\/html\b/i.test(String(response.headers['content-type'] ?? ''));
+      throw new LinkError(sentAway ? 'not_calendar' : 'busy');
     }
     if (status !== 200) {
       response.resume();

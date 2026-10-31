@@ -2,7 +2,7 @@ import type { ApiError } from '@/lib/calendars/types';
 import { JOB_TIMEOUT_MS, forgetAccess, isAnswer, no, respond, sameOrigin, signedIn, type Answer } from '@/lib/server/api';
 import { accountKey, isConnectionId, sealContext, type Connection } from '@/lib/server/connections';
 import { LinkError, canonicalLink, fetchLink, linkOf, type LinkFailure } from '@/lib/server/fetchlink';
-import { MAX_LINKS, feedName, linkSecretOf, nameOf } from '@/lib/server/link';
+import { MAX_LINKS, feedName, forgetPace, linkSecretOf, nameOf } from '@/lib/server/link';
 import { report } from '@/lib/server/log';
 import { open, seal } from '@/lib/server/seal';
 
@@ -109,7 +109,10 @@ export async function POST(request: Request) {
     const done = await ctx.store.relink(ctx.subject, updating.id, key, sealed);
     if (done === 'taken') answer = no('taken', 409);
     else if (done === 'missing') answer = no('not_connected', 404);
-    else forgetAccess(updating.id);
+    else {
+      forgetAccess(updating.id);
+      forgetPace(updating.id);
+    }
   } else {
     forgetAccess(await ctx.store.save(ctx.subject, 'link', key, sealed, 'link'));
   }

@@ -4,7 +4,7 @@ import { gzipSync } from 'node:zlib';
 import { expect, test } from '@playwright/test';
 import { accountKey } from '../../lib/server/connections';
 import { LinkError, MAX_FEED_BYTES, canonicalLink, fetchLink, forbidden, linkOf, type Resolve } from '../../lib/server/fetchlink';
-import { LINK_CALENDAR, feedName, linkProvider, nameOf } from '../../lib/server/link';
+import { LINK_CALENDAR, feedName, forgetPace, linkProvider, nameOf } from '../../lib/server/link';
 import { ProviderError } from '../../lib/server/provider';
 
 // Calendar links: an address a person pastes, which Koyomi's server then fetches. These are the
@@ -289,6 +289,32 @@ test('each answer has its own word; a slow source is let go; and Koyomi sends no
   }
 });
 
+test('a link sent on to an error page no longer gives a calendar; a server failing is only a bad moment', async () => {
+  const webPage = { 'content-type': 'text/html; charset=utf-8' };
+  const s = await source((request, response) => {
+    const path = request.url ?? '';
+    // As Outlook answers a calendar no longer published: two redirects on its own host, then a web page.
+    if (path === '/withdrawn') return response.writeHead(302, { location: '/withdrawn/on' }).end();
+    if (path === '/withdrawn/on') return response.writeHead(302, { location: '/error/500' }).end();
+    if (path.startsWith('/sent/')) return response.writeHead(302, { location: path.slice('/sent'.length) }).end();
+    if (path.startsWith('/error/')) return response.writeHead(Number(path.slice('/error/'.length)), webPage).end('<html>Something went wrong</html>');
+    if (path === '/plain/500') return response.writeHead(500, { 'content-type': 'text/plain' }).end('error');
+    if (path === '/bare/500') return response.writeHead(500).end();
+    response.writeHead(404).end();
+  });
+  try {
+    const fetch = (path: string) => fetchLink(s.url(path), { own: OWN, test: s.origin });
+    expect(failureOf(await fetch('/withdrawn').catch((e) => e))).toBe('not_calendar');
+    expect(failureOf(await fetch('/sent/error/500').catch((e) => e))).toBe('not_calendar');
+    // Asked directly, the same page is the server failing, not the link being gone.
+    expect(failureOf(await fetch('/error/500').catch((e) => e))).toBe('busy');
+    // A gateway says nothing of the link, nor does a failure that is not a page.
+    for (const path of ['/sent/error/502', '/sent/error/503', '/sent/error/504', '/sent/plain/500', '/sent/bare/500']) expect(failureOf(await fetch(path).catch((e) => e)), path).toBe('busy');
+  } finally {
+    await s.close();
+  }
+});
+
 test('a calendar link read through the provider: only what Koyomi shows, a cursor for next time, and never the link', async () => {
   const ics = calendar(event('standup', '20261007T090000Z', 'RRULE:FREQ=WEEKLY;COUNT=3'), event('<img src=x onerror=alert(1)>', '20261008T120000Z'));
   let etag = '"v1"';
@@ -303,6 +329,8 @@ test('a calendar link read through the provider: only what Koyomi shows, a curso
     if (request.url === '/html') return response.writeHead(200).end('<html>Sign in</html>');
     if (request.url === '/huge') return response.writeHead(200, { 'content-length': String(MAX_FEED_BYTES + 1) }).end('x');
     if (request.url === '/away') return response.writeHead(302, { location: 'https://169.254.169.254/' }).end();
+    if (request.url === '/withdrawn') return response.writeHead(302, { location: '/failing' }).end();
+    if (request.url === '/failing') return response.writeHead(500, { 'content-type': 'text/html' }).end('<html>Error</html>');
     response.writeHead(404).end();
   });
   const logged: string[] = [];
@@ -353,6 +381,8 @@ test('a calendar link read through the provider: only what Koyomi shows, a curso
     expect(await kind('/gone')).toBe('reconnect');
     expect(await kind('/html')).toBe('reconnect');
     expect(await kind('/away')).toBe('reconnect');
+    expect(await kind('/withdrawn')).toBe('reconnect');
+    expect(await kind('/failing')).toBe('busy');
     expect(await kind('/down')).toBe('busy');
     expect(await kind('/wait')).toBe('slow_down');
     expect(await kind('/huge')).toBe('failed');
@@ -384,6 +414,10 @@ test('one link is not fetched again by the same server a moment later', async ()
     expect(kindOf(error)).toBe('slow_down');
     expect(error.retryAfter).toBeGreaterThan(50);
     expect(s.seen).toHaveLength(1);
+    // Given a new link, it has not been fetched at all: the new one is read at once.
+    forgetPace(asked.connectionId);
+    expect(await provider.readCalendar(access, asked, AbortSignal.timeout(5000))).toMatchObject({ full: true });
+    expect(s.seen).toHaveLength(2);
   } finally {
     await s.close();
   }
