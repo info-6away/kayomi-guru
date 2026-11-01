@@ -2,6 +2,7 @@ import { normalizeGoogleEvent } from '../calendars/normalize';
 import type { ExternalEvent, Provider } from '../calendars/types';
 import type { ConnectionsConfig } from './env';
 import * as google from './google';
+import { linkProvider } from './link';
 import * as microsoft from './microsoft';
 import type { CalendarProvider } from './provider';
 import * as yahoo from './yahoo';
@@ -76,5 +77,6 @@ export function providerFor(config: ConnectionsConfig, provider: Provider): Cale
   if (provider === 'google') return config.google ? googleProvider(config.google) : null;
   if (provider === 'microsoft') return config.microsoft ? microsoftProvider(config.microsoft) : null;
   if (provider === 'yahoo') return config.yahoo ? yahooProvider(config.yahoo) : null;
+  if (provider === 'link') return config.link ? linkProvider(config.link, config.tokenKey) : null;
   return null;
 }

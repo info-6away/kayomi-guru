@@ -260,7 +260,7 @@ export async function readCalendar(
       });
     const events = new Map<string, ExternalEvent>();
     const budget = budgetOf();
-    const reading = { connectionId: asked.connectionId, calendarId, fetchedAt: asked.fetchedAt, timeMin: span.timeMin, timeMax: span.timeMax, budget };
+    const reading = { provider: 'yahoo' as const, connectionId: asked.connectionId, calendarId, fetchedAt: asked.fetchedAt, timeMin: span.timeMin, timeMax: span.timeMax, budget };
     let breath = performance.now();
     for (const [list, repeatingOnly] of [
       [inSpan, false],

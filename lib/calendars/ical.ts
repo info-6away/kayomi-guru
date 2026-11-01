@@ -1,14 +1,15 @@
 import ICAL from 'ical.js';
 import { addDays } from '../dates';
-import { eventKey, type ExternalEvent } from './types';
+import { eventKey, type ExternalEvent, type Provider } from './types';
 
-// Turns iCalendar, as a CalDAV server returns it (Yahoo's), into Koyomi's record of each event in
-// the window, and nothing more. A CalDAV server may send whole calendar objects whatever it is
-// asked for, so this is where everything Koyomi does not show is left behind: descriptions,
-// locations, organisers, attendees, alarms, attachments, conference details. Only the fields
-// below are read, the text itself is not kept, and nothing of it is logged.
+// Turns iCalendar, as a published calendar sends it (a calendar link), into Koyomi's record of
+// each event in the window, and nothing more. A feed sends whole events, whatever Koyomi would
+// rather have, so this is where everything Koyomi does not show is left behind: descriptions,
+// locations, organisers, attendees, contacts, comments, alarms, attachments, conference details
+// and anything private to the calendar that wrote it. Only the fields below are read, the text
+// itself is not kept, and nothing of it is logged.
 //
-// Repeating events are expanded here, because Yahoo's server does not expand them: each
+// Repeating events are expanded here, because a feed sends each series once, as its rule: each
 // occurrence in the window becomes an event of its own, with its exceptions applied (moved,
 // renamed, cancelled, excluded), and the series itself is never shown as one more event.
 //
@@ -25,6 +26,8 @@ type Steps = InstanceType<typeof ICAL.RecurIterator>;
 
 /** What one reading is for. */
 export interface Reading {
+  /** Which provider the account is at: what each event says it came from. */
+  provider: Provider;
   connectionId: string;
   calendarId: string;
   fetchedAt: string;
@@ -138,6 +141,10 @@ interface Occurrence {
   start: string;
   end: string;
 }
+
+/** Which version of an event is later: by SEQUENCE, the later one written last where they are equal. */
+const sequenceOf = (component: Component) => Number(component.getFirstPropertyValue('sequence')) || 0;
+const newer = (one: Component, than: Component) => sequenceOf(one) >= sequenceOf(than);
 
 /** What a component says of itself, apart from when. */
 function about(component: Component, fetchedAt: string) {
@@ -256,7 +263,8 @@ function occurrences(text: string, reading: Reading, late: () => boolean): Exter
     const uid = String(event.getFirstPropertyValue('uid') ?? '').trim();
     if (!uid) continue;
     if (event.getFirstProperty('recurrence-id')) overrides.set(uid, [...(overrides.get(uid) ?? []), event]);
-    else if (!masters.has(uid)) masters.set(uid, event);
+    // The same event twice: the later version of it, by SEQUENCE.
+    else if (!masters.has(uid) || newer(event, masters.get(uid)!)) masters.set(uid, event);
   }
 
   const out: Occurrence[] = [];
@@ -285,6 +293,9 @@ function occurrences(text: string, reading: Reading, late: () => boolean): Exter
     const rdates = master.getAllProperties('rdate');
     const repeating = rules.length > 0 || rdates.length > 0;
     if (reading.repeatingOnly && !repeating) continue;
+    // A feed may hold years of events. One that happens once and starts well after the span is
+    // passed over before anything else of it is read; one that ended well before it, just after.
+    if (!repeating && wallOf(start.time) > to + NEAR_MS) continue;
     const said = about(master, reading.fetchedAt);
     if (said.cancelled) continue;
     const length = lengthOf(master, start);
@@ -292,6 +303,7 @@ function occurrences(text: string, reading: Reading, late: () => boolean): Exter
     const lasts = clockLength(length);
 
     if (!repeating) {
+      if (!near(wallOf(start.time), lasts)) continue;
       const one = occurrence(said, uid, start, length);
       if (one) keep(one);
       continue;
@@ -308,7 +320,9 @@ function occurrences(text: string, reading: Reading, late: () => boolean): Exter
       if (!id) continue;
       const its = timeOf(exception.getFirstProperty('dtstart'));
       if (!near(wallOf(id.time), lasts) && !(its && near(wallOf(its.time), clockLength(lengthFor(exception, its))))) continue;
-      moved.set(occurrenceKey(id.time, id.tzid ?? start.tzid, allDay), exception);
+      const key = occurrenceKey(id.time, id.tzid ?? start.tzid, allDay);
+      const before = moved.get(key);
+      if (!before || newer(exception, before)) moved.set(key, exception);
     }
     // Excluded occurrences near the span, as instants or as days, however each EXDATE is written.
     const excluded = new Set<string>();
@@ -417,7 +431,7 @@ function occurrences(text: string, reading: Reading, late: () => boolean): Exter
   return out.map((o) => ({
     id: eventKey(reading.connectionId, reading.calendarId, o.id),
     connectionId: reading.connectionId,
-    provider: 'yahoo' as const,
+    provider: reading.provider,
     providerEventId: o.id,
     calendarId: reading.calendarId,
     title: o.title,

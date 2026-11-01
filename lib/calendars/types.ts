@@ -5,9 +5,14 @@
 // the very same ids at their provider. So everything here is named by its connection first, and
 // nothing read from one account can stand in the place of something read from another.
 
-export type Provider = 'google' | 'microsoft' | 'yahoo';
+/**
+ * Where a connection reads from. `link` is a calendar link: a published, read-only calendar
+ * (an .ics feed) the person subscribes to by its private address. It has no account and no
+ * permission behind it, only the link.
+ */
+export type Provider = 'google' | 'microsoft' | 'yahoo' | 'link';
 /** Every provider Koyomi can read from, in the order they are offered and listed. */
-export const PROVIDERS: readonly Provider[] = ['google', 'microsoft', 'yahoo'];
+export const PROVIDERS: readonly Provider[] = ['google', 'microsoft', 'yahoo', 'link'];
 
 /** A calendar among everything connected on this device: `${connectionId}:${calendarId}`. */
 export const calendarKey = (connectionId: string, calendarId: string) => `${connectionId}:${calendarId}`;
@@ -71,10 +76,14 @@ export interface ExternalConnection {
   /** The server's name for the connection: a random word, the same on every device. */
   id: string;
   provider: Provider;
-  /** How the person knows the account: its address at the provider. Null until that has been read. */
+  /**
+   * How the person knows the account: its address at the provider; for a calendar link, the
+   * calendar's name, never the link. Null until that has been read.
+   */
   account: string | null;
   /**
-   * - `reconnect`: the provider no longer honours the permission. What was read before stays.
+   * - `reconnect`: the provider no longer honours the permission (for a calendar link: the link
+   *   no longer gives a calendar, and needs updating). What was read before stays.
    * - `blocked`: the provider will not let this account's calendar be read at all, and
    *   consenting again would not change that.
    */
@@ -109,6 +118,12 @@ export interface EventsRequest {
   timeMin: string;
   timeMax: string;
   calendars: { calendarId: string; syncToken: string | null }[];
+  /**
+   * The device's word for this account's part of its copy (db.ts), which is new whenever that part
+   * is begun again, as after a calendar link is given a new link. It only makes the question a
+   * different one: a reading asked for since is never answered with one asked for before.
+   */
+  epoch?: string;
 }
 
 export type CalendarResult =
@@ -140,5 +155,28 @@ export interface EventsResponse {
  * - `blocked`: the provider will not let that account's calendar be read at all.
  * - `refused`: the provider did not accept the credential just given for an account (Yahoo's app password).
  * - `unavailable`: calendar connections are not set up on this server.
+ *
+ * Adding or updating a calendar link has words of its own:
+ * - `bad_link`: not a link Koyomi will follow (only https, on the usual port, to the public internet).
+ * - `not_calendar`: the link answered, but not with a calendar.
+ * - `unreachable`: the link could not be reached just now.
+ * - `too_large`: the calendar is larger than Koyomi reads.
+ * - `taken`: that link is already another of this person's calendars.
+ * - `too_many`: this person has as many calendar links as Koyomi keeps.
  */
-export type ApiError = 'signed_out' | 'not_connected' | 'reconnect' | 'busy' | 'slow_down' | 'blocked' | 'refused' | 'unavailable' | 'bad_request';
+export type ApiError =
+  | 'signed_out'
+  | 'not_connected'
+  | 'reconnect'
+  | 'busy'
+  | 'slow_down'
+  | 'blocked'
+  | 'refused'
+  | 'unavailable'
+  | 'bad_request'
+  | 'bad_link'
+  | 'not_calendar'
+  | 'unreachable'
+  | 'too_large'
+  | 'taken'
+  | 'too_many';

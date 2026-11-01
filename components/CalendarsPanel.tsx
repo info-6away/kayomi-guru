@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { addAccount, connectYahoo, disconnect, reconnect, refresh, showCalendar, signIn, stopAsking, type Asking, type External } from '@/lib/calendars/store';
-import { PROVIDERS } from '@/lib/calendars/types';
+import { useEffect, useState, type FormEvent } from 'react';
+import { addAccount, connectLink, connectYahoo, disconnect, reconnect, refresh, showCalendar, signIn, stopAsking, type Asking, type External } from '@/lib/calendars/store';
+import { PROVIDERS, type Provider } from '@/lib/calendars/types';
 import { WORDS, listed, which } from '@/lib/calendars/words';
 import { hm } from '@/lib/dates';
 import { install, useCanInstall } from '@/lib/install';
@@ -16,7 +16,7 @@ const GROUP = 'px-3.5 text-[10.5px] tracking-[.18em] text-dow';
 const PRIVACY = 'https://koyomi.guru/privacy';
 /** Yahoo's own page on making an app password. */
 const YAHOO_HELP = 'https://help.yahoo.com/kb/SLN15241.html';
-const FIELD = 'h-10 w-full rounded-[4px] border border-line bg-bg px-3 text-[14px] text-ink outline-none focus:border-stone';
+const YAHOO_FIELD = 'h-10 w-full rounded-[4px] border border-line bg-bg px-3 text-[14px] text-ink outline-none focus:border-stone';
 
 /**
  * Yahoo's connection, asked for here: there is no Yahoo page to send anyone to. The app password
@@ -40,12 +40,12 @@ function YahooForm({ asking }: { asking: Asking }) {
       ) : (
         <label className="flex flex-col gap-1 text-[12.5px] text-ink2">
           Yahoo email
-          <input type="email" required autoComplete="email" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} className={FIELD} />
+          <input type="email" required autoComplete="email" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} className={YAHOO_FIELD} />
         </label>
       )}
       <label className="flex flex-col gap-1 text-[12.5px] text-ink2">
         Yahoo app password
-        <input type="password" required autoComplete="off" spellCheck={false} value={password} onChange={(e) => setPassword(e.target.value)} className={FIELD} />
+        <input type="password" required autoComplete="off" spellCheck={false} value={password} onChange={(e) => setPassword(e.target.value)} className={YAHOO_FIELD} />
       </label>
       <p className="text-[12px] leading-[1.6] text-pretty text-muted">
         Use a Yahoo app password, not your normal Yahoo password. To make one: Yahoo Account, Account Security, External connections, Create app
@@ -91,6 +91,65 @@ const readAt = (iso: string) => {
   return `${sameDay ? '' : `${d.getDate()}/${d.getMonth() + 1} `}${hm(d.getHours() * 60 + d.getMinutes())}`;
 };
 
+const FIELD = 'mt-1 h-10 w-full rounded-[4px] border border-line bg-bg px-3 text-[14px] text-ink outline-none focus:border-stone';
+
+/**
+ * Subscribing to a calendar by its private link, or giving one a new link. The link stays in
+ * this form only until it is sent: the field is emptied as it goes, and nothing of it is kept
+ * on this device or offered back by the browser.
+ */
+function LinkForm({ asking }: { asking: Asking }) {
+  const [link, setLink] = useState('');
+  const [name, setName] = useState('');
+  const updating = asking.connection;
+  const title = updating ? `Update link for ${updating.account ?? WORDS.link.unnamed}` : 'Subscribe to a calendar';
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const sent = link;
+    setLink('');
+    void connectLink(sent, name);
+  };
+  return (
+    <form onSubmit={submit} aria-label={title} className="mx-1.5 mt-2 rounded-[6px] border border-line px-3.5 pt-3 pb-3.5">
+      <p className="text-[14px] text-ink">{title}</p>
+      <label className="mt-3 block text-[12px] text-muted">
+        Calendar link
+        <input type="url" inputMode="url" required autoComplete="off" spellCheck={false} placeholder="https://" value={link} onChange={(e) => setLink(e.target.value)} className={FIELD} />
+      </label>
+      {!updating && (
+        <label className="mt-2.5 block text-[12px] text-muted">
+          Name (optional)
+          <input type="text" autoComplete="off" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} className={FIELD} />
+        </label>
+      )}
+      <p className="mt-2.5 text-[12px] leading-[1.6] text-pretty text-muted">
+        Paste a private read-only calendar subscription link. Anyone who has this link may be able to view the calendar, so treat it like a password.
+      </p>
+      {asking.error && (
+        <p role="alert" className="mt-2 text-[12.5px] leading-[1.6] text-ink2">
+          {asking.error}
+        </p>
+      )}
+      <div className="mt-3 flex items-center gap-4">
+        <button type="submit" disabled={asking.sending} className={`${PILL} disabled:opacity-60`}>
+          {asking.sending ? 'Checking…' : updating ? 'Update link' : 'Add calendar'}
+        </button>
+        <button type="button" onClick={stopAsking} className={`text-[12px] text-muted ${QUIET}`}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** What Calendars says while nothing is connected: what can be added, and what that means. */
+function offering(providers: Provider[]) {
+  const accounts = providers.filter((id) => id !== 'link');
+  const links = providers.includes('link');
+  if (!accounts.length) return 'Koyomi can show a published calendar beside your own, to read only, using its private calendar link. Adding one asks you to sign in with 6Away first. Koyomi can never change it.';
+  return `Koyomi can show your ${listed(accounts)} calendars beside your own, to read only. Adding an account asks you to sign in with 6Away, then to let Koyomi read its calendars. It can never change them.${links ? ' You can also subscribe to a read-only calendar using its private calendar link.' : ''}`;
+}
+
 interface Props {
   mobile: boolean;
   open: boolean;
@@ -113,7 +172,10 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
   // Where more than one provider is offered, adding an account first asks which. Nothing more.
   const [choosing, setChoosing] = useState(false);
   useEffect(() => {
-    if (!open) setChoosing(false);
+    if (open) return;
+    setChoosing(false);
+    // A form for a link is not left open behind a closed drawer.
+    stopAsking();
   }, [open]);
   const add = () => {
     if (asking) stopAsking();
@@ -121,7 +183,7 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
     else addAccount(providers[0]);
   };
   // Once a provider is chosen, the choice is done with.
-  const choose = (id: (typeof providers)[number]) => {
+  const choose = (id: Provider) => {
     setChoosing(false);
     addAccount(id);
   };
@@ -194,7 +256,7 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
                 const opened = folds[connection.id] ?? (connections.length === 1 || connection.status !== 'connected');
                 const shown = own.filter((calendar) => calendar.visible).length;
                 // Folded, what needs the person is said on the account's own line. Open, it is said below.
-                const attention = connection.status === 'reconnect' ? 'Needs reconnecting' : connection.status === 'blocked' ? 'Can’t be read' : null;
+                const attention = connection.status === 'reconnect' ? provider.needs : connection.status === 'blocked' ? 'Can’t be read' : null;
                 const summary = attention ? (opened ? '' : attention) : own.length ? `${shown} of ${own.length}` : '';
                 const body = `account-${connection.id}`;
                 return (
@@ -227,21 +289,31 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
                           </button>
                         ))}
                         {!own.length && connection.status === 'connected' && <p className="px-3.5 py-2 text-[13px] text-muted">{syncing ? 'Reading its calendars…' : 'No calendars yet.'}</p>}
-                        {/* Only when the provider itself has refused this account's permission. The others carry on. */}
+                        {/* Only when the provider itself has refused this account's permission, or a link no
+                            longer gives a calendar. The others carry on. */}
                         {connection.status === 'reconnect' && (
-                          <div className={`${ROW} text-[13px] text-ink2`}>
-                            <span className="flex-1">Needs reconnecting</span>
-                            <button onClick={() => reconnect(connection)} aria-label={`Reconnect ${name}`} className={PILL}>
-                              Reconnect
-                            </button>
-                          </div>
+                          <>
+                            <div className={`${ROW} text-[13px] text-ink2`}>
+                              <span className="flex-1">{provider.needs}</span>
+                              <button onClick={() => reconnect(connection)} aria-label={`${provider.mend} ${name}`} className={PILL}>
+                                {provider.mend}
+                              </button>
+                            </div>
+                            {provider.needsWhy && <p className="px-3.5 pb-2 text-[12.5px] leading-[1.6] text-muted">{provider.needsWhy}</p>}
+                          </>
                         )}
                         {/* Not something consenting again would mend, so there is nothing to press but Disconnect. */}
                         {connection.status === 'blocked' && <p className="px-3.5 py-2 text-[13px] text-muted">{provider.blocked}</p>}
                         {/* Last, and only once the account is opened: ending it is never one stray tap away. */}
-                        <div className="flex min-h-9 items-center justify-end px-3.5">
-                          <button onClick={() => void disconnect(connection.id)} disabled={syncing} aria-label={`Disconnect ${name}`} className={`text-[12px] text-muted ${QUIET}`}>
-                            Disconnect
+                        <div className="flex min-h-9 items-center justify-end gap-4 px-3.5">
+                          {/* A link can be replaced at any time (its owner may have made a new one), not only once it has stopped working. */}
+                          {id === 'link' && connection.status !== 'reconnect' && (
+                            <button onClick={() => reconnect(connection)} aria-label={`${provider.mend} ${name}`} className={`text-[12px] text-muted ${QUIET}`}>
+                              {provider.mend}
+                            </button>
+                          )}
+                          <button onClick={() => void disconnect(connection.id)} disabled={syncing} aria-label={`${provider.end} ${name}`} className={`text-[12px] text-muted ${QUIET}`}>
+                            {provider.end}
                           </button>
                         </div>
                       </div>
@@ -259,7 +331,7 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
         {status === 'signin' && (
           <div className={`${ROW} mt-3 text-[13px] text-ink2`}>
             <span className="flex-1">
-              Sign in again to keep {connected === 'microsoft' ? 'your Microsoft calendar' : connected === 'yahoo' ? 'your Yahoo calendar' : connected === 'several' ? 'your calendars' : 'Google Calendar'} up to date
+              Sign in again to keep {connected === 'several' ? 'your calendars' : WORDS[connected ?? 'google'].kept} up to date
             </span>
             <button onClick={signIn} className={PILL}>
               Sign in
@@ -287,10 +359,10 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
           </div>
         )}
         {asking?.provider === 'yahoo' && <YahooForm key={asking.connection?.id ?? 'new'} asking={asking} />}
-        {available && status === 'off' && !asking && (
+        {asking?.provider === 'link' && <LinkForm key={asking.connection?.id ?? 'new'} asking={asking} />}
+        {available && status === 'off' && asking?.provider !== 'yahoo' && (
           <p className="mx-3.5 mt-3 text-[12px] leading-[1.6] text-pretty text-muted">
-            Koyomi can show your {listed(providers)} calendars beside your own, to read only. Adding an account asks you to sign in with 6Away, then to let Koyomi
-            read its calendars. It can never change them.{' '}
+            {offering(providers)}{' '}
             {/* The policy is a page of the site, not of the calendar, so it opens beside it. */}
             <a href={PRIVACY} target="_blank" rel="noopener noreferrer" className="underline decoration-line underline-offset-4 hover:text-ink2">
               Privacy

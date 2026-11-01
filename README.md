@@ -112,7 +112,10 @@ memory, never in a database, whatever `DATABASE_URL` the machine happens to have
   account, reading them, and where their events land on the calendar. `lib/server/`: the
   server's part: sealing tokens, the table of connections, and everything said to Google
   (`google.ts`), to Microsoft (`microsoft.ts`) and to Yahoo (`yahoo.ts`, through the read-only
-  CalDAV client in `caldav.ts`), each behind the same few calls (`providers.ts`).
+  CalDAV client in `caldav.ts`), and calendar links (`link.ts`, fetched only through
+  `fetchlink.ts`, which keeps the server off private networks), each behind the same few calls
+  (`providers.ts`). `lib/calendars/ical.ts` works out the occurrences of an iCalendar calendar,
+  Yahoo's or a published one.
 - `public/sw.js`: the service worker that keeps the app shell available offline.
 - `scripts/`: `make-icons.mjs` draws the icons and `make-screenshots.mjs` takes the pictures in
   `docs/design` and the manifest. `migrate.mjs` applies `migrations/` (one table).

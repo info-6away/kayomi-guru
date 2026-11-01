@@ -20,9 +20,9 @@ import {
   type Span,
 } from '@/lib/dates';
 import { showingsByDay } from '@/lib/calendars/showings';
-import { connected, finishDisconnect, initExternal, resume, resumeYahoo, say, useExternal } from '@/lib/calendars/store';
+import { connected, finishDisconnect, initExternal, resume, resumeLink, resumeYahoo, say, useExternal } from '@/lib/calendars/store';
 import type { Provider } from '@/lib/calendars/types';
-import { which } from '@/lib/calendars/words';
+import { WORDS, which } from '@/lib/calendars/words';
 import { moved, occurrenceKey, occurrencesByDay, type Occurrence } from '@/lib/occurrences';
 import { watchInstall } from '@/lib/install';
 import { addEvent, init, updateEvent, useData, type Data } from '@/lib/store';
@@ -157,6 +157,8 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     openCalendars();
     // Back from signing in on the way to Yahoo's form: the form, and nothing more.
     if (outcome === 'yahoo') return void resumeYahoo();
+    // Signed in on the way to the form for a calendar link: the form is shown again, empty.
+    if (outcome === 'link') return void resumeLink();
     if (outcome === 'connected') void connected();
     else if (outcome === 'cancelled') say(microsoft ? 'Microsoft calendar was not connected.' : 'Google Calendar was not connected.');
     else if (outcome === 'declined') say(microsoft ? 'Koyomi needs permission to read your calendars, so nothing was connected.' : 'Koyomi needs both permissions to show your calendars, so nothing was connected.');
@@ -522,14 +524,12 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
           >
             {/* Sign-in first: until that is mended, nothing can be asked about any account. */}
             {external.status === 'signin'
-              ? `Sign in again to update ${signedOutOf === 'microsoft' ? 'your Microsoft calendar' : signedOutOf === 'yahoo' ? 'your Yahoo calendar' : signedOutOf === 'several' ? 'your calendars' : 'Google Calendar'}`
-              : reconnecting === 'microsoft'
-                ? 'Microsoft calendar needs reconnecting'
-                : reconnecting === 'yahoo'
-                  ? 'Yahoo calendar needs reconnecting'
-                  : reconnecting === 'several'
-                    ? 'Calendars need reconnecting'
-                    : 'Google Calendar needs reconnecting'}
+              ? `Sign in again to update ${signedOutOf === 'several' ? 'your calendars' : WORDS[signedOutOf ?? 'google'].kept}`
+              : reconnecting === 'several'
+                ? external.connections.some((connection) => connection.status === 'reconnect' && connection.provider === 'link')
+                  ? 'Calendars need attention'
+                  : 'Calendars need reconnecting'
+                : WORDS[reconnecting ?? 'google'].pill}
           </button>
         )}
 

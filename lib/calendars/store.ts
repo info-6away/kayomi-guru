@@ -16,6 +16,7 @@ import {
   type Provider,
 } from './types';
 import { covers, spanOfWindow, syncWindow, within } from './window';
+import { WORDS } from './words';
 
 // Connected calendars on this device: the accounts a person has connected, and what is known
 // of each, kept in memory and written through to their own database (db.ts). Nothing here runs,
@@ -50,21 +51,22 @@ export interface External {
   syncing: boolean;
   /** The last thing asked for did not happen, in words for the person. */
   note: string | null;
-  /** What the person is being asked for in Calendars, where a provider has no page to send them to (Yahoo). */
+  /** What the person is being asked for in Calendars, where there is no provider's page to send them to (Yahoo, a calendar link). */
   asking: Asking | null;
 }
 
 /**
- * Yahoo's app password, asked for in Calendars itself. Only what the form needs: never the
- * password, which lives in the form for the moment it takes to send and nowhere else.
+ * Yahoo's app password or a calendar link, asked for in Calendars itself. Only what the form
+ * needs: never the password or the link, which lives in the form for the moment it takes to send
+ * and nowhere else.
  */
 export interface Asking {
-  provider: 'yahoo';
-  /** The account being reconnected, whose address is known already; null when adding one. */
+  provider: 'yahoo' | 'link';
+  /** The account being reconnected or the calendar whose link is being updated, whose name is known already; null when adding one. */
   connection: ExternalConnection | null;
-  /** Why the last try did not connect, in words for the person. */
+  /** Why the last try did not work, in words for the person. */
   error: string | null;
-  /** A try is on its way to Yahoo. */
+  /** A try is on its way. */
   sending: boolean;
 }
 
@@ -133,8 +135,16 @@ let channel: BroadcastChannel | null = null;
 let started = false;
 /** Settles once this device's copy has been read, so nothing that follows can be overwritten by it. */
 let ready: Promise<void> = Promise.resolve();
-/** Something asked for a reading while one was under way: one more follows it, however many asked. */
-let again = false;
+/**
+ * Something asked for a reading while one was under way: one more follows it, however many
+ * asked. `asked` if the person asked for it themselves, so that it says what it could not read.
+ */
+let again: false | 'unasked' | 'asked' = false;
+/**
+ * What the reading under way could not read, if the person asked for it: the accounts, by id, or
+ * all of it at once. Null for a reading begun unasked, which says nothing of what it could not do.
+ */
+let unread: { accounts: string[]; all: 'busy' | 'offline' | null } | null = null;
 /** The address says an account was just connected, and the server has not yet confirmed it. */
 let unconfirmed = false;
 /**
@@ -335,7 +345,27 @@ async function failed(error: ApiError | 'offline', mine: string | null) {
     return become('signin');
   }
   // Offline, or the server busy: what was read before is still good. Try again later.
+  if (unread) unread.all = error === 'offline' ? 'offline' : 'busy';
   set({ syncing: false });
+  sayUnread();
+}
+
+/** Names in a sentence: "a", "a and b", "a, b and c". */
+const joined = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
+/**
+ * At the end of a reading the person asked for: what it could not read, in one quiet line. What
+ * was read before stays either way. An account the provider refuses, or will not let be read at
+ * all, says so of itself, and is not said again here.
+ */
+function sayUnread() {
+  const was = unread;
+  unread = null;
+  if (!was) return;
+  if (was.all === 'offline') return set({ note: 'You seem to be offline, so your calendars couldn’t be read. Try again once you’re back online.' });
+  if (was.all === 'busy') return set({ note: 'Couldn’t read your calendars just now. Try again in a moment.' });
+  const names = state.connections.filter((connection) => was.accounts.includes(connection.id)).map((connection) => connection.account ?? WORDS[connection.provider].unnamed);
+  if (names.length) set({ note: `Couldn’t read ${joined(names)} just now. Try again in a moment.` });
 }
 
 /**
@@ -421,7 +451,7 @@ async function read(id: string, began: number, only?: string): Promise<'stop' | 
 
   for (let i = 0; i < shown.length; i += BATCH) {
     const asked = shown.slice(i, i + BATCH).map((calendar) => ({ calendarId: calendar.calendarId, syncToken: covers(calendar, today) ? calendar.syncToken : null }));
-    const request: EventsRequest = { connectionId: id, ...spanOfWindow(window), calendars: asked };
+    const request: EventsRequest = { connectionId: id, ...spanOfWindow(window), calendars: asked, ...(mine ? { epoch: mine } : {}) };
     const answer = await call<EventsResponse>('/api/calendars/events', request);
     if (era !== began) return 'stop';
     if (!answer.ok) return refused(id, answer.error, mine);
@@ -507,7 +537,9 @@ async function refused(id: string, error: ApiError | 'offline', mine: string | u
   if (error === 'offline') {
     // No way out to the server at all: the other accounts would be told the same.
     again = false;
+    if (unread) unread.all = 'offline';
     set({ syncing: false });
+    sayUnread();
     return 'stop';
   }
   if (error === 'reconnect') {
@@ -523,7 +555,9 @@ async function refused(id: string, error: ApiError | 'offline', mine: string | u
   // Signed in, and this account is not connected: it was ended somewhere else. This device follows.
   if (error === 'not_connected' && (await forget(id, mine)) !== 'others') return 'stop';
   // The provider busy about this account, or asking for a pause, or not letting it be read at
-  // all (the next list of accounts says so of it): what was read before is still good.
+  // all (the next list of accounts says so of it): what was read before is still good. A
+  // reading the person asked for says it could not read this one, unless the list will.
+  if (error !== 'blocked' && error !== 'not_connected') unread?.accounts.push(id);
 }
 
 /**
@@ -536,18 +570,22 @@ async function refused(id: string, error: ApiError | 'offline', mine: string | u
  *
  * A reading is often begun unasked, when the page opens or comes back into view. So it leaves
  * alone what the person was last told: that goes when they next ask for something themselves.
+ * Only a reading they asked for says what it could not read.
  *
  * @param only Read just this calendar's events, without listing accounts again.
+ * @param asked The person asked for this reading (Refresh).
  */
-export async function sync(only?: CalendarRef): Promise<void> {
+export async function sync(only?: CalendarRef, asked = false): Promise<void> {
   await ready;
   if (off()) return;
   if (state.syncing) {
-    again = true;
+    if (asked || !again) again = asked ? 'asked' : 'unasked';
     return;
   }
   set({ syncing: true });
   const began = era;
+  // Only what this reading could not read is said: not what one before it could not.
+  unread = asked ? { accounts: [], all: null } : null;
 
   let round = only ? [only.connectionId] : [];
   if (!only) {
@@ -578,6 +616,8 @@ export async function sync(only?: CalendarRef): Promise<void> {
     flag.set('connected');
     set({ status: 'connected', connections: orderConnections(now.connections), calendars: order(now.calendars), events: now.events });
     round = listed.filter((entry) => entry.state === 'ok').map((entry) => entry.connectionId);
+    // Listed, but not readable just now: the provider failing, or asked too often.
+    unread?.accounts.push(...listed.filter((entry) => entry.state === 'busy').map((entry) => entry.connectionId));
   }
 
   for (const id of round) if ((await read(id, began, only?.calendarId)) === 'stop') return;
@@ -585,15 +625,21 @@ export async function sync(only?: CalendarRef): Promise<void> {
   set({ syncing: false });
   tell();
   if (again) {
+    // The one that follows says what it could not read, if this one or it was asked for.
+    const asking = asked || again === 'asked';
     again = false;
-    await sync();
+    return sync(undefined, asking);
   }
+  sayUnread();
 }
 
-/** The person asks for the calendars to be read again. Whatever they were last told, they have seen. */
+/**
+ * The person asks for the calendars to be read again. Whatever they were last told, they have
+ * seen; what this reading cannot read, they are told.
+ */
 export function refresh(): Promise<void> {
   set({ note: null });
-  return sync();
+  return sync(undefined, true);
 }
 
 /** Shows or hides one calendar. A hidden calendar is not read, and its events are not kept. */
@@ -617,10 +663,10 @@ export async function showCalendar(id: string, visible: boolean) {
  * account and for its consent. A device that shows no account yet says so by leaving `add` out:
  * if the person turns out to have accounts connected already, it is sent back to read those instead.
  */
-export const addAccount = (provider: Provider) => (provider === 'yahoo' ? void askYahoo() : location.assign(`/api/${provider}/connect${state.connections.length ? '?add=1' : ''}`));
+export const addAccount = (provider: Provider) => (provider === 'yahoo' ? void askYahoo() : provider === 'link' ? void askLink() : location.assign(`/api/${provider}/connect${state.connections.length ? '?add=1' : ''}`));
 
-/** Asks the provider of one account for its permission again. The other accounts are not involved. */
-export const reconnect = (connection: ExternalConnection) => (connection.provider === 'yahoo' ? void askYahoo(connection) : location.assign(`/api/${connection.provider}/connect?add=1`));
+/** Asks the provider of one account for its permission again, or a calendar link for a new link. The other accounts are not involved. */
+export const reconnect = (connection: ExternalConnection) => (connection.provider === 'yahoo' ? void askYahoo(connection) : connection.provider === 'link' ? void askLink(connection) : location.assign(`/api/${connection.provider}/connect?add=1`));
 
 /** Where the way back from signing in leads when Yahoo's form is waiting to be shown. */
 const YAHOO_BACK = `/api/auth/signin?returnTo=${encodeURIComponent('/?calendars=yahoo')}`;
@@ -650,6 +696,33 @@ export async function resumeYahoo() {
   await askYahoo(what === 'yahoo' && id ? (state.connections.find((connection) => connection.id === id) ?? null) : null, true);
 }
 
+/** Where the way back from signing in leads when the form for a calendar link is waiting to be shown. */
+const LINK_BACK = `/api/auth/signin?returnTo=${encodeURIComponent('/?calendars=link')}`;
+
+/**
+ * Shows the form for a calendar link in Calendars. A calendar belongs to a Koyomi sign-in, so
+ * that comes first: without one, the person signs in with 6Away and is brought back to the form.
+ *
+ * @param connection The calendar whose link is to be updated; null to add one.
+ * @param back Already back from signing in: a sign-in that still did not take is said, not tried again.
+ */
+export async function askLink(connection: ExternalConnection | null = null, back = false) {
+  const signed = await call<{ ok: true }>('/api/link/connect');
+  if (signed.ok) return set({ asking: { provider: 'link', connection, error: null, sending: false }, note: null });
+  if (signed.error === 'signed_out' && !back) {
+    intent.leave(connection ? `link:${connection.id}` : 'link');
+    return location.assign(LINK_BACK);
+  }
+  set({ note: signed.error === 'offline' ? 'Couldn’t reach Koyomi. Try again when you’re online.' : 'Couldn’t add a calendar link just now. Try again in a moment.' });
+}
+
+/** Back from signing in on the way to the form. A bare link opens the form and no more. */
+export async function resumeLink() {
+  await ready;
+  const [what, id] = intent.take()?.split(':') ?? [];
+  await askLink(what === 'link' && id ? (state.connections.find((connection) => connection.id === id) ?? null) : null, true);
+}
+
 export const stopAsking = () => set({ asking: null });
 
 const YAHOO_SAID: Partial<Record<ApiError | 'offline', string>> = {
@@ -657,6 +730,19 @@ const YAHOO_SAID: Partial<Record<ApiError | 'offline', string>> = {
   bad_request: 'Enter your Yahoo email and a Yahoo app password.',
   slow_down: 'Too many tries for now. Wait a few minutes, then try again.',
   blocked: 'Yahoo doesn’t let Koyomi read this account’s calendar.',
+  offline: 'Couldn’t reach Koyomi. Try again when you’re online.',
+};
+
+const LINK_SAID: Partial<Record<ApiError | 'offline', string>> = {
+  bad_link: 'That isn’t a calendar link Koyomi can use. Paste the calendar’s private https or webcal link.',
+  bad_request: 'Paste a calendar link.',
+  not_calendar: 'This link did not return a valid calendar.',
+  unreachable: 'Couldn’t reach that link just now. Try again in a moment.',
+  too_large: 'This calendar is larger than Koyomi can read.',
+  taken: 'That link is already one of your calendars.',
+  too_many: 'You have as many calendar links as Koyomi keeps. Remove one to add another.',
+  slow_down: 'Too many tries for now. Wait a few minutes, then try again.',
+  not_connected: 'That calendar is no longer here.',
   offline: 'Couldn’t reach Koyomi. Try again when you’re online.',
 };
 
@@ -681,6 +767,30 @@ export async function connectYahoo(email: string, appPassword: string): Promise<
     return;
   }
   set({ asking: { ...asking, sending: false, error: YAHOO_SAID[done.error] ?? 'Couldn’t connect to Yahoo. Try again in a moment.' } });
+}
+
+/**
+ * Subscribes to a calendar link, or gives the calendar in the form a new one. The link goes to
+ * Koyomi's server once, in the body of one request, and is not kept here: the form has already
+ * let go of it, and nothing of it is written to this device. Once it is in place, everything is
+ * read afresh, and whatever was on its way from the old link is not kept.
+ */
+export async function connectLink(link: string, name: string): Promise<void> {
+  const asking = state.asking;
+  if (!asking || asking.sending) return;
+  set({ asking: { ...asking, sending: true, error: null } });
+  const done = await call<{ ok: true }>('/api/link/connect', asking.connection ? { link, connectionId: asking.connection.id } : { link, name });
+  if (done.ok) {
+    set({ asking: null });
+    return connected();
+  }
+  if (done.error === 'signed_out') {
+    // Signed out while the form was open. Sign in, and the form is shown again, empty.
+    intent.leave(asking.connection ? `link:${asking.connection.id}` : 'link');
+    location.assign(LINK_BACK);
+    return;
+  }
+  set({ asking: { ...asking, sending: false, error: LINK_SAID[done.error] ?? 'Couldn’t add a calendar link just now. Try again in a moment.' } });
 }
 
 /**
@@ -725,12 +835,17 @@ export async function disconnect(id: string): Promise<void> {
   const mine = epochs[id];
   era++;
   again = false;
-  // Yahoo cannot be asked to cancel an app password, so the person is told where they can.
+  // Yahoo cannot be asked to cancel an app password, and nobody but the calendar's owner can
+  // withdraw a published link, where it was published: the person is told so, and Koyomi claims
+  // nothing more than that it no longer keeps it.
+  const leaving = state.connections.find((connection) => connection.id === id)?.provider;
   const told =
-    state.connections.find((connection) => connection.id === id)?.provider === 'yahoo'
+    leaving === 'yahoo'
       ? 'Koyomi no longer keeps that Yahoo app password. To stop it working at Yahoo too, delete it there, under Account Security, External connections.'
-      : null;
-  set({ syncing: true, note: null });
+      : leaving === 'link'
+        ? 'Koyomi no longer keeps that calendar link. It still works wherever else it is used: to stop it working, turn off or reset that calendar’s publishing where it lives.'
+        : null;
+  set({ syncing: true, note: null, asking: null });
   const done = await call<{ ok: true }>('/api/calendars/disconnect', { connectionId: id });
   if (done.ok || done.error === 'not_connected') {
     // If another tab has begun this account's part again meanwhile, that is not this Disconnect's to end.

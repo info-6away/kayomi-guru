@@ -1,5 +1,6 @@
 import type { Provider } from '../calendars/types';
 import { googleEndpoints, type GoogleClient } from './google';
+import type { LinkConfig } from './link';
 import { microsoftEndpoints, type MicrosoftClient } from './microsoft';
 import { yahooClient, type YahooClient } from './yahoo';
 
@@ -35,6 +36,8 @@ export interface ConnectionsConfig {
   microsoft: MicrosoftClient | null;
   /** Null where this server is not set up to connect Yahoo accounts. */
   yahoo: YahooClient | null;
+  /** Null where this server does not subscribe to calendar links. */
+  link: LinkConfig | null;
   /** 64 hexadecimal characters: the key that seals provider tokens. */
   tokenKey: string;
   /** A Postgres connection string, or 'memory' in the browser tests. */
@@ -63,15 +66,19 @@ export function connectionsConfig(): ConnectionsConfig | null {
       ? { clientId: microsoftId, clientSecret: microsoftSecret, redirectUri: `${appUrl}/api/microsoft/callback`, endpoints: microsoftEndpoints(testOnly('KOYOMI_TEST_MICROSOFT_URL')) }
       : null;
   const yahoo = env('YAHOO_CALENDAR') === 'on' ? yahooClient(testOnly('KOYOMI_TEST_YAHOO_URL')) : null;
-  if (!google && !microsoft && !yahoo) return null;
-  return { appUrl, google, microsoft, yahoo, tokenKey, database };
+  // Calendar links need no client of anyone's: only that they are switched on.
+  const pace = Number(testOnly('KOYOMI_TEST_LINK_PACE_MS'));
+  const link: LinkConfig | null =
+    env('CALENDAR_LINKS') === 'on' ? { own: new URL(appUrl).hostname, test: testOnly('KOYOMI_TEST_LINK_ORIGIN') ?? null, paceMs: Number.isFinite(pace) && pace >= 0 ? pace : 10_000 } : null;
+  if (!google && !microsoft && !yahoo && !link) return null;
+  return { appUrl, google, microsoft, yahoo, link, tokenKey, database };
 }
 
 /** Which providers this server can connect, in the order they are offered. None: the feature is off. */
 export function calendarProviders(): Provider[] {
   const config = connectionsConfig();
   if (!config) return [];
-  return [...(config.google ? (['google'] as const) : []), ...(config.microsoft ? (['microsoft'] as const) : []), ...(config.yahoo ? (['yahoo'] as const) : [])];
+  return [...(config.google ? (['google'] as const) : []), ...(config.microsoft ? (['microsoft'] as const) : []), ...(config.yahoo ? (['yahoo'] as const) : []), ...(config.link ? (['link'] as const) : [])];
 }
 
 export const connectionsConfigured = () => connectionsConfig() !== null;

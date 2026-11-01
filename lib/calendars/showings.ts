@@ -62,7 +62,8 @@ function pieces(event: ExternalEvent): { date: string; start: number; end: numbe
  * the same calendar id is another calendar, shown or hidden by itself.
  */
 export function showingsByDay(events: ExternalEvent[], calendars: ExternalCalendar[], connections: ExternalConnection[], from: string, to: string): Map<string, Showing[]> {
-  const accounts = new Map(connections.map((connection) => [connection.id, connection.account]));
+  // A calendar link is known by its calendar's name alone: there is no account to name besides.
+  const accounts = new Map(connections.map((connection) => [connection.id, connection.provider === 'link' ? null : connection.account]));
   const sources = new Map(calendars.filter((c) => c.visible).map((c) => [c.id, { calendar: c.name, account: accounts.get(c.connectionId) ?? null }]));
   const byDay = new Map<string, Showing[]>();
   for (const event of events) {

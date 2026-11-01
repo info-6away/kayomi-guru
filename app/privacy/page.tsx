@@ -6,7 +6,7 @@ import { A, H2, LegalPage, List, Mail, OPERATOR, P, legalMetadata } from '@/comp
 
 export const metadata = legalMetadata('Privacy', 'What Koyomi keeps, where it keeps it, and what it is used for.', '/privacy');
 
-const UPDATED = '28 October 2026';
+const UPDATED = '1 November 2026';
 
 export default function Privacy() {
   return (
@@ -139,12 +139,47 @@ export default function Privacy() {
         kept or written to a log. Yahoo has no address for a single event, so Koyomi links to none.
       </P>
 
+      <H2>Subscribing to a calendar link</H2>
+      <P>
+        Subscribing to a calendar by its link is optional too. Some calendars, Outlook’s among them, can be published as a private, read-only
+        link (an .ics or webcal address). You can give Koyomi one such link or several, beside your accounts or without them. Koyomi shows that
+        calendar’s events beside your own, and uses them for nothing else. It is a subscription, not a copy: Koyomi reads the calendar again
+        from time to time, and shows it as it is.
+      </P>
+      <P>
+        To subscribe, you first sign in with 6Away, then paste the link. A calendar link works like a password: anyone who has it may be able to
+        see that calendar, so keep it to yourself. Koyomi sends it to our server once, over HTTPS, when you add it. It is never sent back to your
+        browser, never kept on your device, and never written to a log or shown in an error. Our server fetches the calendar, never your
+        browser, and keeps the link only if it gives a calendar. It fetches only from the public internet: never from a private network, and a
+        redirect is checked the same way.
+      </P>
+      <P>Koyomi only reads a calendar link. It cannot create, change or delete anything in the calendar it leads to.</P>
+
+      <H2>What Koyomi reads from a calendar link</H2>
+      <P>
+        A calendar link gives the whole calendar, whatever Koyomi would rather have: it may include descriptions, locations, organisers, guests,
+        contacts, comments, attachments, reminders, meeting links and other details. Of each event from five weeks back to twenty-seven weeks
+        ahead, Koyomi reads only:
+      </P>
+      <List>
+        <li>its identifier in that calendar, its title, its start and end or its length, whether it lasts all day, and the time zone it was written in;</li>
+        <li>whether it repeats, and how: its rule, the dates added to it or left out, and any occurrence that was changed;</li>
+        <li>whether it is cancelled or tentative, which version of it this is, and when it last changed.</li>
+      </List>
+      <P>
+        Everything else in the calendar is dropped on our server as it is read. None of it reaches your device, and none of it is kept or written
+        to a log. Koyomi also reads the name the calendar gives itself, if you give it no name of your own. A calendar link has no address for a
+        single event, so Koyomi links to none.
+      </P>
+
       <H2>Where it is kept</H2>
       <P>
         On your device. The calendar names and identifiers and the event details above are kept in your browser, apart from your Koyomi calendar, so
         that they can be shown when you are offline, together with the address of each connected account, which calendars you chose to show and a
-        note that a calendar is connected. They are removed from the device when you hide a calendar, when you disconnect that account, or when
-        a different person signs in on that device.
+        note that a calendar is connected. For a calendar link, the device keeps the calendar’s name, never the link, and what the calendar’s
+        server said of the version last read (its ETag and Last-Modified date), so that Koyomi can ask whether it has changed since. They are
+        removed from the device when you hide a calendar, when you disconnect that account or remove that calendar, or when a different person
+        signs in on that device.
       </P>
       <P>
         On our server. Events pass through our server on their way from Google to your device. They are not stored there and are not written to
@@ -176,8 +211,14 @@ export default function Privacy() {
         pass through our server in the same way, and are not stored there or written to its log.
       </P>
       <P>
+        Each calendar link you subscribe to has a record of the same kind: your 6Away identifier; a keyed hash made from the link, so that the
+        same link is not recorded twice, which cannot be turned back into it; the link itself and the name the calendar is shown by, encrypted
+        together with AES-256-GCM and bound to that record; whether the link is working; when the record was made and last changed; and a count
+        of recent requests. The calendar’s events pass through our server in the same way, and are not stored there or written to its log.
+      </P>
+      <P>
         Google’s tokens never reach your browser. The short-lived access token used to read your calendar is held only in the server’s memory.
-        The same is true of Microsoft’s.
+        The same is true of Microsoft’s. A calendar link is decrypted on our server only while that calendar is being read.
       </P>
       <P>
         Your Yahoo app password reaches our server once, when you give it, and never comes back to your browser: it is not shown again, not
@@ -214,7 +255,8 @@ export default function Privacy() {
         <li>Only the people who run Koyomi at 6Away can reach the production server’s settings and its database.</li>
       </List>
       <P>Disconnecting an account removes what Koyomi holds of it, as described below.</P>
-      <P>The same measures protect your Microsoft calendar data, and your Yahoo calendar data and app password.</P>
+      <P>The same measures protect your Microsoft calendar data, and the calendars you subscribe to by link, with their links.</P>
+      <P>The same measures protect your Yahoo calendar data and app password.</P>
 
       <H2>What your Google data is never used for</H2>
       <P>
@@ -227,7 +269,10 @@ export default function Privacy() {
         <A href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</A>, including the
         Limited Use requirements.
       </P>
-      <P>The same is true of your Microsoft calendar data: it is used only to show your events beside your own, and for nothing else.</P>
+      <P>
+        The same is true of your Microsoft calendar data, and of calendars you subscribe to by link: they are used only to show your events beside
+        your own, and for nothing else.
+      </P>
       <P>
         The same is true of your Yahoo calendar data. Koyomi does not use your Yahoo app password for anything but reading your calendars, and has
         no access to your Yahoo mail or email content.
@@ -263,6 +308,11 @@ export default function Privacy() {
         and are not stored there. Neon stores the connection records described above, with the app password encrypted, and receives no events
         and no calendar names. 6Away receives none of them, and never your app password.
       </P>
+      <P>
+        A calendar you subscribe to by link comes from wherever it is published, under that service’s own terms. Our server fetches it from
+        there; its events and name pass through Vercel’s server in the same way, and are not stored there. Neon stores only its record, with
+        the link encrypted. 6Away receives none of it.
+      </P>
 
       <H2>How long things are kept, and deleting them</H2>
       <P>
@@ -293,6 +343,12 @@ export default function Privacy() {
         copy of that account’s calendars. Koyomi cannot cancel the app password at Yahoo: it goes on working there until you delete it, in your
         Yahoo account’s security settings, under External connections. If you delete it there first, Koyomi can read nothing further from that
         account, and its record is marked as needing reconnection until you reconnect with a new app password, or disconnect.
+      </P>
+      <P>
+        A calendar link’s Remove calendar deletes its record, with Koyomi’s only copy of the link, from our server, and deletes the device’s
+        copy of that calendar. It does not stop the link working: Koyomi cannot withdraw a published link, and does not claim to. To stop the
+        link itself working, turn off or reset that calendar’s publishing where it lives (for Outlook, in its calendar sharing settings). If a
+        link stops giving a calendar, Koyomi marks it as needing an update and keeps what it read until you update or remove it.
       </P>
       <P>
         You can also ask us to delete the record by writing to <Mail />.

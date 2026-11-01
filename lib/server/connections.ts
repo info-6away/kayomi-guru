@@ -37,8 +37,8 @@ export interface Connection {
  */
 export const accountKey = (tokenKey: string, subject: string, provider: Provider, providerAccountId: string) =>
   // An address is the same address in any case, and so is Yahoo's principal, which is made from
-  // one. Microsoft's subject is not: its case is part of it.
-  fingerprint(provider === 'microsoft' ? providerAccountId.trim() : providerAccountId.trim().toLowerCase(), tokenKey, `account\n${subject}\n${provider}`);
+  // one. Microsoft's subject is not, and neither is a calendar link: their case is part of them.
+  fingerprint(provider === 'google' || provider === 'yahoo' ? providerAccountId.trim().toLowerCase() : providerAccountId.trim(), tokenKey, `account\n${subject}\n${provider}`);
 
 /** What a token's seal is tied to: it only opens on the row it was made for. */
 export const sealContext = (connection: Pick<Connection, 'subject' | 'provider' | 'accountKey'>) => `${connection.subject}:${connection.provider}:${connection.accountKey}`;
@@ -80,7 +80,17 @@ export interface ConnectionStore {
    * token from a reconnection made meanwhile is never overwritten by an older grant's.
    */
   renewToken(subject: string, id: string, was: string, sealedToken: string): Promise<void>;
-  setStatus(subject: string, id: string, status: Connection['status']): Promise<void>;
+  /**
+   * Says how a connection stands; with `account`, only if it is still that account's, which a
+   * calendar link replaced by another no longer is. Whether anything was said.
+   */
+  setStatus(subject: string, id: string, status: Connection['status'], account?: string): Promise<boolean>;
+  /**
+   * Puts a new secret, for a new account key, in place of this connection's: a calendar link
+   * replaced by another keeps its connection, and becomes active again. `taken` if the person
+   * already has a connection under that key; `missing` if this one is not theirs.
+   */
+  relink(subject: string, id: string, accountKey: string, sealedToken: string): Promise<'done' | 'taken' | 'missing'>;
   remove(subject: string, id: string): Promise<void>;
 }
 
@@ -156,11 +166,33 @@ export function sqlStore(sql: Sql): ConnectionStore {
         update calendar_connections set refresh_token_sealed = ${sealedToken}, updated_at = now()
         where auth_subject = ${subject} and connection_id = ${id} and refresh_token_sealed = ${was}`;
     },
-    async setStatus(subject, id, status) {
-      if (!isConnectionId(id)) return;
-      await sql`
-        update calendar_connections set status = ${status}, updated_at = now()
-        where auth_subject = ${subject} and connection_id = ${id}`;
+    async setStatus(subject, id, status, account) {
+      if (!isConnectionId(id)) return false;
+      const rows = account === undefined
+        ? await sql`
+            update calendar_connections set status = ${status}, updated_at = now()
+            where auth_subject = ${subject} and connection_id = ${id}
+            returning connection_id`
+        : await sql`
+            update calendar_connections set status = ${status}, updated_at = now()
+            where auth_subject = ${subject} and connection_id = ${id} and provider_account_id = ${account}
+            returning connection_id`;
+      return rows.length > 0;
+    },
+    // The table's rule of one row for each account holds here too: a key the person already has
+    // under another connection is refused by the database, and nothing is changed.
+    async relink(subject, id, accountKey, sealedToken) {
+      if (!isConnectionId(id)) return 'missing';
+      try {
+        const rows = await sql`
+          update calendar_connections set provider_account_id = ${accountKey}, refresh_token_sealed = ${sealedToken}, status = 'active', updated_at = now()
+          where auth_subject = ${subject} and connection_id = ${id}
+          returning connection_id`;
+        return rows.length ? 'done' : 'missing';
+      } catch (error) {
+        if ((error as { code?: string })?.code === '23505') return 'taken';
+        throw error;
+      }
     },
     async remove(subject, id) {
       if (!isConnectionId(id)) return;
@@ -211,9 +243,18 @@ export function memoryStore(): ConnectionStore {
       const row = mine(subject, id);
       if (row?.sealedToken === was) row.sealedToken = sealedToken;
     },
-    async setStatus(subject, id, status) {
+    async setStatus(subject, id, status, account) {
       const row = mine(subject, id);
-      if (row) row.status = status;
+      if (!row || (account !== undefined && row.accountKey !== account)) return false;
+      row.status = status;
+      return true;
+    },
+    async relink(subject, id, accountKey, sealedToken) {
+      const row = mine(subject, id);
+      if (!row) return 'missing';
+      if ([...rows.values()].some((other) => other.id !== id && other.subject === subject && other.provider === row.provider && other.accountKey === accountKey)) return 'taken';
+      Object.assign(row, { accountKey, sealedToken, status: 'active' });
+      return 'done';
     },
     async remove(subject, id) {
       if (mine(subject, id)) rows.delete(id);

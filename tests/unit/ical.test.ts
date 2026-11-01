@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { MAX_STEPS, budgetOf, occurrencesOf, type Reading } from '../../lib/calendars/ical';
 
-// iCalendar, as Yahoo's CalDAV server returns it, becoming Koyomi's record of each occurrence in
+// iCalendar, as a published calendar sends it, becoming Koyomi's record of each occurrence in
 // the span: single events, all-day ones, repeating ones with their exceptions, in their zones,
 // across a change of clocks, and nothing of what Koyomi does not show.
 
@@ -9,8 +9,8 @@ const C = '33333333-3333-4333-8333-333333333333';
 const CAL = '/dav/abc/Calendar/Personal/';
 const FETCHED = '2026-10-07T09:00:00.000Z';
 const SPAN = { timeMin: '2026-09-01T00:00:00.000Z', timeMax: '2027-04-14T00:00:00.000Z' };
-const reading = (over: Partial<Reading> = {}): Reading => ({ connectionId: C, calendarId: CAL, fetchedAt: FETCHED, ...SPAN, ...over });
-const ics = (...lines: string[]) => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Yahoo//Calendar//EN', ...lines, 'END:VCALENDAR'].join('\r\n');
+const reading = (over: Partial<Reading> = {}): Reading => ({ provider: 'link', connectionId: C, calendarId: CAL, fetchedAt: FETCHED, ...SPAN, ...over });
+const ics = (...lines: string[]) => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Stand-in//Calendar//EN', ...lines, 'END:VCALENDAR'].join('\r\n');
 const vevent = (...lines: string[]) => ['BEGIN:VEVENT', ...lines, 'END:VEVENT'];
 const read = (text: string, over?: Partial<Reading>) => occurrencesOf(text, reading(over));
 const when = (text: string, over?: Partial<Reading>) => read(text, over).map((e) => `${e.start} ${e.end}${e.title === 'Weekly' || e.title === 'Daily' ? '' : ` ${e.title}`}`);
@@ -19,7 +19,7 @@ test('a timed event keeps its instant, in the zone it was written in, and nothin
   const [event, ...rest] = read(
     ics(
       ...vevent(
-        'UID:review@yahoo.com',
+        'UID:review@example.com',
         'SUMMARY: Design review ',
         'DTSTART;TZID=America/New_York:20261007T090000',
         'DTEND;TZID=America/New_York:20261007T103000',
@@ -40,10 +40,10 @@ test('a timed event keeps its instant, in the zone it was written in, and nothin
   );
   expect(rest).toEqual([]);
   expect(event).toEqual({
-    id: `${C}:${CAL}:review@yahoo.com`,
+    id: `${C}:${CAL}:review@example.com`,
     connectionId: C,
-    provider: 'yahoo',
-    providerEventId: 'review@yahoo.com',
+    provider: 'link',
+    providerEventId: 'review@example.com',
     calendarId: CAL,
     title: 'Design review',
     start: '2026-10-07T13:00:00.000Z',
@@ -62,14 +62,14 @@ test('UTC, a zone the object defines itself, and a floating time (read as UTC)',
   expect(when(ics(...vevent('UID:a', 'SUMMARY:A', 'DTSTART:20261007T120000Z', 'DTEND:20261007T130000Z')))).toEqual(['2026-10-07T12:00:00.000Z 2026-10-07T13:00:00.000Z A']);
   const own = ics(
     'BEGIN:VTIMEZONE',
-    'TZID:Yahoo Custom',
+    'TZID:Office Custom',
     'BEGIN:STANDARD',
     'DTSTART:19700101T000000',
     'TZOFFSETFROM:+0530',
     'TZOFFSETTO:+0530',
     'END:STANDARD',
     'END:VTIMEZONE',
-    ...vevent('UID:b', 'SUMMARY:B', 'DTSTART;TZID=Yahoo Custom:20261007T120000', 'DURATION:PT45M'),
+    ...vevent('UID:b', 'SUMMARY:B', 'DTSTART;TZID=Office Custom:20261007T120000', 'DURATION:PT45M'),
   );
   expect(when(own)).toEqual(['2026-10-07T06:30:00.000Z 2026-10-07T07:15:00.000Z B']);
   expect(when(ics(...vevent('UID:c', 'SUMMARY:C', 'DTSTART:20261007T120000', 'DTEND:20261007T121500')))).toEqual(['2026-10-07T12:00:00.000Z 2026-10-07T12:15:00.000Z C']);
@@ -262,6 +262,97 @@ test('what should not be on the calendar is left out: cancelled, tasks, and with
 test('one occurrence sent without its series is an event by itself', () => {
   const orphan = ics(...vevent('UID:inv', 'RECURRENCE-ID:20261008T100000Z', 'SUMMARY:One of theirs', 'DTSTART:20261008T110000Z', 'DTEND:20261008T113000Z'));
   expect(read(orphan)).toMatchObject([{ providerEventId: 'inv::20261008T100000Z', start: '2026-10-08T11:00:00.000Z', title: 'One of theirs' }]);
+});
+
+// Outlook publishes its zones by their Windows names, each defined in the calendar itself.
+const PACIFIC = [
+  'BEGIN:VTIMEZONE',
+  'TZID:Pacific Standard Time',
+  'BEGIN:STANDARD',
+  'DTSTART:16010101T020000',
+  'TZOFFSETFROM:-0700',
+  'TZOFFSETTO:-0800',
+  'RRULE:FREQ=YEARLY;INTERVAL=1;BYDAY=1SU;BYMONTH=11',
+  'END:STANDARD',
+  'BEGIN:DAYLIGHT',
+  'DTSTART:16010101T020000',
+  'TZOFFSETFROM:-0800',
+  'TZOFFSETTO:-0700',
+  'RRULE:FREQ=YEARLY;INTERVAL=1;BYDAY=2SU;BYMONTH=3',
+  'END:DAYLIGHT',
+  'END:VTIMEZONE',
+];
+const WESTERN_EUROPE = [
+  'BEGIN:VTIMEZONE',
+  'TZID:W. Europe Standard Time',
+  'BEGIN:STANDARD',
+  'DTSTART:16010101T030000',
+  'TZOFFSETFROM:+0200',
+  'TZOFFSETTO:+0100',
+  'RRULE:FREQ=YEARLY;INTERVAL=1;BYDAY=-1SU;BYMONTH=10',
+  'END:STANDARD',
+  'BEGIN:DAYLIGHT',
+  'DTSTART:16010101T020000',
+  'TZOFFSETFROM:+0100',
+  'TZOFFSETTO:+0200',
+  'RRULE:FREQ=YEARLY;INTERVAL=1;BYDAY=-1SU;BYMONTH=3',
+  'END:DAYLIGHT',
+  'END:VTIMEZONE',
+];
+
+test('a calendar published from Outlook: Windows zones it defines, across both changes of clocks, with its own exceptions', () => {
+  const feed = ics(
+    ...PACIFIC,
+    ...WESTERN_EUROPE,
+    ...vevent(
+      'UID:040000008200E00074C5B7101A82E00800000000',
+      'SUMMARY:Weekly',
+      'DTSTART;TZID=Pacific Standard Time:20261026T090000',
+      'DTEND;TZID=Pacific Standard Time:20261026T093000',
+      'RRULE:FREQ=WEEKLY;COUNT=4;BYDAY=MO',
+      'EXDATE;TZID=Pacific Standard Time:20261109T090000',
+      'X-MICROSOFT-CDO-BUSYSTATUS:BUSY',
+    ),
+    // One occurrence moved an hour later, by Outlook, with the series' zone.
+    ...vevent(
+      'UID:040000008200E00074C5B7101A82E00800000000',
+      'RECURRENCE-ID;TZID=Pacific Standard Time:20261116T090000',
+      'SUMMARY:Weekly (later)',
+      'DTSTART;TZID=Pacific Standard Time:20261116T100000',
+      'DTEND;TZID=Pacific Standard Time:20261116T103000',
+    ),
+    // Outlook's all-day event: dates, with its own flag beside them.
+    ...vevent('UID:holiday', 'SUMMARY:Office closed', 'DTSTART;VALUE=DATE:20261126', 'DTEND;VALUE=DATE:20261128', 'X-MICROSOFT-CDO-ALLDAYEVENT:TRUE'),
+  );
+  // Summer time ends on 1 November in Los Angeles: nine is 16:00 UTC before it and 17:00 after.
+  expect(when(feed)).toEqual([
+    '2026-10-26T16:00:00.000Z 2026-10-26T16:30:00.000Z',
+    '2026-11-02T17:00:00.000Z 2026-11-02T17:30:00.000Z',
+    '2026-11-16T18:00:00.000Z 2026-11-16T18:30:00.000Z Weekly (later)',
+    '2026-11-26 2026-11-27 Office closed',
+  ]);
+  expect(read(feed).find((e) => e.title === 'Office closed')).toMatchObject({ allDay: true, start: '2026-11-26', end: '2026-11-27' });
+  expect(read(feed)[0].timeZone).toBe('Pacific Standard Time');
+
+  // Every day at nine in Amsterdam, across the change back on 25 October 2026 and to summer time on 28 March 2027.
+  const daily = ics(...WESTERN_EUROPE, ...vevent('UID:d', 'SUMMARY:Daily', 'DTSTART;TZID=W. Europe Standard Time:20260101T090000', 'DURATION:PT15M', 'RRULE:FREQ=DAILY'));
+  expect(when(daily, { timeMin: '2026-10-24T00:00:00.000Z', timeMax: '2026-10-27T00:00:00.000Z' })).toEqual([
+    '2026-10-24T07:00:00.000Z 2026-10-24T07:15:00.000Z',
+    '2026-10-25T08:00:00.000Z 2026-10-25T08:15:00.000Z',
+    '2026-10-26T08:00:00.000Z 2026-10-26T08:15:00.000Z',
+  ]);
+  expect(when(daily, { timeMin: '2027-03-27T00:00:00.000Z', timeMax: '2027-03-29T00:00:00.000Z' })).toEqual(['2027-03-27T08:00:00.000Z 2027-03-27T08:15:00.000Z', '2027-03-28T07:00:00.000Z 2027-03-28T07:15:00.000Z']);
+});
+
+test('the same event twice in one calendar is its later version, by SEQUENCE, whichever comes first', () => {
+  const older = vevent('UID:x', 'SEQUENCE:1', 'SUMMARY:Planning', 'DTSTART:20261007T120000Z');
+  const newer = vevent('UID:x', 'SEQUENCE:2', 'SUMMARY:Planning (moved)', 'DTSTART:20261008T120000Z');
+  for (const feed of [ics(...older, ...newer), ics(...newer, ...older)]) expect(when(feed)).toEqual(['2026-10-08T12:00:00.000Z 2026-10-08T12:00:00.000Z Planning (moved)']);
+  // And of one occurrence, changed twice.
+  const series = vevent('UID:s', 'SUMMARY:Weekly', 'DTSTART:20261005T090000Z', 'DURATION:PT1H', 'RRULE:FREQ=WEEKLY;COUNT=2');
+  const first = vevent('UID:s', 'RECURRENCE-ID:20261012T090000Z', 'SEQUENCE:3', 'SUMMARY:Second try', 'DTSTART:20261012T110000Z', 'DURATION:PT1H');
+  const second = vevent('UID:s', 'RECURRENCE-ID:20261012T090000Z', 'SEQUENCE:1', 'SUMMARY:First try', 'DTSTART:20261012T100000Z', 'DURATION:PT1H');
+  expect(when(ics(...series, ...first, ...second)).at(-1)).toBe('2026-10-12T11:00:00.000Z 2026-10-12T12:00:00.000Z Second try');
 });
 
 test('the same UID in another account, or another calendar, is another event', () => {

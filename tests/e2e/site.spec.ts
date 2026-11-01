@@ -254,7 +254,7 @@ test.describe('privacy and terms', () => {
       'the refresh token Microsoft issued, encrypted with AES-256-GCM',
       'Microsoft issues a new refresh token each time one is used, and the record keeps only the latest.',
       'The same is true of Microsoft’s.',
-      'The same measures protect your Microsoft calendar data',
+      'The same measures protect your Microsoft calendar data, and the calendars you subscribe to by link',
       'Microsoft gives apps no way to withdraw their own access',
       'My Apps (myapplications.microsoft.com)',
       '6Away receives none of them, and none of Microsoft’s tokens.',
@@ -288,7 +288,7 @@ test.describe('privacy and terms', () => {
       // Where it is kept, and how.
       'it holds your Yahoo email and the app password, with where that account’s calendars are at Yahoo, all encrypted together with AES-256-GCM',
       'Your Yahoo app password reaches our server once, when you give it, and never comes back to your browser',
-      'The same measures protect your Microsoft calendar data, and your Yahoo calendar data and app password.',
+      'The same measures protect your Yahoo calendar data and app password.',
       'has no access to your Yahoo mail or email content',
       'Neon stores the connection records described above, with the app password encrypted',
       // What Disconnect can and cannot do.
@@ -302,6 +302,41 @@ test.describe('privacy and terms', () => {
     expect(said).toContain('It asks Google to revoke Koyomi’s access to that account');
     expect(said).toContain('to read your calendars (Calendars.Read).');
     expect(said).toContain('The server stores one record for each Google account you connect.');
+  });
+
+  test('the privacy page says what a calendar link is, how it is kept, and what removing it can and cannot do', async ({ page }) => {
+    await page.goto('/privacy');
+    const said = await text(page);
+    await expect(page.getByRole('main').getByRole('heading', { level: 2 })).toContainText(['What Koyomi reads from Microsoft', 'Subscribing to a calendar link', 'What Koyomi reads from a calendar link', 'Where it is kept']);
+    for (const part of [
+      // Optional, a subscription, and read only.
+      'Subscribing to a calendar by its link is optional too.',
+      'It is a subscription, not a copy',
+      'Koyomi only reads a calendar link. It cannot create, change or delete anything in the calendar it leads to.',
+      // The link is a secret, kept on the server, encrypted, and nowhere else.
+      'A calendar link works like a password: anyone who has it may be able to see that calendar, so keep it to yourself.',
+      'It is never sent back to your browser, never kept on your device, and never written to a log or shown in an error.',
+      'Our server fetches the calendar, never your browser, and keeps the link only if it gives a calendar.',
+      'It fetches only from the public internet: never from a private network, and a redirect is checked the same way.',
+      'the link itself and the name the calendar is shown by, encrypted together with AES-256-GCM and bound to that record',
+      'a keyed hash made from the link, so that the same link is not recorded twice, which cannot be turned back into it',
+      'For a calendar link, the device keeps the calendar’s name, never the link',
+      'A calendar link is decrypted on our server only while that calendar is being read.',
+      // What is read of it, and what is dropped.
+      'it may include descriptions, locations, organisers, guests, contacts, comments, attachments, reminders, meeting links and other details',
+      'Everything else in the calendar is dropped on our server as it is read. None of it reaches your device, and none of it is kept or written to a log.',
+      'The calendar’s events pass through our server in the same way, and are not stored there or written to its log.',
+      // Removing it, and what that does not do.
+      'A calendar link’s Remove calendar deletes its record, with Koyomi’s only copy of the link, from our server',
+      'It does not stop the link working: Koyomi cannot withdraw a published link, and does not claim to.',
+      'turn off or reset that calendar’s publishing where it lives',
+      'Neon stores only its record, with the link encrypted. 6Away receives none of it.',
+    ]) {
+      expect(said, part).toContain(part);
+    }
+    // What is said of Google is said exactly as before, Limited Use and all.
+    expect(said).toContain(LIMITED_USE);
+    expect(said).toContain('Koyomi does not ask Google for descriptions, locations, guest lists or meeting links');
   });
 
   test('the terms are short, and say on what terms Koyomi is offered', async ({ page }) => {
@@ -326,8 +361,9 @@ test.describe('privacy and terms', () => {
       'A connection is read-only: Koyomi cannot change your Google Calendar.',
       'You can disconnect each account at any time in Koyomi.',
       'Microsoft accounts can be connected in the same way, and the same is true of them.',
-      'Google, Microsoft or Yahoo for your calendar',
+      'Google, Microsoft, Yahoo or the service that publishes a calendar link for your calendar',
       'Yahoo accounts can be connected too, with an app password you create at Yahoo, and the same is true of them.',
+      'You may also subscribe to a published calendar by its private link: Koyomi only reads it, and you can remove it at any time.',
       'your use of them is subject to their own terms',
       'Koyomi is provided as it is and as available.',
       'Use Koyomi lawfully and reasonably.',
@@ -339,7 +375,7 @@ test.describe('privacy and terms', () => {
     await expect(page.getByRole('main').locator('a[href^="mailto:"]')).toHaveAttribute('href', `mailto:${CONTACT}`);
     expect(said).not.toMatch(/\bPlan\b/);
     // Short: a page or two, not a contract.
-    expect(said.split(' ').length).toBeLessThan(450);
+    expect(said.split(' ').length).toBeLessThan(475);
   });
 
   for (const path of ['/privacy', '/terms']) {

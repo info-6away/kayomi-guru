@@ -344,7 +344,7 @@ test.describe('reading a Yahoo account', () => {
     await noWrites(email);
   });
 
-  test('read again with no network: everything that was read is there, and nothing is said', async ({ page, context, id }) => {
+  test('read again with no network: everything that was read is there, and Refresh says it is offline', async ({ page, context, id }) => {
     const email = addressFor(id);
     await yahoo.has(email, account());
     await start(page);
@@ -357,7 +357,8 @@ test.describe('reading a Yahoo account', () => {
     await expect(allDay(page, 'Republic Day')).toBeVisible();
     await openCalendars(page);
     await refresh(page);
-    await expect(page.getByText(/reconnect|couldn’t|offline|sign in/i)).toHaveCount(0);
+    await expect(view(page).getByRole('status')).toHaveText('You seem to be offline, so your calendars couldn’t be read. Try again once you’re back online.');
+    await expect(page.getByText(/reconnect|sign in/i)).toHaveCount(0);
     expect(await everythingStored(page)).not.toContain(PASSWORD);
     await context.setOffline(false);
   });
@@ -399,22 +400,35 @@ test.describe('reading a Yahoo account', () => {
     await noWrites(email);
   });
 
-  test('Yahoo down, asking to wait, or answering with something that cannot be read: nothing is said, and what was read stays', async ({ page, id }) => {
+  test('Yahoo down, or asking to wait, keeps what was read and Refresh says so; one calendar’s unreadable answer is that calendar’s own', async ({ page, id }) => {
     const email = addressFor(id);
     await yahoo.has(email, account());
     await start(page);
     await connectYahoo(page, email, PASSWORD);
     const kept = await part(page, 'yahoo', email);
-    for (const fail of ['unavailable', 'throttled', 'malformed', 'doctype'] as const) {
+    const couldNot = `Couldn’t read ${email} just now. Try again in a moment.`;
+    // Yahoo down, or its list of calendars unreadable: the account could not be read. One calendar's
+    // events unreadable is that calendar's own, and the others are read as usual.
+    for (const [fail, said] of [['unavailable', couldNot], ['doctype', couldNot], ['malformed', null]] as const) {
       await yahoo.becomes(email, { fail });
       await refresh(page);
-      await expect(page.getByText(/reconnect|couldn’t|doesn’t let/i), fail).toHaveCount(0);
+      if (said) await expect(view(page).getByRole('status'), fail).toHaveText(said);
+      else await expect(view(page).getByRole('status'), fail).toHaveCount(0);
+      await expect(page.getByText(/reconnect|doesn’t let/i), fail).toHaveCount(0);
       expect(await part(page, 'yahoo', email), fail).toBe(kept);
     }
     // A server that will not filter on RRULE: the look back is made without it, all the same.
     await yahoo.becomes(email, { fail: 'no-prop-filter' });
     await refresh(page);
     expect((await copy(page))[`yahoo ${email}`].events).toEqual(EVENTS);
+    // Asking to wait comes last: for as long as Yahoo asks, nothing more is asked of it, so nothing
+    // after this would be read at all.
+    const read = await part(page, 'yahoo', email);
+    await yahoo.becomes(email, { fail: 'throttled' });
+    await refresh(page);
+    await expect(view(page).getByRole('status')).toHaveText(couldNot);
+    await expect(page.getByText(/reconnect|doesn’t let/i)).toHaveCount(0);
+    expect(await part(page, 'yahoo', email)).toBe(read);
   });
 });
 
