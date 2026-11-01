@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { addAccount, connectLink, disconnect, reconnect, refresh, showCalendar, signIn, stopAsking, type Asking, type External } from '@/lib/calendars/store';
+import { addAccount, connectLink, connectYahoo, disconnect, reconnect, refresh, showCalendar, signIn, stopAsking, type Asking, type External } from '@/lib/calendars/store';
 import { PROVIDERS, type Provider } from '@/lib/calendars/types';
-import { WORDS, which } from '@/lib/calendars/words';
+import { WORDS, listed, which } from '@/lib/calendars/words';
 import { hm } from '@/lib/dates';
 import { install, useCanInstall } from '@/lib/install';
 
@@ -14,6 +14,62 @@ const GROUP = 'px-3.5 text-[10.5px] tracking-[.18em] text-dow';
 
 /** What Koyomi reads from a connected calendar, where it is kept and what it is used for. */
 const PRIVACY = 'https://koyomi.guru/privacy';
+/** Yahoo's own page on making an app password. */
+const YAHOO_HELP = 'https://help.yahoo.com/kb/SLN15241.html';
+const YAHOO_FIELD = 'h-10 w-full rounded-[4px] border border-line bg-bg px-3 text-[14px] text-ink outline-none focus:border-stone';
+
+/**
+ * Yahoo's connection, asked for here: there is no Yahoo page to send anyone to. The app password
+ * is held by this form only until it is sent, then let go; it is never shown again or kept.
+ */
+function YahooForm({ asking }: { asking: Asking }) {
+  const known = asking.connection?.account ?? null;
+  const [email, setEmail] = useState(known ?? '');
+  const [password, setPassword] = useState('');
+  const send = (event: React.FormEvent) => {
+    event.preventDefault();
+    const secret = password;
+    setPassword('');
+    void connectYahoo(known ?? email, secret);
+  };
+  return (
+    <form aria-label={known ? 'Reconnect Yahoo Calendar' : 'Connect Yahoo Calendar'} onSubmit={send} className="mx-3.5 mt-3 flex flex-col gap-2.5">
+      <p className="text-[14px] text-ink">{known ? 'Reconnect Yahoo Calendar' : 'Connect Yahoo Calendar'}</p>
+      {known ? (
+        <p className="truncate text-[12.5px] text-ink2">{known}</p>
+      ) : (
+        <label className="flex flex-col gap-1 text-[12.5px] text-ink2">
+          Yahoo email
+          <input type="email" required autoComplete="email" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} className={YAHOO_FIELD} />
+        </label>
+      )}
+      <label className="flex flex-col gap-1 text-[12.5px] text-ink2">
+        Yahoo app password
+        <input type="password" required autoComplete="off" spellCheck={false} value={password} onChange={(e) => setPassword(e.target.value)} className={YAHOO_FIELD} />
+      </label>
+      <p className="text-[12px] leading-[1.6] text-pretty text-muted">
+        Use a Yahoo app password, not your normal Yahoo password. To make one: Yahoo Account, Account Security, External connections, Create app
+        password.{' '}
+        <a href={YAHOO_HELP} target="_blank" rel="noopener noreferrer" className="underline decoration-line underline-offset-4 hover:text-ink2">
+          How
+        </a>
+      </p>
+      {asking.error && (
+        <p role="status" className="text-[12.5px] leading-[1.6] text-ink2">
+          {asking.error}
+        </p>
+      )}
+      <div className="flex items-center gap-4">
+        <button type="submit" disabled={asking.sending} className={`${PILL} disabled:opacity-60`}>
+          {asking.sending ? 'Connecting…' : 'Connect Yahoo'}
+        </button>
+        <button type="button" onClick={stopAsking} className={`text-[12.5px] text-muted ${QUIET}`}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
 
 /**
  * Which accounts the person has opened or closed in Calendars, on this device: a convenience,
@@ -88,10 +144,10 @@ function LinkForm({ asking }: { asking: Asking }) {
 
 /** What Calendars says while nothing is connected: what can be added, and what that means. */
 function offering(providers: Provider[]) {
-  const accounts = which(providers.filter((id) => id !== 'link'));
+  const accounts = providers.filter((id) => id !== 'link');
   const links = providers.includes('link');
-  if (!accounts) return 'Koyomi can show a published calendar beside your own, to read only, using its private calendar link. Adding one asks you to sign in with 6Away first. Koyomi can never change it.';
-  return `Koyomi can show your ${accounts === 'microsoft' ? 'Microsoft' : accounts === 'several' ? 'Google and Microsoft' : 'Google'} calendars beside your own, to read only. Adding an account asks you to sign in with 6Away, then to let Koyomi read its calendars. It can never change them.${links ? ' You can also subscribe to a read-only calendar using its private calendar link.' : ''}`;
+  if (!accounts.length) return 'Koyomi can show a published calendar beside your own, to read only, using its private calendar link. Adding one asks you to sign in with 6Away first. Koyomi can never change it.';
+  return `Koyomi can show your ${listed(accounts)} calendars beside your own, to read only. Adding an account asks you to sign in with 6Away, then to let Koyomi read its calendars. It can never change them.${links ? ' You can also subscribe to a read-only calendar using its private calendar link.' : ''}`;
 }
 
 interface Props {
@@ -302,8 +358,9 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
             ))}
           </div>
         )}
+        {asking?.provider === 'yahoo' && <YahooForm key={asking.connection?.id ?? 'new'} asking={asking} />}
         {asking?.provider === 'link' && <LinkForm key={asking.connection?.id ?? 'new'} asking={asking} />}
-        {available && status === 'off' && (
+        {available && status === 'off' && asking?.provider !== 'yahoo' && (
           <p className="mx-3.5 mt-3 text-[12px] leading-[1.6] text-pretty text-muted">
             {offering(providers)}{' '}
             {/* The policy is a page of the site, not of the calendar, so it opens beside it. */}

@@ -105,9 +105,9 @@ export const group = (page: Page, address: string) => view(page).getByRole('grou
 export const toggle = (page: Page, name: string, address?: string) => (address ? group(page, address) : view(page)).getByRole('switch', { name });
 export const addButton = (page: Page) => view(page).getByRole('button', { name: 'Add calendar account' });
 /** Where to add an account, once Add calendar account has been pressed: the two quiet choices under it. */
-export const choice = (page: Page, provider: 'Google' | 'Microsoft' | 'Calendar link') => view(page).getByRole('button', { name: provider, exact: true });
+export const choice = (page: Page, provider: 'Google' | 'Microsoft' | 'Yahoo' | 'Calendar link') => view(page).getByRole('button', { name: provider, exact: true });
 /** Adds an account at a provider, as a person does it: Add calendar account, then which provider. */
-export async function addAt(page: Page, provider: 'Google' | 'Microsoft' | 'Calendar link') {
+export async function addAt(page: Page, provider: 'Google' | 'Microsoft' | 'Yahoo' | 'Calendar link') {
   await addButton(page).click();
   await choice(page, provider).click();
 }
@@ -204,6 +204,42 @@ export async function connectMicrosoft(page: Page, account: string, address: str
 
 /** A time in Istanbul as Microsoft Graph writes it when asked for UTC: the UTC wall clock, no offset. */
 export const graphTime = (day: string, time: string) => `${new Date(ist(day, time)).toISOString().slice(0, 19)}.0000000`;
+
+const postYahoo = (path: string, body: unknown, method = 'POST') => fetch(`${FAKE}/__fake/yahoo/${path}`, { method, body: JSON.stringify(body) });
+/** The stand-in for Yahoo's CalDAV server, by the email of each account on it. */
+export const yahoo = {
+  /** Sets up a Yahoo account: its app password, and its calendars with their iCalendar objects. Returns its calendar home. */
+  has: async (email: string, data: { password: string; calendars: { id: string; name: string; readOnly?: boolean; todo?: boolean; objects?: Record<string, string> }[] }) =>
+    ((await (await postYahoo(encodeURIComponent(email), data, 'PUT')).json()) as { home: string }).home,
+  /** Something changes at Yahoo after Koyomi last looked. */
+  changes: (email: string, change: { calendar: string; put?: Record<string, string>; remove?: string[] }) => postYahoo(`${encodeURIComponent(email)}/change`, change),
+  /** Yahoo starts refusing, failing, or sending Koyomi elsewhere. */
+  becomes: (
+    email: string,
+    state: { revoked?: boolean; password?: string; fail?: null | 'unavailable' | 'throttled' | 'malformed' | 'doctype' | 'no-prop-filter'; hold?: null | 'principal' | 'home' | 'calendars' | 'events'; redirect?: null | 'away' | 'other-origin'; deny?: string },
+  ) => postYahoo(`${encodeURIComponent(email)}/state`, state),
+  /** What Koyomi asked of this account (never with its password), and every write anyone tried. */
+  asked: async (email: string) => (await (await fetch(`${FAKE}/__fake/yahoo/${encodeURIComponent(email)}`)).json()) as { log: Record<string, unknown>[]; held: number; writes: { method: string; path: string }[] },
+};
+/** Yahoo's form in Calendars, for adding an account or reconnecting one. */
+export const yahooForm = (page: Page) => view(page).getByRole('form', { name: /Yahoo Calendar$/ });
+/**
+ * Adds a Yahoo account as a person does: Add calendar account, Yahoo, then its email and an app
+ * password in the form. Waits until it is listed under its email with its events read.
+ */
+export async function connectYahoo(page: Page, email: string, password: string) {
+  await openCalendars(page);
+  await addAt(page, 'Yahoo');
+  const form = yahooForm(page);
+  await expect(form).toBeVisible({ timeout: 15_000 });
+  await form.getByLabel('Yahoo email').fill(email);
+  await form.getByLabel('Yahoo app password').fill(password);
+  await form.getByRole('button', { name: 'Connect Yahoo' }).click();
+  await expect(group(page, email)).toBeVisible({ timeout: 15_000 });
+  // Beside another account it arrives folded, so it is opened as it comes.
+  await unfold(page);
+  await expect(view(page).getByText('Refreshing…')).toHaveCount(0, { timeout: 15_000 });
+}
 
 /** Which Google account is at the keyboard the next time Google asks: what picking one from Google's own list comes to. */
 export const pick = (page: Page, googleAccount: string) => page.context().addCookies([{ name: 'fake_google', value: googleAccount, url: FAKE }]);

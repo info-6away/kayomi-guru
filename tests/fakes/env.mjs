@@ -1,10 +1,12 @@
 // The settings that switch calendar connections on and point them at the stand-in providers
-// (providers.mjs) instead of 6Away Auth and Google. Used by the browser tests and by
+// (providers.mjs) instead of 6Away Auth, Google, Microsoft and Yahoo. Used by the browser tests and by
 // `npm run preview:connected`. Every value is made up: none is a real secret, and a deployment
 // on Vercel ignores the KOYOMI_TEST settings whatever they say.
 
 export const PORT = 4310;
 export const FAKE_PORT = 4315;
+/** The stand-in for Yahoo's CalDAV server, on an origin of its own as Yahoo's is. */
+export const FAKE_YAHOO_PORT = 4316;
 /** Where the stand-in for published calendars answers (feeds.mjs): the one address a calendar link may name as it is, in tests. */
 export const FAKE_LINK_PORT = 4317;
 
@@ -25,6 +27,8 @@ export const TEST_ENV = {
   MICROSOFT_CALENDAR_CLIENT_ID: 'microsoft-test',
   MICROSOFT_CALENDAR_CLIENT_SECRET: 'microsoft-secret',
   KOYOMI_TEST_MICROSOFT_URL: `http://localhost:${FAKE_PORT}/microsoft`,
+  YAHOO_CALENDAR: 'on',
+  KOYOMI_TEST_YAHOO_URL: `http://localhost:${FAKE_YAHOO_PORT}`,
   CALENDAR_LINKS: 'on',
   KOYOMI_TEST_LINK_ORIGIN: `http://localhost:${FAKE_LINK_PORT}`,
   // A link may be read again at once in a test, which a real server spaces out.
@@ -114,3 +118,23 @@ const MICROSOFT_ACCOUNT = {
 };
 /** The Microsoft account offered to someone adding one by hand, by its id at the stand-in. */
 export const DEMO_MICROSOFT_ACCOUNTS = { personal: MICROSOFT_ACCOUNT };
+
+/** An event at a time on this machine's clock, as iCalendar in UTC. */
+const vevent = (uid, title, day, from, to, ...more) => {
+  const at = (time) => local(day, time).replace(/[-:]|\.\d{3}/g, '');
+  return ['BEGIN:VEVENT', `UID:${uid}`, `SUMMARY:${title}`, `DTSTART:${at(from)}`, `DTEND:${at(to)}`, ...more, 'END:VEVENT'];
+};
+const calendar = (...events) => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Yahoo//Calendar//EN', ...events.flat(), 'END:VCALENDAR'].join('\r\n');
+/**
+ * The Yahoo account offered to someone adding one by hand: its email and the app password to type
+ * (made up), and its calendars at the stand-in.
+ */
+export const DEMO_YAHOO_ACCOUNT = {
+  email: 'sam@yahoo.example',
+  password: 'demoapppassword1',
+  calendars: [
+    { id: 'Personal', name: 'Personal', objects: { run: calendar(vevent('run', 'Morning run', '2026-10-06', '07:00', '07:45', 'RRULE:FREQ=WEEKLY;COUNT=8')) } },
+    { id: 'Family', name: 'Family', objects: { lunch: calendar(vevent('lunch', 'Family lunch', '2026-10-11', '12:30', '14:00')) } },
+    { id: 'Birthdays', name: 'Birthdays', readOnly: true, objects: {} },
+  ],
+};

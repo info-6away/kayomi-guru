@@ -6,7 +6,7 @@ import { A, H2, LegalPage, List, Mail, OPERATOR, P, legalMetadata } from '@/comp
 
 export const metadata = legalMetadata('Privacy', 'What Koyomi keeps, where it keeps it, and what it is used for.', '/privacy');
 
-const UPDATED = '30 October 2026';
+const UPDATED = '1 November 2026';
 
 export default function Privacy() {
   return (
@@ -101,6 +101,44 @@ export default function Privacy() {
       </List>
       <P>Koyomi does not ask Microsoft for bodies, locations, attendees, attachments or online-meeting details, so Microsoft does not send them.</P>
 
+      <H2>Connecting a Yahoo calendar</H2>
+      <P>
+        Connecting a Yahoo calendar is optional too. You can connect one Yahoo account or several, beside your other accounts or without them.
+        Koyomi shows their events beside your own, and uses them for nothing else.
+      </P>
+      <P>
+        A Yahoo calendar is read through Yahoo’s CalDAV service, at caldav.calendar.yahoo.com, with an app password: a password you create for
+        Koyomi yourself, in your Yahoo account’s security settings (Account Security, then External connections). Koyomi never asks for your
+        normal Yahoo password. To connect an account, you first sign in with 6Away, then give Koyomi your Yahoo email and that app password.
+        Koyomi checks them with Yahoo at once, and keeps them only if Yahoo accepts them.
+      </P>
+      <P>
+        Yahoo does not limit an app password to your calendar: whoever holds one may also be able to open your Yahoo mail with it. Koyomi uses
+        it only to read your calendars through CalDAV, and for nothing else. It never reads your mail, your email content or anything else in
+        your account, and it cannot create, change or delete anything in your Yahoo calendar.
+      </P>
+
+      <H2>What Koyomi reads from Yahoo</H2>
+      <P>
+        Koyomi reads the names and addresses at Yahoo of the account’s calendars, and for each whether it holds events and whether you can
+        change it. Lists of tasks are left out.
+      </P>
+      <P>
+        For the calendars you choose to show in Koyomi, it asks Yahoo for these details of each event, from five weeks back to twenty-seven
+        weeks ahead, and of repeating events that began up to five years before that:
+      </P>
+      <List>
+        <li>its identifier at Yahoo, its title, its start and end or its length, whether it lasts all day, and the time zone it was written in;</li>
+        <li>whether it repeats, and how: its rule, the dates added to it or left out, and any occurrence that was changed;</li>
+        <li>whether it is cancelled or tentative, and when it last changed.</li>
+      </List>
+      <P>
+        Yahoo’s CalDAV service may send each event whole, whatever Koyomi asks for, and if it sends none of the details Koyomi names, Koyomi
+        asks for the events whole: with their description, location, organiser, guests, alarms and attachments. Either way, Koyomi drops all
+        of that on our server the moment it reads it. None of it reaches your device, and none of it is
+        kept or written to a log. Yahoo has no address for a single event, so Koyomi links to none.
+      </P>
+
       <H2>Subscribing to a calendar link</H2>
       <P>
         Subscribing to a calendar by its link is optional too. Some calendars, Outlook’s among them, can be published as a private, read-only
@@ -167,6 +205,12 @@ export default function Privacy() {
         pass through our server in the same way, and are not stored there or written to its log.
       </P>
       <P>
+        Each Yahoo account you connect has a record of the same kind, with one difference: in place of a refresh token, it holds your Yahoo
+        email and the app password, with where that account’s calendars are at Yahoo, all encrypted together with AES-256-GCM, because Yahoo
+        needs the email and the app password with every request. Its keyed hash is made from the account’s identifier at Yahoo. Yahoo’s events
+        pass through our server in the same way, and are not stored there or written to its log.
+      </P>
+      <P>
         Each calendar link you subscribe to has a record of the same kind: your 6Away identifier; a keyed hash made from the link, so that the
         same link is not recorded twice, which cannot be turned back into it; the link itself and the name the calendar is shown by, encrypted
         together with AES-256-GCM and bound to that record; whether the link is working; when the record was made and last changed; and a count
@@ -175,6 +219,11 @@ export default function Privacy() {
       <P>
         Google’s tokens never reach your browser. The short-lived access token used to read your calendar is held only in the server’s memory.
         The same is true of Microsoft’s. A calendar link is decrypted on our server only while that calendar is being read.
+      </P>
+      <P>
+        Your Yahoo app password reaches our server once, when you give it, and never comes back to your browser: it is not shown again, not
+        sent back in any answer, and not kept on your device. While it is in use it is held in the server’s memory for a few minutes at a time.
+        Your browser or password manager may offer to save it for you; whether it does is between you and them, and Koyomi has no part in it.
       </P>
 
       <H2>Signing in with 6Away</H2>
@@ -207,6 +256,7 @@ export default function Privacy() {
       </List>
       <P>Disconnecting an account removes what Koyomi holds of it, as described below.</P>
       <P>The same measures protect your Microsoft calendar data, and the calendars you subscribe to by link, with their links.</P>
+      <P>The same measures protect your Yahoo calendar data and app password.</P>
 
       <H2>What your Google data is never used for</H2>
       <P>
@@ -222,6 +272,10 @@ export default function Privacy() {
       <P>
         The same is true of your Microsoft calendar data, and of calendars you subscribe to by link: they are used only to show your events beside
         your own, and for nothing else.
+      </P>
+      <P>
+        The same is true of your Yahoo calendar data. Koyomi does not use your Yahoo app password for anything but reading your calendars, and has
+        no access to your Yahoo mail or email content.
       </P>
 
       <H2>Who helps us run Koyomi</H2>
@@ -248,6 +302,11 @@ export default function Privacy() {
         A Microsoft calendar comes from Microsoft, under Microsoft’s own terms. Its events and calendar names pass through Vercel’s server in
         the same way, and are not stored there. Neon stores only the connection records described above, and receives no events and no
         calendar names. 6Away receives none of them, and none of Microsoft’s tokens.
+      </P>
+      <P>
+        A Yahoo calendar comes from Yahoo, under Yahoo’s own terms. Its events and calendar names pass through Vercel’s server in the same way,
+        and are not stored there. Neon stores the connection records described above, with the app password encrypted, and receives no events
+        and no calendar names. 6Away receives none of them, and never your app password.
       </P>
       <P>
         A calendar you subscribe to by link comes from wherever it is published, under that service’s own terms. Our server fetches it from
@@ -278,6 +337,12 @@ export default function Privacy() {
         Microsoft account’s privacy settings; for a work or school account, in My Apps (myapplications.microsoft.com). Without the token, that
         access cannot be used. If you remove Koyomi there first, Koyomi can read nothing further from that account once the short-lived
         access token it holds has expired, at most about an hour later, and its record is then marked as needing reconnection.
+      </P>
+      <P>
+        A Yahoo account’s Disconnect deletes its record, with Koyomi’s only copy of the app password, from our server, and deletes the device’s
+        copy of that account’s calendars. Koyomi cannot cancel the app password at Yahoo: it goes on working there until you delete it, in your
+        Yahoo account’s security settings, under External connections. If you delete it there first, Koyomi can read nothing further from that
+        account, and its record is marked as needing reconnection until you reconnect with a new app password, or disconnect.
       </P>
       <P>
         A calendar link’s Remove calendar deletes its record, with Koyomi’s only copy of the link, from our server, and deletes the device’s

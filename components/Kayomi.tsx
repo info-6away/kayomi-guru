@@ -20,7 +20,7 @@ import {
   type Span,
 } from '@/lib/dates';
 import { showingsByDay } from '@/lib/calendars/showings';
-import { connected, finishDisconnect, initExternal, resume, resumeLink, say, useExternal } from '@/lib/calendars/store';
+import { connected, finishDisconnect, initExternal, resume, resumeLink, resumeYahoo, say, useExternal } from '@/lib/calendars/store';
 import type { Provider } from '@/lib/calendars/types';
 import { WORDS, which } from '@/lib/calendars/words';
 import { moved, occurrenceKey, occurrencesByDay, type Occurrence } from '@/lib/occurrences';
@@ -155,6 +155,8 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     // Signed in to 6Away again: nothing to show, the calendars simply carry on.
     if (outcome === 'resume') return void resume();
     openCalendars();
+    // Back from signing in on the way to Yahoo's form: the form, and nothing more.
+    if (outcome === 'yahoo') return void resumeYahoo();
     // Signed in on the way to the form for a calendar link: the form is shown again, empty.
     if (outcome === 'link') return void resumeLink();
     if (outcome === 'connected') void connected();

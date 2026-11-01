@@ -5,7 +5,7 @@ import { A, H2, LegalPage, Mail, OPERATOR, P, legalMetadata } from '@/components
 
 export const metadata = legalMetadata('Terms', 'The terms on which Koyomi is offered.', '/terms');
 
-const UPDATED = '30 October 2026';
+const UPDATED = '1 November 2026';
 
 export default function Terms() {
   return (
@@ -27,11 +27,12 @@ export default function Terms() {
       <P>
         You may connect one or more Google accounts so that Koyomi shows their calendars beside your own. A connection is read-only: Koyomi
         cannot change your Google Calendar. You can disconnect each account at any time in Koyomi. Microsoft accounts can be connected in the
-        same way, and the same is true of them. You may also subscribe to a published calendar by its private link: Koyomi only reads it, and
+        same way, and the same is true of them. Yahoo accounts can be connected too, with an app password you create at Yahoo, and the same is
+        true of them. You may also subscribe to a published calendar by its private link: Koyomi only reads it, and
         you can remove it at any time. Only give Koyomi links to calendars you are allowed to see.
       </P>
       <P>
-        Connecting uses 6Away for sign-in, and Google, Microsoft or the service that publishes a calendar link for your calendar. Those are
+        Connecting uses 6Away for sign-in, and Google, Microsoft, Yahoo or the service that publishes a calendar link for your calendar. Those are
         services of their own, and your use of them is subject to their own terms.
       </P>
 

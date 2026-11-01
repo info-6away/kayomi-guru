@@ -21,6 +21,7 @@
   "dependencies": {
     "@6away/auth-connect": "github:info-6away/auth-connect#v1.0.6",
     "@neondatabase/serverless": "^1.2.0",
+    "@xmldom/xmldom": "0.9.12",
     "ical.js": "2.2.1",
     "next": "^16.3.8",
     "react": "^19.3.0",

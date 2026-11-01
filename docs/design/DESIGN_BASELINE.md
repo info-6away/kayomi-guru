@@ -98,15 +98,20 @@ connected. It took over Plan's place exactly, so nothing about the frame moved:
   Mincho, with a quiet line beside it for what is on screen: "Koyomi", or "Koyomi and 3 more".
   It opens the same bottom sheet.
 - **The drawer is a list, not a settings page.** "Koyomi", always shown and ticked. Then, under
-  a small "GOOGLE" heading, and a "MICROSOFT" one below it in the same style, each connected
+  a small "GOOGLE" heading, and "MICROSOFT" and "YAHOO" ones below it in the same style, each connected
   account: its address as a quiet line, and its calendars under it, each a row that is on (a
   tick) or off (a ring), then "Disconnect" as small text at the end, on the right. A heading is
   there only when an account is under it. Then "＋ Add calendar account", drawn like Plan's old
-  "＋ Add" row. Where both providers are offered, pressing it opens two quiet rows under it, "Google" and
-  "Microsoft", in the row's own type and indented to its text, and nothing more; pressing it
-  again closes them. Where only one is offered, it goes straight there. With nothing connected,
-  one sentence under it says what adding an account means, naming the providers offered, with a
-  link to Privacy.
+  "＋ Add" row. Where more than one provider is offered, pressing it opens a quiet row for each
+  under it, "Google", "Microsoft", "Yahoo", in the row's own type and indented to its text, and
+  nothing more; pressing it again closes them. Where only one is offered, it goes straight there.
+  Choosing Yahoo opens a small form in the same place, as Yahoo has no page to send anyone to:
+  "Connect Yahoo Calendar", then "Yahoo email" and "Yahoo app password" as plain fields with
+  their labels above them, one muted sentence saying to use a Yahoo app password and where to
+  make one, with a quiet "How" link to Yahoo's own help, then "Connect Yahoo" as a pill and
+  "Cancel" as text. Reconnecting a Yahoo account shows its address instead of the email field.
+  With nothing connected, one sentence under it says what adding an account means, naming the
+  providers offered, with a link to Privacy.
   Refresh and when things were last read are text at the foot, with "Install Koyomi" when the
   browser offers it. No avatars, no provider logos, no account screen, nothing about how an
   account is connected.
@@ -140,6 +145,8 @@ pictures with Microsoft with `npm run screenshots -- --microsoft`.
 | Phone Day with Google events | [mobile-day-google-light.png](mobile-day-google-light.png) |
 | Calendars with Google and Microsoft accounts | [desktop-calendars-microsoft-light.png](desktop-calendars-microsoft-light.png) |
 | Add calendar account, choosing where | [desktop-calendars-choice-light.png](desktop-calendars-choice-light.png) |
+| Connecting Yahoo: the form | [desktop-calendars-yahoo-form-light.png](desktop-calendars-yahoo-form-light.png) |
+| A Yahoo account in Calendars | [desktop-calendars-yahoo-light.png](desktop-calendars-yahoo-light.png) |
 
 ![Desktop Week with Google events, light](desktop-week-google-light.png)
 

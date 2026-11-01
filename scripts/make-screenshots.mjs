@@ -11,7 +11,7 @@
 // Monday 5 October 2026 at 14:25. The sample week exists only here; the app itself starts empty.
 
 import { chromium } from '@playwright/test';
-import { DEMO_ACCOUNTS, DEMO_MICROSOFT_ACCOUNTS, FAKE_PORT } from '../tests/fakes/env.mjs';
+import { DEMO_ACCOUNTS, DEMO_MICROSOFT_ACCOUNTS, DEMO_YAHOO_ACCOUNT, FAKE_PORT } from '../tests/fakes/env.mjs';
 
 const APP = 'http://localhost:4310/';
 const FAKE = `http://localhost:${FAKE_PORT}`;
@@ -157,6 +157,30 @@ async function connectMicrosoft({ context, page }, mobile, who) {
     await calendars.getByRole('group', { name: account.address }).locator('[data-account]').waitFor();
     await calendars.getByText('Refreshing…').waitFor({ state: 'detached' });
   }
+}
+
+if (process.argv.includes('--yahoo')) {
+  // Koyomi's own calendar and one Yahoo account: the form, filled in, and then the account in Calendars.
+  await fetch(`${FAKE}/__fake/yahoo/${encodeURIComponent(DEMO_YAHOO_ACCOUNT.email)}`, { method: 'PUT', body: JSON.stringify(DEMO_YAHOO_ACCOUNT) });
+  const desktop = await openApp(browser, { ...DESKTOP, colorScheme: 'light' });
+  const { context, page } = desktop;
+  await context.addCookies([{ name: 'fake_user', value: 'pictures-yahoo', url: FAKE }]);
+  const calendars = page.getByRole('region', { name: 'Calendars' });
+  await openCalendars(page, false);
+  await page.getByRole('button', { name: 'Add calendar account' }).click();
+  await calendars.getByRole('button', { name: 'Yahoo', exact: true }).click();
+  const form = calendars.getByRole('form', { name: 'Connect Yahoo Calendar' });
+  await form.waitFor();
+  await form.getByLabel('Yahoo email').fill(DEMO_YAHOO_ACCOUNT.email);
+  await form.getByLabel('Yahoo app password').fill(DEMO_YAHOO_ACCOUNT.password);
+  await shot(page, 'docs/design/desktop-calendars-yahoo-form-light.png');
+  await form.getByRole('button', { name: 'Connect Yahoo' }).click();
+  await calendars.getByRole('group', { name: DEMO_YAHOO_ACCOUNT.email }).waitFor();
+  await calendars.getByText('Refreshing…').waitFor({ state: 'detached' });
+  await shot(page, 'docs/design/desktop-calendars-yahoo-light.png');
+  await desktop.context.close();
+  await browser.close();
+  process.exit(0);
 }
 
 if (process.argv.includes('--microsoft')) {

@@ -2,17 +2,19 @@ import type { Provider } from '../calendars/types';
 import { googleEndpoints, type GoogleClient } from './google';
 import type { LinkConfig } from './link';
 import { microsoftEndpoints, type MicrosoftClient } from './microsoft';
+import { yahooClient, type YahooClient } from './yahoo';
 
 // What calendar connections need from the server's environment. When any of it is missing the
 // feature is simply off: the calendar itself needs none of this and never did. Each provider is
-// on by its own two settings, so Google can be offered without Microsoft, or the other way round.
+// on by its own settings, so Google can be offered without Microsoft, or the other way round.
+// Yahoo has no client to register: it is on by one setting, `YAHOO_CALENDAR=on`.
 
 /** Read by name at run time, so nothing here is baked into a build. */
 const env = (name: string) => process.env[name]?.trim() || undefined;
 
 /**
- * Stand-ins used by the browser tests: a fake Google, a fake Microsoft, and a store held in
- * memory. A deployment on Vercel ignores all three, whatever its settings say.
+ * Stand-ins used by the browser tests: a fake Google, a fake Microsoft, a fake Yahoo, and a store
+ * held in memory. A deployment on Vercel ignores all four, whatever its settings say.
  */
 const testOnly = (name: string) => (env('VERCEL') ? undefined : env(name));
 
@@ -32,6 +34,8 @@ export interface ConnectionsConfig {
   google: GoogleClient | null;
   /** Null where this server is not set up to connect Microsoft accounts. */
   microsoft: MicrosoftClient | null;
+  /** Null where this server is not set up to connect Yahoo accounts. */
+  yahoo: YahooClient | null;
   /** Null where this server does not subscribe to calendar links. */
   link: LinkConfig | null;
   /** 64 hexadecimal characters: the key that seals provider tokens. */
@@ -61,19 +65,20 @@ export function connectionsConfig(): ConnectionsConfig | null {
     microsoftId && microsoftSecret
       ? { clientId: microsoftId, clientSecret: microsoftSecret, redirectUri: `${appUrl}/api/microsoft/callback`, endpoints: microsoftEndpoints(testOnly('KOYOMI_TEST_MICROSOFT_URL')) }
       : null;
+  const yahoo = env('YAHOO_CALENDAR') === 'on' ? yahooClient(testOnly('KOYOMI_TEST_YAHOO_URL')) : null;
   // Calendar links need no client of anyone's: only that they are switched on.
   const pace = Number(testOnly('KOYOMI_TEST_LINK_PACE_MS'));
   const link: LinkConfig | null =
     env('CALENDAR_LINKS') === 'on' ? { own: new URL(appUrl).hostname, test: testOnly('KOYOMI_TEST_LINK_ORIGIN') ?? null, paceMs: Number.isFinite(pace) && pace >= 0 ? pace : 10_000 } : null;
-  if (!google && !microsoft && !link) return null;
-  return { appUrl, google, microsoft, link, tokenKey, database };
+  if (!google && !microsoft && !yahoo && !link) return null;
+  return { appUrl, google, microsoft, yahoo, link, tokenKey, database };
 }
 
 /** Which providers this server can connect, in the order they are offered. None: the feature is off. */
 export function calendarProviders(): Provider[] {
   const config = connectionsConfig();
   if (!config) return [];
-  return [...(config.google ? (['google'] as const) : []), ...(config.microsoft ? (['microsoft'] as const) : []), ...(config.link ? (['link'] as const) : [])];
+  return [...(config.google ? (['google'] as const) : []), ...(config.microsoft ? (['microsoft'] as const) : []), ...(config.yahoo ? (['yahoo'] as const) : []), ...(config.link ? (['link'] as const) : [])];
 }
 
 export const connectionsConfigured = () => connectionsConfig() !== null;

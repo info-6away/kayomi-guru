@@ -129,7 +129,8 @@ test.describe('privacy and terms', () => {
     // Exactly the permissions the code asks Google for, by name, and no other.
     const requested = SCOPES.map((scope) => scope.split('/').pop()!);
     expect(requested).toEqual(['calendar.calendarlist.readonly', 'calendar.events.readonly']);
-    expect([...new Set(said.match(/calendar\.[a-z.]*[a-z]/g))].sort()).toEqual([...requested].sort());
+    // (Not a host name such as Yahoo's caldav.calendar.yahoo.com: a permission's name stands on its own.)
+    expect([...new Set(said.match(/(?<![\w.])calendar\.[a-z.]*[a-z]/g))].sort()).toEqual([...requested].sort());
     expect(said).toContain('It cannot create, change or delete anything in your Google Calendar.');
 
     // The span that is read, and the fields. If either changes in the code, this page changes with it.
@@ -266,6 +267,43 @@ test.describe('privacy and terms', () => {
     expect(said).toContain('It asks Google to revoke Koyomi’s access to that account');
   });
 
+  test('the privacy page says what the Yahoo connection does and keeps, beside Google’s and Microsoft’s, which are unchanged', async ({ page }) => {
+    await page.goto('/privacy');
+    const said = await text(page);
+    await expect(page.getByRole('main').getByRole('heading', { level: 2 })).toContainText(['Connecting Google Calendar', 'What Koyomi reads from Google', 'Connecting a Microsoft calendar', 'What Koyomi reads from Microsoft', 'Connecting a Yahoo calendar', 'What Koyomi reads from Yahoo']);
+    for (const part of [
+      // How it is connected, and what with.
+      'A Yahoo calendar is read through Yahoo’s CalDAV service, at caldav.calendar.yahoo.com, with an app password',
+      'Koyomi never asks for your normal Yahoo password.',
+      'Koyomi checks them with Yahoo at once, and keeps them only if Yahoo accepts them.',
+      // What the credential could do, said plainly, and what Koyomi does with it.
+      'Yahoo does not limit an app password to your calendar: whoever holds one may also be able to open your Yahoo mail with it.',
+      'It never reads your mail, your email content or anything else in your account, and it cannot create, change or delete anything in your Yahoo calendar.',
+      // What is read, the span, and what is dropped.
+      'from five weeks back to twenty-seven weeks ahead, and of repeating events that began up to five years before that',
+      'its identifier at Yahoo, its title, its start and end or its length, whether it lasts all day, and the time zone it was written in',
+      'Yahoo’s CalDAV service may send each event whole, whatever Koyomi asks for',
+      'Koyomi drops all of that on our server the moment it reads it. None of it reaches your device, and none of it is kept or written to a log.',
+      'Lists of tasks are left out.',
+      // Where it is kept, and how.
+      'it holds your Yahoo email and the app password, with where that account’s calendars are at Yahoo, all encrypted together with AES-256-GCM',
+      'Your Yahoo app password reaches our server once, when you give it, and never comes back to your browser',
+      'The same measures protect your Yahoo calendar data and app password.',
+      'has no access to your Yahoo mail or email content',
+      'Neon stores the connection records described above, with the app password encrypted',
+      // What Disconnect can and cannot do.
+      'Koyomi cannot cancel the app password at Yahoo: it goes on working there until you delete it',
+      'until you reconnect with a new app password, or disconnect',
+    ]) {
+      expect(said, part).toContain(part);
+    }
+    // Google's and Microsoft's statements are as they were.
+    expect(said).toContain(LIMITED_USE);
+    expect(said).toContain('It asks Google to revoke Koyomi’s access to that account');
+    expect(said).toContain('to read your calendars (Calendars.Read).');
+    expect(said).toContain('The server stores one record for each Google account you connect.');
+  });
+
   test('the privacy page says what a calendar link is, how it is kept, and what removing it can and cannot do', async ({ page }) => {
     await page.goto('/privacy');
     const said = await text(page);
@@ -323,7 +361,8 @@ test.describe('privacy and terms', () => {
       'A connection is read-only: Koyomi cannot change your Google Calendar.',
       'You can disconnect each account at any time in Koyomi.',
       'Microsoft accounts can be connected in the same way, and the same is true of them.',
-      'Google, Microsoft or the service that publishes a calendar link for your calendar',
+      'Google, Microsoft, Yahoo or the service that publishes a calendar link for your calendar',
+      'Yahoo accounts can be connected too, with an app password you create at Yahoo, and the same is true of them.',
       'You may also subscribe to a published calendar by its private link: Koyomi only reads it, and you can remove it at any time.',
       'your use of them is subject to their own terms',
       'Koyomi is provided as it is and as available.',
@@ -336,7 +375,7 @@ test.describe('privacy and terms', () => {
     await expect(page.getByRole('main').locator('a[href^="mailto:"]')).toHaveAttribute('href', `mailto:${CONTACT}`);
     expect(said).not.toMatch(/\bPlan\b/);
     // Short: a page or two, not a contract.
-    expect(said.split(' ').length).toBeLessThan(450);
+    expect(said.split(' ').length).toBeLessThan(475);
   });
 
   for (const path of ['/privacy', '/terms']) {

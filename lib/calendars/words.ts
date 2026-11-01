@@ -9,7 +9,7 @@ export interface ProviderWords {
   heading: string;
   /** An account whose address has not been read yet. */
   unnamed: string;
-  /** In the choice of where to add an account. */
+  /** In the choice of where to add an account, and in a list of them. */
   label: string;
   /** Where an event came from, in its popover. */
   source: string;
@@ -60,6 +60,19 @@ export const WORDS: Record<Provider, ProviderWords> = {
     kept: 'your Microsoft calendar',
     yours: 'Microsoft calendar',
   },
+  yahoo: {
+    heading: 'YAHOO',
+    unnamed: 'Yahoo account',
+    label: 'Yahoo',
+    source: 'Yahoo Calendar',
+    // Yahoo has no address for one event, so there is no way back to show.
+    open: '',
+    blocked: 'Yahoo doesn’t let Koyomi read this account’s calendar.',
+    ...ACCOUNT,
+    pill: 'Yahoo calendar needs reconnecting',
+    kept: 'your Yahoo calendar',
+    yours: 'Yahoo calendar',
+  },
   link: {
     heading: 'CALENDAR LINKS',
     unnamed: 'Calendar link',
@@ -81,4 +94,10 @@ export const WORDS: Record<Provider, ProviderWords> = {
 export function which(providers: Provider[]): Provider | 'several' | null {
   const distinct = [...new Set(providers)];
   return distinct.length > 1 ? 'several' : (distinct[0] ?? null);
+}
+
+/** The providers by name, as a sentence lists them: "Google", "Google and Microsoft", "Google, Microsoft and Yahoo". */
+export function listed(providers: Provider[]): string {
+  const names = [...new Set(providers)].map((provider) => WORDS[provider].label);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? 'Google');
 }
