@@ -35,6 +35,8 @@ const nextConfig: NextConfig = {
       // Privacy and Terms are pages of the site. Asked of the calendar's host, they are over there.
       { source: '/privacy', has: [{ type: 'host', value: APP_HOST }], destination: `${SITE_URL}/privacy`, permanent: true },
       { source: '/terms', has: [{ type: 'host', value: APP_HOST }], destination: `${SITE_URL}/terms`, permanent: true },
+      // So is the sitemap: it lists koyomi.guru's pages, which a sitemap may only do from koyomi.guru.
+      { source: '/sitemap.xml', has: [{ type: 'host', value: APP_HOST }], destination: `${SITE_URL}/sitemap.xml`, permanent: true },
     ];
   },
 
