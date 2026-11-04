@@ -25,6 +25,9 @@
      with a half-strength bar and tint and slightly lighter text. */
   --hour: #4A4741;
   --dow: var(--ink2);
+  /* A day in the month view that belongs to the month before or after. Text can go no lighter than
+     muted and still read at 4.5:1, so on paper it keeps that level and is told apart by its size. */
+  --outside: var(--muted);
   --event-time: #4A4741;
   /* The landing page's sample week. On paper its times stay at the muted level they were drawn
      at. At night that level is 4.3:1 on a tinted event in the shaded weekend, so there they take
@@ -54,7 +57,8 @@
   --paper: #252522;
   --ink: #ECE8DE;
   --ink2: #BDB8AD;
-  --muted: #908C82;
+  /* Secondary text at night: 5.7:1 on the page and 5.2:1 on a drawer, so thin type still reads. */
+  --muted: #9A968C;
   --stone: #615F5A;
   --line: #393936;
   --line2: rgba(57, 57, 54, .55);
@@ -64,10 +68,13 @@
   --hover: rgba(236, 232, 222, .045);
   --shadow: rgba(0, 0, 0, .5);
 
-  /* At night the muted labels already read well. Events follow the same levels as on paper, so
-     a past one keeps its contrast: fading the whole block would leave its time near 2:1. */
-  --hour: var(--muted);
+  /* The hour labels a step above muted, as on paper: they are what a day is read by. Events follow
+     the same levels as on paper, so a past one keeps its contrast: fading the whole block would
+     leave its time near 2:1. */
+  --hour: #A8A49A;
   --dow: var(--muted);
+  /* Days of the month before and after keep the quieter level muted had, and their smaller size. */
+  --outside: #908C82;
   --event-time: #A39F95;
   --sample-time: var(--event-time);
   --past-title: var(--ink2);
@@ -96,6 +103,7 @@
   --color-wash: var(--hover);
   --color-hour: var(--hour);
   --color-dow: var(--dow);
+  --color-outside: var(--outside);
   --color-event-time: var(--event-time);
   --color-sample-time: var(--sample-time);
   --color-past-title: var(--past-title);

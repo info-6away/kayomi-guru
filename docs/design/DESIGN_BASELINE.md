@@ -42,7 +42,13 @@ Month and the phone Calendars sheet are shown in light only: dark changes their 
 - **Two typefaces.** Shippori Mincho for the wordmark, dates and titles; Zen Kaku Gothic New for
   everything else.
 - **Week first on a desktop, one day on a phone.** Below 760px the layout changes rather than
-  shrinks: a week strip, a single day, and Calendars as a bottom sheet.
+  shrinks: a week strip, a single day, and Calendars as a bottom sheet. The strip and the phone's
+  month name their weekdays in three letters (MON, TUE), which fit down to 320px. A swipe across
+  the strip moves a week, keeping the weekday; across the day, a day.
+- **In a month, the months either side step back.** Their days are a smaller numeral (13px on a
+  phone, 14px on a desktop, against 16 and 17) in `outside`. Text cannot go much lighter than
+  `muted` and still meet AA, so the size is what tells them apart. Today and the chosen day keep
+  their full size.
 - **A narrow window keeps the same header.** From 980px up it is as in the screenshots. Below
   that it draws in a step at a time rather than changing, so that nothing in it overlaps
   anything else down to 760px. A day's date goes to three letters below 980px ("Wed 27 Sep 2028"), and a
@@ -67,12 +73,16 @@ Month and the phone Calendars sheet are shown in light only: dark changes their 
 
   | Level | Used for | On paper | At night |
   | --- | --- | --- | --- |
-  | `ink` | Titles, dates, what you typed | 13.8:1 | 13.8:1 |
-  | `ink2` | Secondary text, weekday labels, past event times | 6.9:1 | 8.5:1 |
-  | `muted` | Navigation, hints, counts, the theme switch, days outside the month | 5.1:1 | 5.0:1 |
-  | `event-time`, `hour` | Event times and the hour labels | 8.2:1 | 6.4:1 and 5.0:1 |
-  | `verm-text` | Small vermilion text: today's date, the current time | 4.9:1 | 5.1:1 |
+  | `ink` | Titles, dates, what you typed, an account's address in Calendars | 13.8:1 | 13.8:1 |
+  | `ink2` | Secondary text, weekday labels, past event times, the small controls in Calendars | 6.9:1 | 8.5:1 |
+  | `muted` | Navigation, hints, counts, the theme switch | 5.1:1 | 5.7:1 |
+  | `outside` | Days of the month before and after, in the month view | 5.1:1 | 5.0:1 |
+  | `event-time`, `hour` | Event times and the hour labels | 8.2:1 | 6.4:1 and 6.8:1 |
+  | `verm-text` | Small vermilion text: today's date, the current time, and trouble | 4.9:1 | 5.1:1 |
   | `stone`, `line` | Never text: rules, dots and outlines only | | |
+
+  At night `muted` was raised from 5.0:1 after testers on phones found thin secondary type too
+  faint there. Days outside the month kept the old level, so they stay quieter than everything else.
 
 - **Two vermilions, one accent.** The accent (`verm`) is for shapes: the logo dot, the now line,
   an event's bar. On paper it is 3.9:1, too little for an 11px time, so small vermilion text uses
@@ -81,10 +91,28 @@ Month and the phone Calendars sheet are shown in light only: dark changes their 
   Nothing else changes colour: the accent is never darkened as a whole.
 - **The working day is on screen.** The hour height follows the window (44 to 58px) and the timeline
   opens just after 07:30, so about 08:00 to 20:00 is visible without scrolling.
+- **Every hour is labelled, from 00.** Midnight's `00` sits on its line like every other hour, in the
+  same type. The labels are 12px on a phone and 11.5px on a desktop.
+- **The day is never under Calendars.** On a phone the Calendars bar sits below the day, not over
+  it: scrolled to the end, midnight's line and the last event are above the bar, with 40px to
+  spare. The bar grows by the safe area, so its words are never under the system's own bar.
+- **A long title cannot break the day.** On an event it is cut short with an ellipsis; in its
+  details it is wrapped onto as many lines as it needs. A swipe sideways turns the day only when it
+  starts on the day itself, with one finger: never on an event, its details or a field.
 - **Creation is one line.** Click a time, type, Enter: `14:00 │ What are you doing?` A click gives
   the event an hour. To give it another length, drag down (or up) the empty part of the day with a
   mouse or pen: a quiet outline with a vermilion edge follows in quarter-hours, saying the times
   (`10:00 – 11:30`), and letting go opens the same one line over that stretch.
+- **＋ opens where the person is.** On the day in view (in a week, today if the week has it,
+  otherwise its Monday): at a time the person chose on the calendar and has not used yet, if there
+  is one; otherwise at the next half-hour today, or 09:00 on another day. A chosen time is spent
+  once an event is made there, once it is put away with Escape, or when the view or day changes.
+- **Times are typed, to the minute.** In an event's details, Start and End take `14:05`, or `1405`
+  where a phone's number pad has no colon. Dragging still moves in quarter-hours. On a phone the
+  two times are underlined, since there is no hover to show they can be typed in.
+- **What a thumb presses is 44px.** On a phone each control in an event's details (its ×, Delete,
+  the colours, All day, Repeat, the times), Calendars' close, and its small text controls takes a
+  44px tap, while being drawn as small as it always was. None reaches over another.
 
 ## Calendars, where Plan was
 
@@ -95,8 +123,9 @@ connected. It took over Plan's place exactly, so nothing about the frame moved:
   and Month and before search, in the same type and weight. No count beside it, no icon. It
   opens the drawer; `C` does too, as `P` used to.
 - **On a phone, the bar along the foot.** The bar that said Plan says Calendars, in the same
-  Mincho, with a quiet line beside it for what is on screen: "Koyomi", or "Koyomi and 3 more".
-  It opens the same bottom sheet.
+  Mincho, with a small `⌃` beside it that turns over once the sheet is open, and a quiet line for
+  what is on screen: "Koyomi", or "Koyomi and 3 more". It opens the same bottom sheet. Testers
+  read the bar as a caption; the chevron is the one sign that it opens something. Desktop is unchanged.
 - **The drawer is a list, not a settings page.** "Koyomi", always shown and ticked. Then, under
   a small "GOOGLE" heading, and a "MICROSOFT" one below it in the same style, each connected
   account: its address as a quiet line, and its calendars under it, each a row that is on (a
@@ -106,7 +135,17 @@ connected. It took over Plan's place exactly, so nothing about the frame moved:
   "Microsoft", in the row's own type and indented to its text, and nothing more; pressing it
   again closes them. Where only one is offered, it goes straight there. With nothing connected,
   one sentence under it says what adding an account means, naming the providers offered, with a
-  link to Privacy.
+  link to the Privacy Policy.
+- **Ending a connection is asked about first.** Disconnect (Remove calendar, for a calendar link)
+  opens a small question in its place: "Disconnect this Google account?", what that does, and
+  that Koyomi's own events stay as they are, with Cancel (which has the focus) and Disconnect in
+  vermilion. The words say no more than is true: Google is asked to end Koyomi's access,
+  Microsoft offers apps no way to, and a calendar link keeps working wherever else it is used.
+  Deleting an event of Koyomi's own is not asked about.
+- **Trouble is noticed.** What says something did not happen (a link that gave no calendar, an
+  account that needs reconnecting or can't be read, a Refresh that could not read something) is
+  set in `verm-text` with a small outlined mark before it, apart from the advice around it. No
+  banners, no toasts. What is only news (a calendar was removed) stays in `ink2`.
   Refresh and when things were last read are text at the foot, with "Install Koyomi" when the
   browser offers it. No avatars, no provider logos, no account screen, nothing about how an
   account is connected.
@@ -181,6 +220,9 @@ Each of these was needed for a real calendar and was kept as small as possible:
 - Overlapping events sit side by side.
 - Text fields are 16px on phones, so iOS does not zoom when one is focused.
 - The first visit follows the system's light or dark setting; after that the user's choice is kept.
+  The switch is named "Dark theme" and says whether it is on, to assistive technology and on hover.
+- An event's details have a quiet × to close them, as well as a tap elsewhere or Escape.
+- The landing page's "Open Koyomi" is a hairline pill in ink, with its arrow in `verm-text`.
 - When the browser can install Koyomi, one line at the foot of Calendars says "Install Koyomi".
   It is absent everywhere else: in Safari and Firefox, at any address but `app.koyomi.guru`, and
   once the app is installed.

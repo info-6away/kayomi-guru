@@ -28,6 +28,7 @@ import {
   test,
   toggle,
   view,
+  disconnectAccount,
 } from './connected';
 import { addEvent, event, popover, reload, seed, stored } from './helpers';
 
@@ -232,7 +233,7 @@ test.describe('adding a second account', () => {
     await external(page, 'Board meeting').click();
     await expect(popover(page).locator('p')).toHaveText(['Board meeting', '13:00 – 14:00', `Google Calendar · Work${THEM}`]);
     await expect(popover(page).getByRole('link', { name: 'Open in Google Calendar' })).toHaveAttribute('href', 'https://www.google.com/calendar/event?eid=board');
-    await expect(popover(page).getByRole('button')).toHaveCount(0);
+    await expect(popover(page).getByRole('button')).toHaveAccessibleName('Close');
     await page.keyboard.press('Escape');
     await external(page, 'Weekly sync').click();
     await expect(popover(page).locator('p')).toHaveText(['Weekly sync', '10:00 – 11:00', `Google Calendar · Work${ME}`]);
@@ -507,7 +508,7 @@ test.describe('disconnecting one account', () => {
     const theirs = await part(page, THEM);
     const [, secondOne] = await listed(page);
 
-    await disconnectButton(page, ME).click();
+    await disconnectAccount(page, ME);
     await expect(group(page, ME)).toHaveCount(0, BACK);
     await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
 
@@ -548,10 +549,10 @@ test.describe('disconnecting one account', () => {
     expect((await listed(page)).find((entry) => entry.account === THEM)!.connectionId).toBe(secondOne.connectionId);
 
     // Disconnecting the last account is the end of it all: no copy, no note, no sign-in.
-    await disconnectButton(page, ME).click();
+    await disconnectAccount(page, ME);
     await expect(group(page, ME)).toHaveCount(0, BACK);
     await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
-    await disconnectButton(page, THEM).click();
+    await disconnectAccount(page, THEM);
     await expect(nothingConnected(page)).toBeVisible(BACK);
     await expect(page.locator('[data-external]')).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => indexedDB.databases())).toEqual([{ name: 'kayomi', version: 1 }]);
@@ -564,7 +565,7 @@ test.describe('disconnecting one account', () => {
   test('works after the sign-in has lapsed: sign in, then that account alone is ended', async ({ page, context, id }) => {
     const other = await both(page, id);
     await context.clearCookies({ name: 'koyomi_session' });
-    await disconnectButton(page, THEM).click();
+    await disconnectAccount(page, THEM);
 
     await expect.poll(async () => (await google.asked(other)).revoked, BACK).toBe(true);
     expect(new URL(page.url()).search).toBe('');
@@ -631,7 +632,7 @@ test.describe('while a refresh is under way', () => {
     const answered = answerOf(page);
 
     // The other tab disconnects that account, and that is finished: its part of the copy is gone.
-    await disconnectButton(elsewhere, ME).click();
+    await disconnectAccount(elsewhere, ME);
     await expect(group(elsewhere, ME)).toHaveCount(0, BACK);
     await expect.poll(async () => Object.keys(await copy(elsewhere))).toEqual([THEM]);
     await expect(group(page, ME)).toHaveCount(0);

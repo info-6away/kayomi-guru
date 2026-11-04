@@ -1,14 +1,22 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { DAY_MIN, DOWL, MON, hm, parseTime, parts, spanOf, toInstant, weekday, type Span } from '@/lib/dates';
 import { moved, occurrenceKey, type Occurrence } from '@/lib/occurrences';
 import { deleteEvent, endSeriesBefore, skipOccurrence, updateEvent } from '@/lib/store';
 import type { Frequency } from '@/lib/types';
-import { CAT, CATEGORIES, SURFACE } from './ui';
+import { CAT, CATEGORIES, CloseButton, SURFACE } from './ui';
 
-const ACTION = 'h-8 rounded-[4px] px-2 text-[12.5px]';
+const ACTION = 'rounded-[4px] px-2 text-[12.5px]';
 const FIELD = 'bg-transparent outline-none focus:shadow-[0_1px_0_var(--line)]';
+
+/** A title as long as anyone types, wrapped onto as many lines as it needs and never scrolled sideways. */
+const grow = (field: HTMLTextAreaElement | null) => {
+  if (!field) return;
+  field.style.height = 'auto';
+  field.style.height = `${field.scrollHeight}px`;
+};
+
 
 interface Props {
   o: Occurrence;
@@ -48,6 +56,15 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
   };
 
   const close = () => onSelect(null);
+  const target = mobile ? 'h-11' : 'h-8';
+
+  const saveTitle = (field: HTMLTextAreaElement) => {
+    // A title is one line of words: anything pasted across lines is joined back into one.
+    const title = field.value.replace(/\s*\n\s*/g, ' ').trim();
+    if (!title) field.value = ev.title;
+    else if (title !== ev.title) updateEvent(ev.id, { title });
+    grow(field);
+  };
 
   return (
     <div
@@ -56,8 +73,10 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
       className={`absolute z-[8] flex w-[260px] scroll-mt-24 scroll-mb-4 flex-col gap-[5px] px-4 pt-3.5 pb-2 select-text ${SURFACE}`}
     >
       <div className="flex items-center gap-2 text-[11px] tracking-[.08em] text-muted">
-        <span className="size-1.5 rounded-full" style={{ background: CAT[ev.category] }} />
-        <label className="relative transition-colors duration-150 hover:text-ink has-[:focus-visible]:text-ink has-[:focus-visible]:underline">
+        <span className="size-1.5 flex-none rounded-full" style={{ background: CAT[ev.category] }} />
+        <label
+          className={`relative transition-colors duration-150 hover:text-ink has-[:focus-visible]:text-ink has-[:focus-visible]:underline ${mobile ? '-mt-2 py-3.5' : ''}`}
+        >
           {`${DOWL[weekday(o.date)]} ${day.d} ${MON[day.m - 1]}`.toUpperCase()}
           <input
             type="date"
@@ -75,27 +94,32 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
             className="absolute inset-0 size-full cursor-pointer text-[16px] opacity-0"
           />
         </label>
+        <CloseButton mobile={mobile} label="Close" onClose={close} />
       </div>
 
-      <input
+      <textarea
         key={ev.title}
+        ref={grow}
+        rows={1}
         aria-label="Title"
         defaultValue={ev.title}
-        onBlur={(e) => {
-          const title = e.target.value.trim();
-          if (!title) e.target.value = ev.title;
-          else if (title !== ev.title) updateEvent(ev.id, { title });
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur();
+        onInput={(e) => grow(e.currentTarget)}
+        onBlur={(e) => saveTitle(e.currentTarget)}
+        onKeyDown={(e: KeyboardEvent<HTMLTextAreaElement>) => {
+          // Enter saves, as it always has: a title is never more than one line of words.
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
           if (e.key === 'Escape') {
             e.currentTarget.value = ev.title;
             close();
           }
         }}
-        className={`w-full font-mincho text-[20px] leading-[1.3] text-ink ${FIELD}`}
+        className={`block w-full resize-none overflow-hidden font-mincho text-[20px] leading-[1.3] text-ink [overflow-wrap:anywhere] ${FIELD}`}
       />
 
+      {/* Times are typed, to the minute: "14:05", or "1405" on a keypad with no colon. */}
       <div className={`flex items-center gap-1 text-ink2 tabular-nums ${mobile ? 'text-[16px]' : 'text-[13px]'}`}>
         {ev.allDay ? (
           <span>All day</span>
@@ -125,12 +149,15 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
           </>
         )}
         {/* The one way an event of Koyomi's own gets into the all-day row, and back out. */}
-        <button onClick={() => setAllDay(!ev.allDay)} className="ml-auto text-[12px] text-muted hover:text-ink focus-visible:text-ink">
+        <button
+          onClick={() => setAllDay(!ev.allDay)}
+          className={`ml-auto text-[12px] text-muted hover:text-ink focus-visible:text-ink ${mobile ? '-mr-2 min-h-11 px-2' : ''}`}
+        >
           {ev.allDay ? 'Set a time' : 'All day'}
         </button>
       </div>
 
-      <div className="-ml-1.5 flex items-center">
+      <div className={`flex items-center ${mobile ? '-ml-3' : '-ml-1.5'}`}>
         {CATEGORIES.map((c) => (
           <button
             key={c.id}
@@ -138,7 +165,7 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
             aria-pressed={ev.category === c.id}
             title={c.label}
             onClick={() => updateEvent(ev.id, { category: c.id })}
-            className="grid size-6 place-items-center rounded-full"
+            className={`grid place-items-center rounded-full ${mobile ? 'size-11' : 'size-6'}`}
           >
             <span
               className="size-2 rounded-full"
@@ -150,7 +177,7 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
           aria-label="Repeat"
           value={ev.recurrence?.freq ?? ''}
           onChange={(e) => setRepeat(e.target.value)}
-          className={`ml-auto cursor-pointer appearance-none bg-transparent text-muted outline-none [text-align-last:right] hover:text-ink focus-visible:text-ink ${mobile ? 'text-[16px]' : 'text-[12px]'}`}
+          className={`ml-auto cursor-pointer appearance-none bg-transparent text-muted outline-none [text-align-last:right] hover:text-ink focus-visible:text-ink ${mobile ? 'h-11 text-[16px]' : 'text-[12px]'}`}
         >
           <option value="">Does not repeat</option>
           <option value="daily">Every day</option>
@@ -167,7 +194,7 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
               skipOccurrence(ev.id, o.date);
               close();
             }}
-            className={`${ACTION} text-ink2 hover:bg-wash`}
+            className={`${ACTION} ${target} text-ink2 hover:bg-wash`}
           >
             This one
           </button>
@@ -176,7 +203,7 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
               endSeriesBefore(ev.id, o.date);
               close();
             }}
-            className={`${ACTION} text-ink2 hover:bg-wash`}
+            className={`${ACTION} ${target} text-ink2 hover:bg-wash`}
           >
             This and after
           </button>
@@ -185,7 +212,7 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
               deleteEvent(ev.id);
               close();
             }}
-            className={`${ACTION} ml-auto text-muted hover:text-verm-text`}
+            className={`${ACTION} ${target} ml-auto text-muted hover:text-verm-text`}
           >
             All
           </button>
@@ -198,7 +225,7 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
               deleteEvent(ev.id);
               close();
             }}
-            className={`${ACTION} ml-auto text-muted hover:text-verm-text`}
+            className={`${ACTION} ${target} ml-auto text-muted hover:text-verm-text`}
           >
             Delete
           </button>
@@ -215,6 +242,7 @@ function TimeField({ label, value, wide, onCommit }: { label: string; value: num
       key={value}
       aria-label={label}
       inputMode="numeric"
+      title="Type any time, such as 14:05"
       defaultValue={hm(value)}
       onFocus={(e) => e.target.select()}
       onBlur={(e) => {
@@ -228,7 +256,8 @@ function TimeField({ label, value, wide, onCommit }: { label: string; value: num
           e.currentTarget.blur();
         }
       }}
-      className={`${wide ? 'w-[41px]' : 'w-[33px]'} ${FIELD}`}
+      // On a phone there is no hover to hint at it, so a time is underlined: it can be typed in.
+      className={`${wide ? 'h-11 w-11 shadow-[0_1px_0_var(--line)]' : 'w-[33px] hover:shadow-[0_1px_0_var(--line)]'} ${FIELD}`}
     />
   );
 }
