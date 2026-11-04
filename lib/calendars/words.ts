@@ -25,6 +25,13 @@ export interface ProviderWords {
   mend: string;
   /** The way to end it. */
   end: string;
+  /** Asked before it is ended, since that cannot be undone from here. */
+  confirm: string;
+  /**
+   * What ending it does and does not do, said no more strongly than it is true: Google is asked to
+   * end Koyomi's access, Microsoft offers apps no way to, and a published link goes on working.
+   */
+  confirmWhy: string;
   /** On the calendar itself, while one needs the person. */
   pill: string;
   /** Kept up to date by signing in again: "Sign in again to keep … up to date". */
@@ -44,6 +51,8 @@ export const WORDS: Record<Provider, ProviderWords> = {
     open: 'Open in Google Calendar',
     blocked: 'Google doesn’t let Koyomi read this account’s calendar.',
     ...ACCOUNT,
+    confirm: 'Disconnect this Google account?',
+    confirmWhy: 'Its calendars will be removed from Koyomi, and Google is asked to end Koyomi’s access. Your own Koyomi events stay as they are.',
     pill: 'Google Calendar needs reconnecting',
     kept: 'Google Calendar',
     yours: 'Google Calendar',
@@ -56,6 +65,8 @@ export const WORDS: Record<Provider, ProviderWords> = {
     open: 'Open in Outlook',
     blocked: 'Microsoft doesn’t let Koyomi read this account’s calendar.',
     ...ACCOUNT,
+    confirm: 'Disconnect this Microsoft account?',
+    confirmWhy: 'Its calendars will be removed from Koyomi, and Koyomi deletes what it kept to read them. Your own Koyomi events stay as they are.',
     pill: 'Microsoft calendar needs reconnecting',
     kept: 'your Microsoft calendar',
     yours: 'Microsoft calendar',
@@ -71,6 +82,8 @@ export const WORDS: Record<Provider, ProviderWords> = {
     needsWhy: 'This calendar link no longer returns a valid calendar.',
     mend: 'Update link',
     end: 'Remove calendar',
+    confirm: 'Remove this calendar?',
+    confirmWhy: 'Its events will be removed from Koyomi, and Koyomi forgets its link. The link itself keeps working wherever else it is used. Your own Koyomi events stay as they are.',
     pill: 'Calendar link needs updating',
     kept: 'your calendar links',
     yours: 'calendar',

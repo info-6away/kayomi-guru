@@ -33,6 +33,36 @@ export function hourHeight(mobile: boolean, viewportH: number) {
 
 export const SURFACE = 'rounded-[5px] bg-bg shadow-[0_18px_44px_-18px_var(--shadow),0_0_0_1px_var(--line)] animate-in';
 
+/** Marks a line that says something went wrong. Drawn in the colour of its text, so it is never louder than the words. */
+export function AlertIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" aria-hidden="true" className="mt-[3px] flex-none">
+      <circle cx="6" cy="6" r="5.2" />
+      <path d="M6 3.3v3.2" />
+      <path d="M6 8.6v.01" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+/**
+ * The quiet ×, small to the eye. On a phone what takes the tap is a full 44px around it, and its
+ * row makes room for that, so the tap never reaches over what is below.
+ */
+export function CloseButton({ mobile, label, onClose }: { mobile: boolean; label: string; onClose: () => void }) {
+  return (
+    <button
+      onClick={onClose}
+      aria-label={label}
+      className={`ml-auto grid flex-none place-items-center rounded-full text-[16px] leading-none text-muted hover:bg-wash hover:text-ink ${mobile ? '-mt-2 -mr-3 size-11' : '-my-1.5 -mr-2 size-7'}`}
+    >
+      ×
+    </button>
+  );
+}
+
+/** What a line in vermilion says: something the person asked for did not happen, or needs them. */
+export const TROUBLE = 'flex items-start gap-1.5 text-verm-text';
+
 export function SearchIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" aria-hidden="true">

@@ -27,16 +27,16 @@ import { moved, occurrenceKey, occurrencesByDay, type Occurrence } from '@/lib/o
 import { watchInstall } from '@/lib/install';
 import { addEvent, init, updateEvent, useData, type Data } from '@/lib/store';
 import { registerServiceWorker } from '@/lib/sw-register';
-import { toggleTheme, watchTheme } from '@/lib/theme';
+import { watchTheme } from '@/lib/theme';
 import { CalendarsPanel } from './CalendarsPanel';
 import { MonthView } from './MonthView';
 import { SearchPanel } from './SearchPanel';
+import { ThemeSwitch } from './ThemeToggle';
 import { Timeline } from './Timeline';
 import { SearchIcon, hourHeight, type Slot, type View } from './ui';
 
 const ROUND = 'rounded-full transition-colors duration-150 hover:bg-wash hover:text-ink';
 const TAB = 'relative h-8 px-1.5 text-[13px] tracking-[.03em] transition-colors duration-150 hover:text-ink min-[850px]:px-2.5';
-const HALF_MOON = 'rounded-full border border-current bg-[linear-gradient(90deg,currentColor_50%,transparent_50%)]';
 
 const NONE: Provider[] = [];
 
@@ -107,7 +107,9 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
   const [qa, setQa] = useState<Slot | null>(null);
   const [searching, setSearching] = useState(false);
   const scroller = useRef<HTMLDivElement | null>(null);
-  const swipe = useRef({ x: 0, y: 0 });
+  const swipe = useRef({ x: 0, y: 0, one: true });
+  /** A time the person chose on the calendar and has not used yet: where ＋ opens, on that day. */
+  const chosen = useRef<Slot | null>(null);
 
   // Week is the home view on a desktop; a phone shows one day, with the month a tap away.
   const mobile = w < 760;
@@ -194,6 +196,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     setDate(next);
     setSel(null);
     setQa(null);
+    chosen.current = null;
   };
   const step = (dir: number) => go(v === 'week' ? addDays(date, 7 * dir) : v === 'day' ? addDays(date, dir) : addMonths(date, dir));
   const changeView = (next: View) => {
@@ -201,6 +204,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     setMonthOnPhone(next === 'month');
     setSel(null);
     setQa(null);
+    chosen.current = null;
   };
   const openDay = (day: string) => {
     go(day);
@@ -208,14 +212,19 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     setMonthOnPhone(false);
   };
 
-  /** Starts an event at the next half-hour today, or at 09:00 on another day. */
+  /**
+   * Starts an event on the day in view (in a week, today if the week has it, otherwise its
+   * Monday). At the time the person last chose on the calendar there, if they chose one and have
+   * not used it; otherwise at the next half-hour today, or at 09:00 on another day.
+   */
   const quickAdd = () => {
     let day = date;
-    if (v === 'week') day = week.includes(today) ? today : monday;
+    if (v === 'week') day = chosen.current && week.includes(chosen.current.date) ? chosen.current.date : week.includes(today) ? today : monday;
     if (v === 'month') setView('day');
-    const min = clamp(day === today ? Math.ceil((now + 1) / 30) * 30 : 9 * 60, 0, DAY_MIN - 60);
+    const slot = chosen.current?.date === day ? chosen.current : null;
+    const min = slot ? slot.min : clamp(day === today ? Math.ceil((now + 1) / 30) * 30 : 9 * 60, 0, DAY_MIN - 60);
     setDate(day);
-    setQa({ date: day, min });
+    setQa(slot ?? { date: day, min });
     setSel(null);
     setMonthOnPhone(false);
     requestAnimationFrame(() => {
@@ -269,11 +278,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const themeButton = (size: string, dot: string) => (
-    <button onClick={toggleTheme} aria-label="Toggle ink mode" title="Ink mode" className={`grid place-items-center text-muted ${size}`}>
-      <span className={`${HALF_MOON} ${dot}`} />
-    </button>
-  );
+  const themeButton = (size: string, dot: string) => <ThemeSwitch className={`grid place-items-center text-muted ${size}`} dot={dot} />;
 
   return (
     // On a phone held sideways the notch eats into one side; the insets are zero everywhere else.
@@ -362,7 +367,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
               <button onClick={() => setSearching(true)} aria-label="Search" className="grid h-11 w-10 place-items-center text-muted">
                 <SearchIcon />
               </button>
-              {themeButton('h-11 w-9', 'size-2.5')}
+              {themeButton('h-11 w-10', 'size-2.5')}
               <button onClick={quickAdd} aria-label="Add" className="size-11 text-[22px] font-light text-ink">
                 ＋
               </button>
@@ -370,12 +375,17 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
 
             {!monthOnPhone && (
               <>
+                {/* A swipe across the strip moves a week, keeping the same weekday. Only one finger, sideways. */}
                 <div
-                  onTouchStart={(e) => (swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY })}
+                  onTouchStart={(e) => (swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, one: e.touches.length === 1 })}
+                  onTouchMove={(e) => {
+                    if (e.touches.length > 1) swipe.current.one = false;
+                  }}
                   onTouchEnd={(e) => {
+                    if (!swipe.current.one || e.touches.length) return;
                     const dx = e.changedTouches[0].clientX - swipe.current.x;
                     const dy = e.changedTouches[0].clientY - swipe.current.y;
-                    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) setDate(addDays(date, dx < 0 ? 7 : -7));
+                    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(addDays(date, dx < 0 ? 7 : -7));
                   }}
                   className="grid flex-none grid-cols-7 px-2 pt-0.5 pb-1.5"
                 >
@@ -384,7 +394,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
                     const isSel = key === date;
                     return (
                       <button key={key} onClick={() => go(key)} aria-pressed={isSel} className="flex h-16 flex-col items-center justify-center gap-1">
-                        <span className={`text-[10.5px] tracking-[.1em] ${isSel ? 'text-ink' : 'text-dow'}`}>{DOW[weekday(key)][0]}</span>
+                        <span className={`text-[10.5px] tracking-[.06em] ${isSel ? 'text-ink' : 'text-dow'}`}>{DOW[weekday(key)]}</span>
                         <span
                           className={`grid size-[34px] place-items-center rounded-full font-mincho text-[17px] leading-none transition-colors duration-200 ease-kayomi ${
                             isSel ? (isToday ? 'bg-verm-text text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm-text' : 'text-ink'
@@ -399,9 +409,10 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
                 </div>
                 <div className="flex min-h-10 flex-none items-center justify-between border-b border-line pt-1.5 pr-4 pb-2 pl-5">
                   <span className="text-[13px] tracking-[.02em] text-ink2">{`${DOWL[weekday(date)]}, ${cur.d} ${MON[cur.m - 1]}`}</span>
+                  {/* The pill is drawn small; what takes the tap is the whole height around it. */}
                   {date !== today && (
-                    <button onClick={() => go(today)} className="h-[30px] rounded-full border border-line px-3.5 text-[12.5px] text-ink2">
-                      Today
+                    <button onClick={() => go(today)} className="-my-[7px] -mr-1.5 grid h-11 place-items-center px-1.5">
+                      <span className="grid h-[30px] place-items-center rounded-full border border-line px-3.5 text-[12.5px] text-ink2">Today</span>
                     </button>
                   )}
                 </div>
@@ -458,9 +469,16 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
                 setSel(key);
                 setQa(null);
               }}
-              onQa={setQa}
+              onQa={(slot) => {
+                setQa(slot);
+                // Chosen on the calendar: ＋ opens here until it is used, put away or left for another day.
+                chosen.current = slot;
+              }}
               onCreate={(slot, title) => {
-                if (title) addEvent({ title, date: slot.date, start: slot.min, end: slot.end ?? slot.min + 60 });
+                if (title) {
+                  addEvent({ title, date: slot.date, start: slot.min, end: slot.end ?? slot.min + 60 });
+                  chosen.current = null;
+                }
                 setQa(null);
               }}
               onMove={moveEvent}
@@ -487,16 +505,23 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
 
         {mobile && (
           <>
-            {/* On a phone, Calendars is the bar along the foot: always in reach, and one tap from another account. */}
+            {/* On a phone, Calendars is the bar along the foot: always in reach, and one tap from another account.
+                It sits below the day, not over it, and grows by the safe area so nothing of it is under the system's own bar.
+                The small chevron says it opens, and turns when it has. */}
             <button
               onClick={toggleCalendars}
               aria-expanded={calendarsOpen}
+              aria-controls="calendars"
               className="flex flex-none items-center gap-3 border-t border-line bg-bg px-[22px] text-left"
               style={{ height: 'calc(64px + env(safe-area-inset-bottom))', paddingBottom: 'calc(4px + env(safe-area-inset-bottom))' }}
             >
-              <span className="font-mincho text-[18px]">Calendars</span>
+              <span className="flex items-center gap-2 font-mincho text-[18px]">
+                <span>Calendars</span>
+                <span aria-hidden className={`inline-block text-[13px] leading-none text-ink2 transition-transform duration-200 ease-kayomi ${calendarsOpen ? 'rotate-180' : ''}`}>
+                  ⌃
+                </span>
+              </span>
               <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted">{shown ? `Koyomi and ${shown} more` : 'Koyomi'}</span>
-              <span className="h-[3px] w-7 flex-none rounded-[2px] bg-line" />
             </button>
             <div
               onClick={() => setCalendarsOpen(false)}

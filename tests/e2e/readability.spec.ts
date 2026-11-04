@@ -106,7 +106,7 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(calendars(page).getByRole('button', { name: 'Add calendar account' })).toBeVisible();
         // The sheet covers the day: what is read is the sheet, which with nothing connected is short.
         const sheet = await check(page, 'Calendars', 6);
-        expect(sheet.map((r) => r.text)).toEqual(expect.arrayContaining(['Calendars', 'Koyomi', 'Add calendar account', 'Privacy']));
+        expect(sheet.map((r) => r.text)).toEqual(expect.arrayContaining(['Calendars', 'Koyomi', 'Add calendar account', 'Privacy Policy']));
         await calendars(page).getByRole('button', { name: 'Close calendars' }).tap();
         await expect(calendars(page)).toBeHidden();
 

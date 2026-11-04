@@ -427,7 +427,7 @@ test.describe('the worker', () => {
       await page.keyboard.press('c');
       await expect(calendars(page).getByText('Koyomi', { exact: true })).toBeVisible();
       await page.keyboard.press('c');
-      await page.getByRole('button', { name: 'Toggle ink mode' }).click();
+      await page.getByRole('button', { name: 'Dark theme' }).click();
       await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(29, 29, 27)');
       // Having no connection is not a failure, and nothing on screen treats it as one.
       await expect(page.getByText(/offline|no connection|couldn’t save/i)).toHaveCount(0);

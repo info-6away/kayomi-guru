@@ -4,7 +4,7 @@ import type { CSSProperties } from 'react';
 import { daysOf, timeLabel, type Showing } from '@/lib/calendars/showings';
 import { WORDS } from '@/lib/calendars/words';
 import { DOW3, DOWL, MON, MON3, parts, weekday } from '@/lib/dates';
-import { SURFACE } from './ui';
+import { CloseButton, SURFACE } from './ui';
 
 const short = (day: string) => `${DOW3[weekday(day)]} ${parts(day).d} ${MON3[parts(day).m - 1]}`;
 
@@ -13,7 +13,7 @@ const short = (day: string) => `${DOW3[weekday(day)]} ${parts(day).d} ${MON3[par
  * the event belongs to its own calendar, and Koyomi only reads it. So none of a Koyomi event's
  * actions are here, only the way to the place it can be changed.
  */
-export function ExternalPopover({ s, style, onClose }: { s: Showing; style: CSSProperties; onClose: () => void }) {
+export function ExternalPopover({ s, mobile, style, onClose }: { s: Showing; mobile: boolean; style: CSSProperties; onClose: () => void }) {
   const ev = s.event;
   const day = parts(s.date);
   const { first, last } = daysOf(ev);
@@ -31,9 +31,11 @@ export function ExternalPopover({ s, style, onClose }: { s: Showing; style: CSSP
         {/* A ring, where a Koyomi event has a coloured dot: this one is from somewhere else. */}
         <span className="size-1.5 flex-none rounded-full border border-muted" />
         <span>{`${DOWL[weekday(s.date)]} ${day.d} ${MON[day.m - 1]}`.toUpperCase()}</span>
+        <CloseButton mobile={mobile} label="Close" onClose={onClose} />
       </div>
 
-      <p className="font-mincho text-[20px] leading-[1.3] text-ink">{ev.title}</p>
+      {/* However long, the whole title is here to read: wrapped, never cut off or scrolled sideways. */}
+      <p className="font-mincho text-[20px] leading-[1.3] text-ink [overflow-wrap:anywhere]">{ev.title}</p>
       <p className="text-[13px] text-ink2 tabular-nums">{when}</p>
       {/* Where it came from, from the outside in: the provider and the calendar, then whose account. */}
       <p className="text-[12px] leading-[1.5] text-muted">
@@ -43,7 +45,12 @@ export function ExternalPopover({ s, style, onClose }: { s: Showing; style: CSSP
 
       {ev.link && (
         <div className="-mx-2 mt-1.5 flex border-t border-line pt-2">
-          <a href={ev.link} target="_blank" rel="noopener noreferrer" className="flex h-8 items-center rounded-[4px] px-2 text-[12.5px] text-ink2 hover:bg-wash">
+          <a
+            href={ev.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`flex items-center rounded-[4px] px-2 text-[12.5px] text-ink2 hover:bg-wash ${mobile ? 'h-11' : 'h-8'}`}
+          >
             {WORDS[ev.provider].open}
           </a>
         </div>
