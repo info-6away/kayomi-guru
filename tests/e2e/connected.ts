@@ -156,13 +156,18 @@ export async function unfold(page: Page) {
   for (let left = await folded.count(); left > 0; left = await folded.count()) await folded.first().click();
 }
 
-/** Opens Calendars, with every account in it opened. */
+/**
+ * Opens Calendars, with every account in it opened. Just after a page has loaded, a key can arrive
+ * before the calendar is listening for it, as a person's sometimes does: then it is pressed again,
+ * and only while Calendars is still closed, so a press that did land is never undone.
+ */
 export async function openCalendars(page: Page) {
-  if (!(await view(page).isVisible())) {
+  await expect(async () => {
+    if (await view(page).isVisible()) return;
     if (mobile(page)) await calendarsButton(page).tap();
     else await page.keyboard.press('c');
-    await expect(view(page)).toBeVisible();
-  }
+    await expect(view(page)).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
   await unfold(page);
 }
 
