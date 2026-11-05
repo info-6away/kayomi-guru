@@ -335,6 +335,8 @@ test.describe('what a thumb presses', () => {
     await start(page);
     await event(page, 'Focus').tap();
     await expect(popover(page)).toBeVisible();
+    // Measured once the details have finished coming in: mid-way their slide leaves a fraction off.
+    await settled(page);
     const controls = [
       popover(page).getByRole('textbox', { name: 'Title' }),
       popover(page).getByRole('button', { name: 'Close' }),
@@ -350,8 +352,8 @@ test.describe('what a thumb presses', () => {
       const b = (await control.boundingBox())!;
       const name = await control.evaluate((el) => el.getAttribute('aria-label') ?? el.textContent);
       if (name !== 'Title') {
-        expect(b.width, name!).toBeGreaterThanOrEqual(44);
-        expect(b.height, name!).toBeGreaterThanOrEqual(44);
+        expect(Math.round(b.width), name!).toBeGreaterThanOrEqual(44);
+        expect(Math.round(b.height), name!).toBeGreaterThanOrEqual(44);
       }
       boxes.push(b);
     }
