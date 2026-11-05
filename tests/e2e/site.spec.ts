@@ -46,7 +46,7 @@ test.describe('landing page', () => {
   test('ink mode works and is remembered', async ({ page }) => {
     await page.goto('/home');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-    await page.getByRole('button', { name: 'Toggle ink mode' }).click();
+    await page.getByRole('button', { name: 'Dark theme' }).click();
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(29, 29, 27)');
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');

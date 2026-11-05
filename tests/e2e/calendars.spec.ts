@@ -30,6 +30,7 @@ import {
   test,
   toggle,
   view,
+  disconnectAccount,
 } from './connected';
 import { addEvent, columns, event, fits, open, popover, reload, seed, stored } from './helpers';
 
@@ -71,7 +72,7 @@ test.describe('someone who only uses Koyomi', () => {
     await expect(view(page).getByRole('button')).toHaveText(['×', '＋Add calendar account']);
     // One quiet link to the policy, in the sentence that says what connecting means. It is a page
     // of the site, so it opens beside the calendar rather than in place of it.
-    const privacy = view(page).locator('p', { hasText: 'It can never change them.' }).getByRole('link', { name: 'Privacy' });
+    const privacy = view(page).locator('p', { hasText: 'It can never change them.' }).getByRole('link', { name: 'Privacy Policy' });
     await expect(privacy).toBeVisible();
     await expect(privacy).toHaveAttribute('href', 'https://koyomi.guru/privacy');
     await expect(privacy).toHaveAttribute('target', '_blank');
@@ -220,9 +221,9 @@ test.describe('connecting Google Calendar', () => {
     await expect(details).toContainText('Google Calendar · Personal');
     // And whose account that calendar is in, under it.
     await expect(details.locator('p').nth(2)).toHaveText(`Google Calendar · Personal${ME}`);
-    // Nothing to type into, nothing to press but the way out to Google.
+    // Nothing to type into, nothing to press but its × and the way out to Google.
     await expect(details.locator('input, select, textarea')).toHaveCount(0);
-    await expect(details.getByRole('button')).toHaveCount(0);
+    await expect(details.getByRole('button')).toHaveAccessibleName('Close');
     for (const action of ['Mark done', 'Not done', 'Back to Plan', 'Delete', 'All day']) await expect(details.getByText(action, { exact: true })).toHaveCount(0);
     const link = details.getByRole('link', { name: 'Open in Google Calendar' });
     await expect(link).toHaveAttribute('href', 'https://www.google.com/calendar/event?eid=dentist');
@@ -252,7 +253,7 @@ test.describe('connecting Google Calendar', () => {
     await allDay(page, 'Trip to Izmir').click();
     await expect(popover(page)).toContainText('Thu 8 Oct – Sat 10 Oct');
     await expect(popover(page)).toContainText('Google Calendar · Personal');
-    await expect(popover(page).getByRole('button')).toHaveCount(0);
+    await expect(popover(page).getByRole('button')).toHaveAccessibleName('Close');
 
     expect(await cached(page)).toEqual(before);
     expect((await stored(page)).events).toEqual([]);
@@ -860,7 +861,7 @@ test.describe('disconnecting', () => {
     // Connecting and reading did not touch a single Koyomi record.
     expect(await stored(page)).toEqual(mine);
 
-    await disconnectButton(page, ME).click();
+    await disconnectAccount(page, ME);
     await expect(nothingConnected(page)).toBeVisible();
     await expect(view(page).getByRole('group')).toHaveCount(0);
 
@@ -894,7 +895,7 @@ test.describe('disconnecting', () => {
     await start(page);
     await connect(page);
     await context.clearCookies({ name: 'koyomi_session' });
-    await disconnectButton(page).click();
+    await disconnectAccount(page);
     await expect(page.locator('[data-external]')).toHaveCount(0);
     await expect.poll(async () => (await google.asked(id)).revoked).toBe(true);
     expect(new URL(page.url()).search).toBe('');
@@ -976,7 +977,7 @@ test.describe('a reading that comes back after its connection has ended', () => 
       const answered = answerOf(page);
 
       // The other tab disconnects, and that is finished: the copy is gone from the device.
-      await disconnectButton(other).click();
+      await disconnectAccount(other);
       await expect(nothingConnected(other)).toBeVisible(BACK);
       await nothingKept(other);
       // The first tab knows, however it came to hear.
@@ -1025,7 +1026,7 @@ test.describe('a reading that comes back after its connection has ended', () => 
     const answered = answerOf(page);
 
     // In the other tab: disconnect, then connect again, this time allowing a different Google account.
-    await disconnectButton(other).click();
+    await disconnectAccount(other);
     await expect(nothingConnected(other)).toBeVisible(BACK);
     await pick(other, second);
     await addAt(other, 'Google');
@@ -1168,7 +1169,7 @@ test.describe('a reading that comes back after its connection has ended', () => 
 
     // Disconnect needs a sign-in first. Back from it, the refresh of the old copy is under way,
     // waiting on Google, and the Disconnect has not been finished yet.
-    await disconnectButton(page).click();
+    await disconnectAccount(page);
     await expect.poll(async () => (await google.asked(id)).held, BACK).toBeGreaterThan(0);
     expect((await google.asked(id)).revoked).toBe(false);
     // Now Koyomi's own calendar opens, and the Disconnect is finished.
@@ -1372,12 +1373,12 @@ test.describe('on a phone', () => {
 
     await external(page, 'Weekly sync').tap();
     await expect(popover(page)).toContainText('Google Calendar · Work');
-    await expect(popover(page).getByRole('button')).toHaveCount(0);
+    await expect(popover(page).getByRole('button')).toHaveAccessibleName('Close');
     await check(page, 'a Google event open on a phone');
     await page.mouse.click(195, 300);
 
     // Friday has the trip and the holiday.
-    await page.getByRole('button', { name: /^F\s*9$/ }).tap();
+    await page.getByRole('button', { name: /^FRI\s*9$/ }).tap();
     await expect(allDay(page, 'Trip to Izmir')).toBeVisible();
     await expect(allDay(page, 'Republic Day')).toBeVisible();
   });

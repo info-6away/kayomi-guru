@@ -25,6 +25,7 @@ import {
   test,
   toggle,
   view,
+  disconnectAccount,
 } from './connected';
 import { event, open, popover, reload, seed, stored } from './helpers';
 
@@ -239,7 +240,7 @@ test.describe('adding a Microsoft account', () => {
     await external(page, 'Standup').click();
     await expect(popover(page).locator('p')).toHaveText(['Standup', '10:00 – 10:15', `Microsoft · Calendar${PAT}`]);
     await expect(popover(page).getByRole('link', { name: 'Open in Outlook' })).toHaveAttribute('href', 'https://outlook.live.com/owa/?itemid=standup&exvsurl=1&path=/calendar/item');
-    await expect(popover(page).getByRole('button')).toHaveCount(0);
+    await expect(popover(page).getByRole('button')).toHaveAccessibleName('Close');
     await expect(popover(page).getByText(/delete|edit|done|plan/i)).toHaveCount(0);
     await page.keyboard.press('Escape');
 
@@ -559,7 +560,7 @@ test.describe('several Microsoft accounts', () => {
     // Disconnect the first: Koyomi's token for it is gone; Microsoft has no way for an app to
     // hand a permission back, so it is not asked to.
     const answer = page.waitForResponse((response) => response.url().endsWith('/api/calendars/disconnect'));
-    await disconnectButton(page, PAT).click();
+    await disconnectAccount(page, PAT);
     expect(await (await answer).json()).toEqual({ ok: true, revoked: false, signedOut: false });
     await expect(group(page, PAT)).toHaveCount(0, BACK);
     await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
@@ -571,7 +572,7 @@ test.describe('several Microsoft accounts', () => {
     await expect(external(page, 'Sam: Standup')).toBeVisible();
 
     // The last one: nothing is left, and the device is signed out.
-    await disconnectButton(page, 'sam@outlook.test').click();
+    await disconnectAccount(page, 'sam@outlook.test');
     await expect(nothingConnected(page)).toBeVisible(BACK);
     await expect.poll(() => page.evaluate(() => indexedDB.databases())).toEqual([{ name: 'kayomi', version: 1 }]);
     expect((await context.cookies()).some((cookie) => cookie.name === 'koyomi_session')).toBe(false);
@@ -669,7 +670,7 @@ test.describe('Google and Microsoft together', () => {
 
     // Google disconnected: revoked at Google; Microsoft untouched, still read.
     await openCalendars(page);
-    await disconnectButton(page, ME).click();
+    await disconnectAccount(page, ME);
     await expect(group(page, ME)).toHaveCount(0, BACK);
     await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
     expect((await google.asked(id)).revoked).toBe(true);
@@ -684,7 +685,7 @@ test.describe('Google and Microsoft together', () => {
     await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
     await expect(external(page, 'Dentist')).toBeVisible(BACK);
     const googles = await part(page, 'google', ME);
-    await disconnectButton(page, PAT).click();
+    await disconnectAccount(page, PAT);
     await expect(group(page, PAT)).toHaveCount(0, BACK);
     await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
     expect(await part(page, 'google', ME)).toBe(googles);
@@ -735,7 +736,7 @@ test.describe('while a Microsoft account is being read', () => {
 
     await holding(page, pat);
     const answered = page.waitForResponse((response) => response.url().endsWith('/api/calendars/events') && response.request().postDataJSON()?.calendars?.[0]?.calendarId?.startsWith('AAMk'));
-    await disconnectButton(elsewhere, PAT).click();
+    await disconnectAccount(elsewhere, PAT);
     await expect(group(elsewhere, PAT)).toHaveCount(0, BACK);
     await expect.poll(async () => Object.keys(await copy(elsewhere))).toEqual([`google ${ME}`]);
 

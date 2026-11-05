@@ -180,6 +180,17 @@ export async function offlineReady(page: Page) {
     .toBe('ready');
 }
 
+/** A colour token as the browser resolves it, to compare with an element's computed colour. */
+export const colourOf = (page: Page, token: string) =>
+  page.evaluate((name) => {
+    const probe = document.createElement('span');
+    probe.style.color = `var(${name})`;
+    document.body.append(probe);
+    const colour = getComputedStyle(probe).color;
+    probe.remove();
+    return colour;
+  }, token);
+
 /** The font files Chrome really drew an element's text with (not just what the CSS asks for). */
 export async function renderedFonts(page: Page, selector: string) {
   const cdp = await page.context().newCDPSession(page);

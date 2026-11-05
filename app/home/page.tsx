@@ -55,8 +55,12 @@ export default function Home() {
           <span className="size-[9px] rounded-full bg-verm" />
           <span className="pb-0.5 font-mincho text-[21px] leading-none">koyomi</span>
         </div>
-        <a href={OPEN} className="flex items-center gap-2 text-[13px] tracking-[.03em] text-ink2 hover:text-ink">
-          Open Koyomi <span className="text-[15px]">→</span>
+        {/* The way in: a hairline pill in ink, with the one accent on its arrow. Clear, not loud. */}
+        <a
+          href={OPEN}
+          className="flex h-9 items-center gap-2 rounded-full border border-line px-4 text-[13px] tracking-[.03em] text-ink transition-colors duration-150 hover:border-stone"
+        >
+          Open Koyomi <span className="text-[15px] text-verm-text">→</span>
         </a>
       </header>
 

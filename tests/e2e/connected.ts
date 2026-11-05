@@ -114,6 +114,23 @@ export async function addAt(page: Page, provider: 'Google' | 'Microsoft' | 'Yaho
 /** The server's addresses for connected calendars, at every provider. */
 export const CALENDAR_API = /^\/api\/(google|microsoft|link|calendars)(\/|$)/;
 export const disconnectButton = (page: Page, address?: string) => (address ? group(page, address) : view(page)).getByRole('button', { name: /^Disconnect/ });
+/** The question asked before an account is disconnected or a calendar link removed. */
+export const confirmation = (page: Page) => view(page).getByRole('group', { name: /^(Disconnect this|Remove this)/ });
+/**
+ * Disconnects an account as a person does: its Disconnect, which asks first, then the Disconnect
+ * in the question, which does it. With no address, the only account there is.
+ */
+export async function disconnectAccount(page: Page, address?: string) {
+  await disconnectButton(page, address).click();
+  await expect(confirmation(page)).toBeVisible();
+  await disconnectButton(page, address).click();
+}
+/** Ends a connection by its button's exact words ("Remove calendar Work calendar"): pressed, then pressed again in the question. */
+export async function endConnection(page: Page, name: string) {
+  await view(page).getByRole('button', { name, exact: true }).click();
+  await expect(confirmation(page)).toBeVisible();
+  await view(page).getByRole('button', { name, exact: true }).click();
+}
 /** What Calendars says while no account is connected: the sentence about what adding one means. */
 export const nothingConnected = (page: Page) => view(page).getByText('It can never change them.');
 export const external = (page: Page, title: string) => page.locator('[data-event][data-external]', { hasText: title });

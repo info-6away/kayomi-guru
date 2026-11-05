@@ -46,8 +46,8 @@ export function MonthView({ date, today, mobile, viewportH, byDay, external, lab
 
       <div className="grid grid-cols-7 pb-2.5">
         {DOWS.map((d) => (
-          <span key={d} className={`text-[10.5px] tracking-[.18em] text-dow ${mobile ? 'text-center' : 'px-3 text-left'}`}>
-            {mobile ? d[0] : d}
+          <span key={d} className={`text-[10.5px] text-dow ${mobile ? 'text-center tracking-[.06em]' : 'px-3 text-left tracking-[.18em]'}`}>
+            {d}
           </span>
         ))}
       </div>
@@ -75,9 +75,11 @@ export function MonthView({ date, today, mobile, viewportH, byDay, external, lab
                 onClick={() => onOpenDay(key)}
                 className="flex min-h-0 flex-col items-center gap-1.5 border-t border-line2 py-2"
               >
+                {/* A day of the month before or after is a smaller numeral, a level quieter. Today and the chosen day keep theirs. */}
                 <span
-                  className={`grid size-8 place-items-center rounded-full font-mincho text-[16px] leading-none ${
-                    isSel ? (isToday ? 'bg-verm-text text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm-text' : inMonth ? 'text-ink' : 'text-muted'
+                  data-outside={inMonth ? undefined : ''}
+                  className={`grid size-8 place-items-center rounded-full font-mincho leading-none ${inMonth || isToday || isSel ? 'text-[16px]' : 'text-[13px]'} ${
+                    isSel ? (isToday ? 'bg-verm-text text-bg' : 'bg-ink text-bg') : isToday ? 'text-verm-text' : inMonth ? 'text-ink' : 'text-outside'
                   }`}
                 >
                   {day.d}
@@ -103,7 +105,12 @@ export function MonthView({ date, today, mobile, viewportH, byDay, external, lab
               }`}
               style={{ backgroundColor: i % 7 >= 5 ? 'color-mix(in oklab, var(--ink) 2.5%, transparent)' : undefined }}
             >
-              <span className={`mb-1 font-mincho text-[17px] leading-none ${isToday ? 'text-verm-text' : inMonth ? 'text-ink' : 'text-muted'}`}>{day.d}</span>
+              <span
+                data-outside={inMonth ? undefined : ''}
+                className={`mb-1 font-mincho leading-none ${inMonth || isToday ? 'text-[17px]' : 'h-[17px] text-[14px]'} ${isToday ? 'text-verm-text' : inMonth ? 'text-ink' : 'text-outside'}`}
+              >
+                {day.d}
+              </span>
               {list.slice(0, max).map((o) => (
                 <span key={o.key} className="flex min-w-0 items-center gap-[7px] text-[12px] leading-[1.35]">
                   <span className="h-[11px] w-0.5 flex-none rounded-[1px]" style={{ background: o.color, opacity: inMonth ? undefined : 0.5 }} />

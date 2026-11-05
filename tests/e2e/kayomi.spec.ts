@@ -84,8 +84,8 @@ test.describe('calendar', () => {
     await open(page);
     await addEvent(page, 'Dinner', '19:00');
     await event(page, 'Dinner').click();
-    // Everything an event can have done to it: its title, day and times, all day, a colour, repeating, deleting.
-    await expect(popover(page).getByRole('button')).toHaveText(['All day', '', '', '', '', 'Delete']);
+    // Everything an event can have done to it: closing it, its title, day and times, all day, a colour, repeating, deleting.
+    await expect(popover(page).getByRole('button')).toHaveText(['×', 'All day', '', '', '', '', 'Delete']);
     await expect(popover(page).getByLabel('Repeat')).toBeVisible();
     await expect(popover(page).getByRole('button', { name: 'Mark done' })).toHaveCount(0);
     await expect(popover(page).getByRole('button', { name: 'Back to Plan' })).toHaveCount(0);
@@ -474,7 +474,7 @@ test.describe('look', () => {
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(245, 241, 232)');
 
-    await page.getByRole('button', { name: 'Toggle ink mode' }).click();
+    await page.getByRole('button', { name: 'Dark theme' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(29, 29, 27)');
     await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute('content', '#1D1D1B');
@@ -489,7 +489,7 @@ test.describe('look', () => {
     test('starts in ink mode until a choice is made', async ({ page }) => {
       await open(page);
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-      await page.getByRole('button', { name: 'Toggle ink mode' }).click();
+      await page.getByRole('button', { name: 'Dark theme' }).click();
       await reload(page);
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     });
@@ -584,8 +584,8 @@ test.describe('phone', () => {
     await open(page);
     await expect(columns(page)).toHaveCount(1);
     await expect(page.locator(`[data-day="${today()}"]`)).toBeVisible();
-    await expect(page.locator('button[aria-pressed]')).toHaveCount(7);
-    await expect(page.locator('button[aria-pressed="true"]')).toHaveText(new RegExp(`${new Date().getDate()}$`));
+    await expect(page.locator('button[aria-pressed]:not([aria-label])')).toHaveCount(7);
+    await expect(page.locator('button[aria-pressed="true"]:not([aria-label])')).toHaveText(new RegExp(`${new Date().getDate()}$`));
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 

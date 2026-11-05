@@ -82,7 +82,8 @@ export function Timeline(p: Props) {
   const grid = useRef<HTMLDivElement>(null);
   const columns = useRef(new Map<string, HTMLDivElement>());
   const justDragged = useRef(false);
-  const touch = useRef({ x: 0, y: 0 });
+  /** Where a touch began, and whether it may turn the day: one finger, and not on something being read or edited. */
+  const touch = useRef({ x: 0, y: 0, swipes: false });
 
   useLayoutEffect(() => {
     // Always open just after 07:30, whatever the hour: with the hour height sized to the window,
@@ -242,13 +243,22 @@ export function Timeline(p: Props) {
   const more = days.map((_, i) => (folded ? rows.filter(({ bar, row }) => row >= ALL_DAY_ROWS - 1 && bar.from <= i && bar.to >= i).length : 0));
   const barH = mobile ? 28 : 22;
   const headings = !mobile && n === 7;
+  // The first hour's label sits on its line like the others, so the grid leaves it room above.
+  const gridTop = oneDay && !mobile ? 24 : 8;
 
   return (
     <div
       ref={p.scroller}
-      onTouchStart={(e) => (touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY })}
+      onTouchStart={(e) => {
+        // Sideways across an event, its details or a field is reading or editing it, never a change of day.
+        const on = (e.target as Element).closest('[data-event], [data-popover], input, textarea, select');
+        touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, swipes: e.touches.length === 1 && !on };
+      }}
+      onTouchMove={(e) => {
+        if (e.touches.length > 1) touch.current.swipes = false;
+      }}
       onTouchEnd={(e) => {
-        if (!mobile) return;
+        if (!mobile || !touch.current.swipes || e.touches.length) return;
         const dx = e.changedTouches[0].clientX - touch.current.x;
         const dy = e.changedTouches[0].clientY - touch.current.y;
         if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) p.onSwipe(dx < 0 ? 1 : -1);
@@ -366,15 +376,17 @@ export function Timeline(p: Props) {
         style={{
           gridTemplateColumns: cols,
           height: totalH,
-          margin: oneDay && !mobile ? '24px 40px 40px 0' : '0 0 40px',
+          margin: oneDay && !mobile ? `${gridTop}px 40px 40px 0` : `${gridTop}px 0 40px`,
           paddingRight: n === 7 ? 12 : 0,
         }}
       >
+        {/* Every hour from 00 to 23 is labelled, each on its own line, all alike. */}
         <div className="relative">
-          {Array.from({ length: 23 }, (_, i) => i + 1).map((h) => (
+          {Array.from({ length: 24 }, (_, h) => h).map((h) => (
             <span
               key={h}
-              className="absolute text-[11px] leading-[14px] tracking-[.04em] text-hour tabular-nums"
+              data-hour={h}
+              className={`absolute leading-[14px] tracking-[.04em] text-hour tabular-nums ${mobile ? 'text-[12px]' : 'text-[11.5px]'}`}
               style={{ top: h * hourH - 7, right: mobile ? 12 : 14, opacity: todayShown && Math.abs(now - h * 60) < 14 ? 0 : 1 }}
             >
               {pad(h)}
@@ -382,7 +394,7 @@ export function Timeline(p: Props) {
           ))}
           {todayShown && (
             <span
-              className="absolute text-[11px] leading-[14px] font-medium text-verm-text tabular-nums"
+              className={`absolute leading-[14px] font-medium text-verm-text tabular-nums ${mobile ? 'text-[12px]' : 'text-[11.5px]'}`}
               style={{ top: nowTop - 7, right: mobile ? 10 : 12 }}
             >
               {hm(now)}
@@ -556,7 +568,13 @@ export function Timeline(p: Props) {
           <EventPopover key={selected.key} o={selected} mobile={mobile} style={popoverStyle(selected, selected.event.allDay)} onSelect={p.onSelect} />
         )}
         {selectedExternal && (
-          <ExternalPopover key={selectedExternal.key} s={selectedExternal} style={popoverStyle(selectedExternal, selectedExternal.allDay)} onClose={() => p.onSelect(null)} />
+          <ExternalPopover
+            key={selectedExternal.key}
+            s={selectedExternal}
+            mobile={mobile}
+            style={popoverStyle(selectedExternal, selectedExternal.allDay)}
+            onClose={() => p.onSelect(null)}
+          />
         )}
       </div>
     </div>

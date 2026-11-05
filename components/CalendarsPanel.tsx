@@ -6,11 +6,18 @@ import { PROVIDERS, type Provider } from '@/lib/calendars/types';
 import { WORDS, listed, which } from '@/lib/calendars/words';
 import { hm } from '@/lib/dates';
 import { install, useCanInstall } from '@/lib/install';
+import { AlertIcon, TROUBLE } from './ui';
 
-const QUIET = 'underline decoration-line underline-offset-4 hover:text-ink2 disabled:no-underline disabled:opacity-60';
+const QUIET = 'underline decoration-line underline-offset-4 hover:text-ink disabled:no-underline disabled:opacity-60';
 const ROW = 'flex min-h-11 items-center gap-3 rounded-[4px] px-3.5';
 const PILL = 'h-8 flex-none rounded-full border border-line px-3.5 text-[12.5px] text-ink2 hover:border-stone hover:text-ink';
 const GROUP = 'px-3.5 text-[10.5px] tracking-[.18em] text-dow';
+
+/**
+ * Notes that say something the person asked for did not happen, which are said as trouble. The
+ * others (a calendar link was removed, an organisation approved Koyomi) are said plainly.
+ */
+const TROUBLE_NOTE = /^(Couldn’t|You seem to be offline|Your calendars couldn’t)|was not connected|nothing was connected|needs to approve/;
 
 /** What Koyomi reads from a connected calendar, where it is kept and what it is used for. */
 const PRIVACY = 'https://koyomi.guru/privacy';
@@ -54,16 +61,18 @@ function YahooForm({ asking }: { asking: Asking }) {
           How
         </a>
       </p>
+      {/* As a calendar link's: in vermilion with its mark, set apart from the advice above it. */}
       {asking.error && (
-        <p role="status" className="text-[12.5px] leading-[1.6] text-ink2">
-          {asking.error}
+        <p role="status" className={`${TROUBLE} text-[12.5px] leading-[1.6]`}>
+          <AlertIcon />
+          <span>{asking.error}</span>
         </p>
       )}
       <div className="flex items-center gap-4">
         <button type="submit" disabled={asking.sending} className={`${PILL} disabled:opacity-60`}>
           {asking.sending ? 'Connecting…' : 'Connect Yahoo'}
         </button>
-        <button type="button" onClick={stopAsking} className={`text-[12.5px] text-muted ${QUIET}`}>
+        <button type="button" onClick={stopAsking} className={`text-[12.5px] text-ink2 ${QUIET}`}>
           Cancel
         </button>
       </div>
@@ -125,16 +134,18 @@ function LinkForm({ asking }: { asking: Asking }) {
       <p className="mt-2.5 text-[12px] leading-[1.6] text-pretty text-muted">
         Paste a private read-only calendar subscription link. Anyone who has this link may be able to view the calendar, so treat it like a password.
       </p>
+      {/* Set apart from the advice above it, and in vermilion: what was pasted did not work. */}
       {asking.error && (
-        <p role="alert" className="mt-2 text-[12.5px] leading-[1.6] text-ink2">
-          {asking.error}
+        <p role="alert" className={`${TROUBLE} mt-3 text-[12.5px] leading-[1.6]`}>
+          <AlertIcon />
+          <span>{asking.error}</span>
         </p>
       )}
       <div className="mt-3 flex items-center gap-4">
         <button type="submit" disabled={asking.sending} className={`${PILL} disabled:opacity-60`}>
           {asking.sending ? 'Checking…' : updating ? 'Update link' : 'Add calendar'}
         </button>
-        <button type="button" onClick={stopAsking} className={`text-[12px] text-muted ${QUIET}`}>
+        <button type="button" onClick={stopAsking} className={`text-[12px] text-ink2 ${QUIET}`}>
           Cancel
         </button>
       </div>
@@ -171,12 +182,21 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
   const read = calendars.reduce<string | null>((latest, c) => (c.fetchedAt && (!latest || c.fetchedAt > latest) ? c.fetchedAt : latest), null);
   // Where more than one provider is offered, adding an account first asks which. Nothing more.
   const [choosing, setChoosing] = useState(false);
+  /** The connection whose Disconnect (or Remove calendar) was pressed, waiting for a yes. */
+  const [confirming, setConfirming] = useState<string | null>(null);
   useEffect(() => {
     if (open) return;
     setChoosing(false);
+    setConfirming(null);
     // A form for a link is not left open behind a closed drawer.
     stopAsking();
   }, [open]);
+  // The question is asked where the button was, with the safe answer ready for a keyboard.
+  useEffect(() => {
+    if (confirming) document.getElementById(`keep-${confirming}`)?.focus();
+  }, [confirming]);
+  // On a phone, a small text control takes a full 44px tap; its look is unchanged.
+  const tap = mobile ? 'min-h-11 px-1' : '';
   const add = () => {
     if (asking) stopAsking();
     if (providers.length > 1) setChoosing(!choosing);
@@ -206,6 +226,7 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
 
   return (
     <section
+      id="calendars"
       aria-label="Calendars"
       className={
         mobile
@@ -229,7 +250,7 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
       <div className="flex flex-none items-baseline gap-3 pt-5 pr-3.5 pb-3.5 pl-[26px]">
         <span className="font-mincho text-[24px] leading-none">Calendars</span>
         <span className="flex-1" />
-        <button onClick={onClose} aria-label="Close calendars" className="size-9 self-center rounded-full text-[18px] text-muted hover:bg-wash hover:text-ink">
+        <button onClick={onClose} aria-label="Close calendars" className={`self-center rounded-full text-[18px] text-muted hover:bg-wash hover:text-ink ${mobile ? '-mr-1 size-11' : 'size-9'}`}>
           ×
         </button>
       </div>
@@ -268,7 +289,7 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
                       onClick={() => fold(connection.id, !opened)}
                       className={`${ROW} w-full text-left hover:bg-wash ${mobile ? 'min-h-[52px]' : ''}`}
                     >
-                      <span className="min-w-0 flex-1 truncate text-[14px] text-ink2">{name}</span>
+                      <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{name}</span>
                       {summary && <span className="flex-none text-[12px] text-muted tabular-nums">{summary}</span>}
                       <span aria-hidden className={`w-3 flex-none text-center text-[14px] text-muted transition-transform duration-150 ${opened ? 'rotate-90' : ''}`}>
                         ›
@@ -293,29 +314,60 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
                             longer gives a calendar. The others carry on. */}
                         {connection.status === 'reconnect' && (
                           <>
-                            <div className={`${ROW} text-[13px] text-ink2`}>
-                              <span className="flex-1">{provider.needs}</span>
+                            <div className={`${ROW} text-[13px]`}>
+                              <span className={`${TROUBLE} flex-1`}>
+                                <AlertIcon />
+                                {provider.needs}
+                              </span>
                               <button onClick={() => reconnect(connection)} aria-label={`${provider.mend} ${name}`} className={PILL}>
                                 {provider.mend}
                               </button>
                             </div>
-                            {provider.needsWhy && <p className="px-3.5 pb-2 text-[12.5px] leading-[1.6] text-muted">{provider.needsWhy}</p>}
+                            {provider.needsWhy && <p className="px-3.5 pb-2 text-[12.5px] leading-[1.6] text-ink2">{provider.needsWhy}</p>}
                           </>
                         )}
                         {/* Not something consenting again would mend, so there is nothing to press but Disconnect. */}
-                        {connection.status === 'blocked' && <p className="px-3.5 py-2 text-[13px] text-muted">{provider.blocked}</p>}
-                        {/* Last, and only once the account is opened: ending it is never one stray tap away. */}
-                        <div className="flex min-h-9 items-center justify-end gap-4 px-3.5">
-                          {/* A link can be replaced at any time (its owner may have made a new one), not only once it has stopped working. */}
-                          {id === 'link' && connection.status !== 'reconnect' && (
-                            <button onClick={() => reconnect(connection)} aria-label={`${provider.mend} ${name}`} className={`text-[12px] text-muted ${QUIET}`}>
-                              {provider.mend}
+                        {connection.status === 'blocked' && (
+                          <p className={`${TROUBLE} px-3.5 py-2 text-[13px] leading-[1.5]`}>
+                            <AlertIcon />
+                            <span>{provider.blocked}</span>
+                          </p>
+                        )}
+                        {/* Last, and only once the account is opened: ending it is never one stray tap away, and is asked about first. */}
+                        {confirming === connection.id ? (
+                          <div role="group" aria-label={provider.confirm} className="mx-1.5 mt-1 mb-1 rounded-[6px] border border-line px-3.5 pt-3 pb-1.5">
+                            <p className="text-[13.5px] text-ink">{provider.confirm}</p>
+                            <p className="mt-1 text-[12px] leading-[1.6] text-pretty text-ink2">{provider.confirmWhy}</p>
+                            <div className="mt-1 flex items-center justify-end gap-3">
+                              <button id={`keep-${connection.id}`} onClick={() => setConfirming(null)} className={`text-[12.5px] text-ink2 ${QUIET} ${mobile ? 'min-h-11 px-2' : 'h-9 px-1'}`}>
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setConfirming(null);
+                                  void disconnect(connection.id);
+                                }}
+                                disabled={syncing}
+                                aria-label={`${provider.end} ${name}`}
+                                className={`grid place-items-center disabled:opacity-60 ${mobile ? 'h-11' : 'h-9'}`}
+                              >
+                                <span className="grid h-8 place-items-center rounded-full border border-line px-3.5 text-[12.5px] text-verm-text hover:border-verm">{provider.end}</span>
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className={`flex items-center justify-end gap-4 px-3.5 ${mobile ? 'min-h-11' : 'min-h-9'}`}>
+                            {/* A link can be replaced at any time (its owner may have made a new one), not only once it has stopped working. */}
+                            {id === 'link' && connection.status !== 'reconnect' && (
+                              <button onClick={() => reconnect(connection)} aria-label={`${provider.mend} ${name}`} className={`text-[12px] text-ink2 ${QUIET} ${tap}`}>
+                                {provider.mend}
+                              </button>
+                            )}
+                            <button onClick={() => setConfirming(connection.id)} disabled={syncing} aria-label={`${provider.end} ${name}`} className={`text-[12px] text-ink2 ${QUIET} ${tap}`}>
+                              {provider.end}
                             </button>
-                          )}
-                          <button onClick={() => void disconnect(connection.id)} disabled={syncing} aria-label={`${provider.end} ${name}`} className={`text-[12px] text-muted ${QUIET}`}>
-                            {provider.end}
-                          </button>
-                        </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -365,14 +417,15 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
             {offering(providers)}{' '}
             {/* The policy is a page of the site, not of the calendar, so it opens beside it. */}
             <a href={PRIVACY} target="_blank" rel="noopener noreferrer" className="underline decoration-line underline-offset-4 hover:text-ink2">
-              Privacy
+              Privacy Policy
             </a>
           </p>
         )}
 
         {note && (
-          <p role="status" className="mx-3.5 mt-3 text-[12.5px] leading-[1.6] text-ink2">
-            {note}
+          <p role="status" className={`mx-3.5 mt-3 text-[12.5px] leading-[1.6] ${TROUBLE_NOTE.test(note) ? TROUBLE : 'text-ink2'}`}>
+            {TROUBLE_NOTE.test(note) && <AlertIcon />}
+            <span>{note}</span>
           </p>
         )}
       </div>
@@ -384,7 +437,7 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
               Read only. Koyomi never changes your {connected === 'several' ? 'calendars' : WORDS[connected ?? 'google'].yours}.
               <span className="mt-1 flex flex-wrap items-center gap-x-4">
                 {status === 'connected' && (
-                  <button onClick={() => void refresh()} disabled={syncing} className={QUIET}>
+                  <button onClick={() => void refresh()} disabled={syncing} className={`text-ink2 ${QUIET} ${tap}`}>
                     {syncing ? 'Refreshing…' : 'Refresh'}
                   </button>
                 )}

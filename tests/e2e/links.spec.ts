@@ -21,8 +21,9 @@ import {
   toggle,
   unfold,
   view,
+  confirmation,
 } from './connected';
-import { addEvent, event, popover, reload } from './helpers';
+import { addEvent, colourOf, event, popover, reload } from './helpers';
 
 // Calendar links: a published calendar (an .ics feed) the person subscribes to by its private
 // link, beside their Google and Microsoft accounts. Everything runs against a stand-in for where
@@ -266,6 +267,9 @@ test.describe('a link that stops working', () => {
     await refresh(page);
     await expect(group(page, 'Work calendar')).toContainText('Needs updating');
     await expect(group(page, 'Work calendar')).toContainText('This calendar link no longer returns a valid calendar.');
+    // Said as trouble: in vermilion, with its mark.
+    await expect(group(page, 'Work calendar').getByText('Needs updating')).toHaveCSS('color', await colourOf(page, '--verm-text'));
+    await expect(group(page, 'Work calendar').getByText('Needs updating').locator('svg')).toBeVisible();
     await expect(page.getByText(/reconnect/i)).toHaveCount(0);
     await closeDrawer(page);
     // What was read stays, and one quiet line says what is needed.
@@ -277,6 +281,9 @@ test.describe('a link that stops working', () => {
     await expect(form(page)).toHaveAccessibleName('Update link for Work calendar');
     await expect(form(page).getByLabel('Name (optional)')).toHaveCount(0);
     expect(await tryLink(page, linkTo(broken))).toBe('This link did not return a valid calendar.');
+    // Hard to miss, not loud: in vermilion and with its mark, set apart from the advice above it.
+    await expect(form(page).getByRole('alert')).toHaveCSS('color', await colourOf(page, '--verm-text'));
+    await expect(form(page).getByRole('alert').locator('svg')).toBeVisible();
     expect(await tryLink(page, linkTo(other))).toBe('That link is already one of your calendars.');
     expect((await listedLinks(page)).find((entry) => entry.connectionId === work.connectionId)?.state).toBe('reconnect');
 
@@ -404,8 +411,14 @@ test.describe('beside Google and Microsoft', () => {
     await openCalendars(page);
     await expect(page.getByText(/needs updating|reconnect/i)).toHaveCount(0);
 
-    // Removing one link: only it goes, and Koyomi says the link itself still works.
-    await view(page).getByRole('button', { name: 'Remove calendar Work calendar' }).click();
+    // Removing one link: asked first, in words that claim nothing about the link itself. Then only
+    // it goes, and Koyomi says the link itself still works.
+    await view(page).getByRole('button', { name: 'Remove calendar Work calendar', exact: true }).click();
+    await expect(confirmation(page)).toContainText('Remove this calendar?');
+    await expect(confirmation(page)).toContainText('The link itself keeps working wherever else it is used.');
+    await expect(confirmation(page)).not.toContainText(/revoke|withdraw|disconnect/i);
+    await expect(group(page, 'Work calendar')).toBeVisible();
+    await view(page).getByRole('button', { name: 'Remove calendar Work calendar', exact: true }).click();
     await expect(view(page).getByRole('status')).toHaveText(
       'Koyomi no longer keeps that calendar link. It still works wherever else it is used: to stop it working, turn off or reset that calendar’s publishing where it lives.',
     );

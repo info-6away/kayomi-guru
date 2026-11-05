@@ -28,6 +28,8 @@ import {
   view,
   yahoo,
   yahooForm,
+  confirmation,
+  disconnectAccount,
 } from './connected';
 import { event, open, popover, reload, seed, stored } from './helpers';
 
@@ -208,11 +210,11 @@ test.describe('adding a Yahoo account', () => {
     expect((await cached(page)).events.find((e) => e.title === 'Republic Day')).toMatchObject({ start: '2026-10-09', end: '2026-10-09', allDay: true });
     expect((await cached(page)).events.find((e) => e.title === 'Maybe lunch')!.status).toBe('tentative');
 
-    // Looked at: what, when, and where from. Nothing to change, and no link Yahoo does not have.
+    // Looked at: what, when, and where from. Nothing to change but closing it, and no link Yahoo does not have.
     await external(page, 'Standup').click();
     await expect(popover(page).locator('p')).toHaveText(['Standup', '10:00 – 10:15', `Yahoo Calendar · Personal${email}`]);
     await expect(popover(page).getByRole('link')).toHaveCount(0);
-    await expect(popover(page).getByRole('button')).toHaveCount(0);
+    await expect(popover(page).getByRole('button')).toHaveAccessibleName('Close');
     await noWrites(email);
   });
 
@@ -452,7 +454,15 @@ test.describe('several Yahoo accounts, and Yahoo beside Google and Microsoft', (
     await expect(external(page, 'Sam: Standup')).toBeVisible();
     expect(await part(page, 'yahoo', b)).toBe(sams);
 
-    // Disconnect the first: Koyomi forgets its app password, and says where to delete it at Yahoo.
+    // Disconnect the first. Asked first, in words that claim nothing Yahoo does not do: Koyomi
+    // forgets its copy of the app password, which goes on working at Yahoo until deleted there.
+    await disconnectButton(page, a).click();
+    await expect(confirmation(page)).toContainText('Disconnect this Yahoo account?');
+    await expect(confirmation(page)).toContainText('Koyomi deletes its copy of the app password.');
+    await expect(confirmation(page)).toContainText('The app password itself keeps working at Yahoo until you delete it there.');
+    // What it says it does (its Cancel button aside) claims no revoking at Yahoo.
+    await expect(confirmation(page).locator('p')).not.toContainText([/revoke|withdraw|cancel/i]);
+    // Then it is done, and Koyomi says where to delete the app password at Yahoo.
     const answer = page.waitForResponse((response) => response.url().endsWith('/api/calendars/disconnect'));
     await disconnectButton(page, a).click();
     expect(await (await answer).json()).toEqual({ ok: true, revoked: false, signedOut: false });
@@ -463,7 +473,7 @@ test.describe('several Yahoo accounts, and Yahoo beside Google and Microsoft', (
     expect(Object.keys(await copy(page))).toEqual([`yahoo ${b}`]);
     expect(await part(page, 'yahoo', b)).toBe(sams);
     expect((await context.cookies()).some((cookie) => cookie.name === 'koyomi_session')).toBe(true);
-    await disconnectButton(page, b).click();
+    await disconnectAccount(page, b);
     await expect(nothingConnected(page)).toBeVisible(BACK);
     await expect.poll(() => page.evaluate(() => indexedDB.databases())).toEqual([{ name: 'kayomi', version: 1 }]);
     await noWrites(a);
@@ -526,7 +536,7 @@ test.describe('several Yahoo accounts, and Yahoo beside Google and Microsoft', (
 
     // Disconnecting the second Yahoo account leaves Google, Microsoft and the first.
     await openCalendars(page);
-    await disconnectButton(page, b).click();
+    await disconnectAccount(page, b);
     await expect(group(page, b)).toHaveCount(0, BACK);
     await expect(view(page).getByText('Refreshing…')).toHaveCount(0, BACK);
     // The first Yahoo account still needs reconnecting: the server does not read it, so names no address for it.
