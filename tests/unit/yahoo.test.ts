@@ -197,25 +197,37 @@ test('events are asked for within the span, and repeating ones from five years b
 });
 
 test('a changed or cancelled occurrence Yahoo keeps as an object of its own still changes, or ends, the series’ own', async () => {
-  // As real Yahoo answered: the series and each occurrence changed in it are separate objects with
-  // one UID, the occurrences first, and a cancelled one saying so twice.
+  // As real Yahoo answered: the series and each occurrence changed in it are separate entries with
+  // one UID, all under one address, and a cancelled one says so twice. Also each at an address of
+  // its own, and in either order.
   const object = (...lines: string[]) => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:weekly', ...lines, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
   const cancelled = object('SUMMARY:Weekly', 'RECURRENCE-ID:20261123T050000Z', 'DTSTART:20261123T050000Z', 'DTEND:20261123T053000Z', 'STATUS:CANCELLED', 'STATUS:CANCELLED');
   const moved = object('SUMMARY:Weekly moved', 'RECURRENCE-ID:20261116T050000Z', 'DTSTART:20261116T080000Z', 'DTEND:20261116T090000Z', 'SEQUENCE:1');
   const series = object('SUMMARY:Weekly', 'DTSTART:20261109T050000Z', 'DTEND:20261109T053000Z', 'RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=MO');
-  await withYahoo(yahoo([cancelled, moved, series]), async () => {
-    const result = await readCalendar(Y, CRED, ASKED);
-    if (!('events' in result)) throw new Error('no events');
-    const on = (day: string) => result.events.filter((e) => e.start.startsWith(day)).map((e) => `${e.title} ${e.start.slice(11, 16)}–${e.end.slice(11, 16)}`);
-    expect(on('2026-11-09')).toEqual(['Weekly 05:00–05:30']);
-    // Moved: there at its new time, and not at its old one too.
-    expect(on('2026-11-16')).toEqual(['Weekly moved 08:00–09:00']);
-    // Cancelled: gone.
-    expect(on('2026-11-23')).toEqual([]);
-    expect(on('2026-11-30')).toEqual(['Weekly 05:00–05:30']);
-    // Each occurrence once.
-    expect(new Set(result.events.map((e) => e.id)).size).toBe(result.events.length);
-  });
+  const oneAddress = (objects: string[]) => (asked: Asked) =>
+    asked.method === 'REPORT' && asked.url.pathname === `${HOME}Personal/`
+      ? xml(multistatus(...objects.map((ics, i) => found(`${HOME}Personal/weekly.ics`, `<X:getetag>"${i}"</X:getetag><K:calendar-data>${ics}</K:calendar-data>`))))
+      : null;
+  for (const [shape, objects] of [
+    ['one address, series last', [cancelled, moved, series]],
+    ['one address, series first', [series, moved, cancelled]],
+    ['an address each, series last', [cancelled, moved, series]],
+    ['an address each, series first', [series, moved, cancelled]],
+  ] as const) {
+    await withYahoo(shape.startsWith('one') ? yahoo([], oneAddress([...objects])) : yahoo([...objects]), async () => {
+      const result = await readCalendar(Y, CRED, ASKED);
+      if (!('events' in result)) throw new Error(`${shape}: no events`);
+      const on = (day: string) => result.events.filter((e) => e.start.startsWith(day)).map((e) => `${e.title} ${e.start.slice(11, 16)}–${e.end.slice(11, 16)}`);
+      expect(on('2026-11-09'), shape).toEqual(['Weekly 05:00–05:30']);
+      // Moved: there at its new time, and not at its old one too.
+      expect(on('2026-11-16'), shape).toEqual(['Weekly moved 08:00–09:00']);
+      // Cancelled: gone.
+      expect(on('2026-11-23'), shape).toEqual([]);
+      expect(on('2026-11-30'), shape).toEqual(['Weekly 05:00–05:30']);
+      // Each occurrence once.
+      expect(new Set(result.events.map((e) => e.id)).size, shape).toBe(result.events.length);
+    });
+  }
 });
 
 test('a calendar a browser names outside the account’s home is never asked about', async () => {

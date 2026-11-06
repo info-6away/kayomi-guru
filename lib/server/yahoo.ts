@@ -1,4 +1,3 @@
-import ICAL from 'ical.js';
 import { budgetOf, occurrencesOf } from '../calendars/ical';
 import type { CalendarInfo, CalendarResult, ExternalEvent } from '../calendars/types';
 import { CALDAV, DAV, DavError, child, children, dav, hrefIn, onOrigin, responses, textOf, type DavRequest } from './caldav';
@@ -231,33 +230,29 @@ async function objects(y: YahooClient, c: YahooCredential, calendar: string, sta
 }
 
 /**
- * Yahoo keeps each occurrence changed or cancelled in a series as an object of its own, beside
- * the series, under the same UID (seen on real Yahoo: a deleted occurrence is such an object with
- * STATUS:CANCELLED). Read one object at a time, a cancelled occurrence would leave the series' own
- * standing, and a moved one would replace it only if it happened to come later. So the objects
- * are taken as a calendar holds them: one calendar for each UID, with every time zone the objects
- * bring. An object that is not iCalendar is left out; the others are read.
+ * Whether an object holds only changed occurrences of a series (each event in it has a
+ * RECURRENCE-ID) and not the series itself. Real Yahoo keeps each occurrence changed in a series
+ * as an object of its own like this, beside the series, under the same UID; a deleted one is such
+ * an object with STATUS:CANCELLED, not an EXDATE.
  */
-function byUid(texts: string[]): string[] {
-  const zones = new Map<string, unknown>();
-  const events = new Map<string, unknown[]>();
-  for (const text of texts) {
-    let root: InstanceType<typeof ICAL.Component>;
-    try {
-      root = new ICAL.Component(ICAL.parse(text));
-    } catch {
-      continue;
-    }
-    for (const zone of root.getAllSubcomponents('vtimezone')) {
-      const id = String(zone.getFirstPropertyValue('tzid') ?? '');
-      if (id && !zones.has(id)) zones.set(id, zone.toJSON());
-    }
-    for (const event of root.getAllSubcomponents('vevent')) {
-      const uid = String(event.getFirstPropertyValue('uid') ?? '').trim();
-      if (uid) events.set(uid, [...(events.get(uid) ?? []), event.toJSON()]);
-    }
-  }
-  return [...events.values()].map((list) => new ICAL.Component(['vcalendar', [['version', {}, 'text', '2.0']], [...zones.values(), ...list]]).toString());
+function onlyChanged(text: string) {
+  const lines = text.replace(/\r?\n[ \t]/g, '').split(/\r?\n/);
+  const events = lines.filter((line) => /^BEGIN:VEVENT\s*$/i.test(line)).length;
+  return events > 0 && lines.filter((line) => /^RECURRENCE-ID[;:]/i.test(line)).length >= events;
+}
+
+/**
+ * The occurrences a changed-occurrence object cancels. A cancelled occurrence gives no event of its
+ * own, so which one it is is found by reading the object as if it were not cancelled: the same
+ * reading, so the same names, as the series gives its own occurrences.
+ */
+function cancelledBy(text: string, reading: Parameters<typeof occurrencesOf>[1]): string[] {
+  const asIf = text.replace(/^STATUS:CANCELLED(?=\s*$)/gim, 'STATUS:CONFIRMED');
+  if (asIf === text) return [];
+  const shown = new Set(occurrencesOf(text, reading).map((event) => event.id));
+  return occurrencesOf(asIf, reading)
+    .map((event) => event.id)
+    .filter((id) => !shown.has(id));
 }
 
 /**
@@ -293,17 +288,28 @@ export async function readCalendar(
     const budget = budgetOf();
     const reading = { provider: 'yahoo' as const, connectionId: asked.connectionId, calendarId, fetchedAt: asked.fetchedAt, timeMin: span.timeMin, timeMax: span.timeMax, budget };
     let breath = performance.now();
-    // Both answers as one calendar: an object can be in both, and a series can be in one with an
-    // occurrence of it changed in the other. What does not repeat and lies before the span (from a
-    // look back the server would not filter) is passed over as it is read.
-    const texts = [...new Map([...inSpan, ...before].filter((item) => item.text).map((item) => [item.href, item.text])).values()];
-    for (const text of byUid(texts)) {
+    // Each object read by itself, the series first and the objects of changed occurrences last,
+    // whichever answer each came in: so a moved occurrence takes the series' own place whatever
+    // order Yahoo sends them in, and a cancelled one takes it away. An object in both answers is
+    // read once. Real Yahoo answers a series and each occurrence changed in it as entries of their
+    // own under one address, so an entry is the same as another only if its text is the same too.
+    const seen = new Set<string>();
+    const all = [...inSpan.map((item) => ({ ...item, repeatingOnly: false })), ...before.map((item) => ({ ...item, repeatingOnly: true }))].filter((item) => {
+      const key = `${item.href}\n${item.text}`;
+      return item.text && !seen.has(key) && seen.add(key);
+    });
+    const changes = new Set(all.filter((item) => onlyChanged(item.text)));
+    for (const item of [...all.filter((item) => !changes.has(item)), ...changes]) {
       if (budget.left <= 0) budget.ranOut = true;
       if (budget.ranOut) break;
+      // A changed occurrence is read as an event in the span, whichever answer it came in.
+      const changed = changes.has(item);
+      const its = { ...reading, repeatingOnly: changed ? false : item.repeatingOnly };
       try {
-        for (const event of occurrencesOf(text, { ...reading, repeatingOnly: false })) events.set(event.id, event);
+        for (const event of occurrencesOf(item.text, its)) events.set(event.id, event);
+        if (changed) for (const id of cancelledBy(item.text, its)) events.delete(id);
       } catch {
-        // One event that cannot be worked out is left out; the calendar's others are read.
+        // One object that is not iCalendar is left out; the calendar's others are read.
       }
       // Working out a large calendar does not hold up everyone else this server is answering.
       if (performance.now() - breath > 20) {

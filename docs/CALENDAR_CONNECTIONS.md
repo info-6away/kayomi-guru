@@ -438,11 +438,15 @@ dropped as it is read. Events are read with `ical.js` (`lib/calendars/ical.ts`):
 DTSTART, DTEND or DURATION, all-day dates, TZID, RRULE, RDATE, EXDATE, RECURRENCE-ID, STATUS and
 LAST-MODIFIED. Each occurrence in the span is an event of its own, named `UID::<its start>`;
 excluded ones are left out, changed ones are as changed (moved, renamed, cancelled), and the
-series itself is never one more. Real Yahoo keeps each changed occurrence as an object of its own
-beside the series, under the same UID, and a deleted one as such an object with
-`STATUS:CANCELLED` (written twice), not as an EXDATE. So the two answers are pooled, an object in
-both read once, and each UID's objects are read together as one calendar (`byUid` in
-`lib/server/yahoo.ts`); read one at a time, a deleted occurrence stayed on the calendar. Times in a zone the runtime knows by name are read by that zone's
+series itself is never one more. Real Yahoo answers each changed occurrence as an entry of its own
+beside the series, under the same UID and the same address, and a deleted one as such an entry
+with `STATUS:CANCELLED` (written twice), not as an EXDATE. So the two answers are pooled, an entry
+in both read once (the same address and the same text: the address alone is not enough), and the
+entries that hold only changed occurrences are read after every series:
+a moved occurrence then takes the series' own place whatever order Yahoo sends them in, and a
+cancelled one takes it away (`onlyChanged` and `cancelledBy` in `lib/server/yahoo.ts`). Each
+entry is still read by itself, with its own time zones, by the same reader as before.
+Times in a zone the runtime knows by name are read by that zone's
 rules, so a meeting at nine stays at nine across a change of clocks; a zone the object defines
 itself is read by that definition; a time with no zone is read as UTC. Yahoo has no address for a
 single event, so there is no "Open in…" for one.
