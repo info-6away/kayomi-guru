@@ -39,10 +39,16 @@ The same build serves both sites and tells them apart by host name (see `next.co
 | `koyomi.guru` | The landing page (`app/home`), at `/` |
 | `www.koyomi.guru` | The landing page too. Which of the two redirects to the other is a Vercel domain setting, never the code's: a redirect in both places loops |
 | `app.koyomi.guru` | The calendar (`app/page.tsx`) |
-| Anything else (a Vercel address, `localhost`) | The calendar at `/`, the landing page at `/home` |
+| A pull request's Vercel Preview (`*.vercel.app`) | The landing page at `/` (and `/home`), the calendar at `/app` |
+| Anything else (a production Vercel address, `localhost`) | The calendar at `/`, the landing page at `/home` |
 
-The landing page's buttons link to `/open`, which goes to `app.koyomi.guru` from the live site and
-to `/` on any other host, so they work in previews and locally too.
+A Preview is told apart by how it was built (Vercel's `VERCEL_ENV=preview`), not by its host name,
+so production and local builds, and every browser test, route exactly as before. A Preview installs
+no service worker, since its calendar is not at `/`; Preview has no sign-in or calendar connections
+either, because its Vercel environment has no settings.
+
+The landing page's buttons link to `/open`, which goes to `app.koyomi.guru` from the live site,
+to `/app` on a Preview, and to `/` on any other host, so they work in previews and locally too.
 
 The calendar keeps its data in the browser, and a browser keeps data per address. What someone
 saved at one address (say the Vercel one) does not appear at another (say `app.koyomi.guru`).

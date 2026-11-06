@@ -1,8 +1,12 @@
-/** Installs the service worker that keeps Koyomi usable offline. Production only. */
+/**
+ * Installs the service worker that keeps Koyomi usable offline. Production builds only, and not a
+ * Vercel Preview build, whose "/" is the landing page and whose calendar is at "/app" (next.config.ts).
+ */
 export function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
-  if (process.env.NODE_ENV !== 'production') {
-    // A worker left on this origin by a production build would serve stale code in development.
+  if (process.env.NODE_ENV !== 'production' || process.env.KOYOMI_PREVIEW === '1') {
+    // A worker left on this origin by a production build would serve stale code in development; on
+    // a preview it would keep the landing page as the app. One from an earlier preview is removed.
     void navigator.serviceWorker.getRegistrations().then((all) => all.forEach((registration) => registration.unregister()));
     return;
   }

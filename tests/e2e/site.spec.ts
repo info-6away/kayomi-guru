@@ -15,21 +15,53 @@ test.describe('landing page', () => {
     page.on('response', (r) => r.status() >= 400 && problems.push(`${r.status()} ${r.url()}`));
 
     await page.goto('/home');
-    await expect(page).toHaveTitle('Koyomi — Calendar, simplified.');
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Calendar, simplified.');
-    await expect(page.getByRole('main').locator('section').first().locator('p')).toHaveText('All your calendars. One quiet place.');
-    await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', 'All your calendars. One quiet place.');
-    await expect(page.getByRole('heading', { level: 2 })).toHaveText(['Things with a time.', 'The ones you already have.', 'Nothing else.']);
-    await expect(page.getByText('Your day should have space in it.')).toBeVisible();
+    await expect(page).toHaveTitle('Koyomi — All your calendars. One quiet place.');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('All your calendars. One quiet place.', { useInnerText: true });
+    await expect(page.getByText('Calendar, simplified.', { exact: true })).toBeVisible();
+    await expect(page.locator('meta[name="description"]')).toHaveAttribute(
+      'content',
+      'Koyomi brings Google, Microsoft, Yahoo and private calendar links together in one calm calendar.',
+    );
+    await expect(page.getByRole('heading', { level: 2 })).toHaveText(
+      [
+        'One person. Many calendars.',
+        'Bring your calendars together',
+        'Your calendars stay where they are.',
+        'Just your calendar.',
+        'Adding something is one line.',
+        'Your whole schedule. One quiet place.',
+      ],
+      { useInnerText: true },
+    );
     // Koyomi is a calendar and nothing beside it: no list of things to do, anywhere on the page.
     await expect(page.getByText(/\bPlan\b|waiting|to-do|task list/i)).toHaveCount(0);
-    // What it says of connected calendars is what is so: Google, several accounts, read only.
-    await expect(page.getByText('Connect your Google accounts and see their events beside your own. Koyomi only reads them.')).toBeVisible();
+    // Every way a calendar comes in, each as it is: Yahoo read-only, Microsoft work accounts only where allowed.
+    await expect(page.getByRole('heading', { level: 3 })).toHaveText([
+      'Google Calendar',
+      'Microsoft Outlook',
+      'Yahoo Calendar',
+      'Calendar Link',
+      'Multiple accounts. Different providers. Same view.',
+      'A calendar doesn’t offer direct connection?',
+    ]);
+    for (const said of [
+      'Connect Google, Microsoft and Yahoo calendars, or subscribe to a private calendar link.',
+      'Personal, work and school where permitted',
+      'Read-only connection',
+      // What it says of connected calendars and of your own events is what is so.
+      'Connected calendars remain in Google, Microsoft, Yahoo or their original source. Koyomi reads them so you can see everything together.',
+      'You can use Koyomi without creating an account. Events you create in Koyomi stay on your device.',
+    ]) {
+      await expect(page.getByText(said), said).toBeVisible();
+    }
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /^https:\/\/koyomi\.guru\/?$/);
 
-    // Three ways in, all to the same place, and the footer's two quiet links. Nothing else.
-    await expect(page.getByRole('link')).toHaveCount(5);
+    // Three ways in, all to the same place; the privacy policy from what is said of it; and the
+    // footer's two quiet links. Nothing else.
+    await expect(page.getByRole('link')).toHaveCount(6);
     await expect(page.locator('a[href="/open"]')).toHaveCount(3);
+    await expect(page.getByRole('main').getByRole('link', { name: 'Privacy policy' })).toHaveAttribute('href', '/privacy');
+    await expect(page.getByRole('contentinfo')).toContainText('Koyomi · 6Away');
     await expect(page.getByRole('contentinfo').getByRole('link')).toHaveText(['Privacy', 'Terms']);
 
     // The landing page is a page, not the app: nothing to install, no worker.
@@ -37,38 +69,75 @@ test.describe('landing page', () => {
     expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)).toBe(0);
     expect(problems).toEqual([]);
 
-    await page.getByRole('link', { name: /Begin/ }).click();
+    await page.getByRole('main').getByRole('link', { name: /Open Koyomi/ }).first().click();
     await expect(page.locator('[data-day]')).toHaveCount(7);
     await expect(page).toHaveTitle('Koyomi');
     await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/manifest.webmanifest');
   });
 
-  test('ink mode works and is remembered', async ({ page }) => {
+  test('follows the device’s light or dark setting, and a theme chosen on the site’s other pages', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto('/home');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(29, 29, 27)');
+    // The landing page has no switch of its own; Privacy and Terms do, and what is chosen there holds here.
+    await expect(page.getByRole('button', { name: 'Dark theme' })).toHaveCount(0);
+    await page.goto('/privacy');
+    await page.getByRole('button', { name: 'Dark theme' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     await page.goto('/home');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-    await page.getByRole('button', { name: 'Dark theme' }).click();
-    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(29, 29, 27)');
-    await page.reload();
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(245, 241, 232)');
   });
 
-  test('the whole week on a desktop, three days on a phone', async ({ page }) => {
+  test('the sample week: five days wide, four on a narrower screen, today alone on a phone, and drawn as the calendar draws it', async ({ page }) => {
     const sideways = () => page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    const week = page.getByRole('region', { name: 'Koyomi week view' });
+    const clipped = () =>
+      week.locator('.truncate').evaluateAll((els) => els.filter((el) => el.clientWidth > 0 && el.scrollWidth > el.clientWidth).map((el) => el.textContent));
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/home');
-    for (const day of ['MON', 'WED', 'THU', 'SUN']) await expect(page.getByText(day, { exact: true })).toBeVisible();
+    for (const day of ['MON', 'TUE', 'WED', 'THU', 'FRI']) await expect(week.getByText(day, { exact: true })).toBeVisible();
+    await expect(week.getByText('November', { exact: true })).toBeVisible();
+    // (Yahoo is both a calendar's name and its kind.)
+    for (const name of ['Koyomi', 'Personal', 'Work', 'Microsoft 365', 'Yahoo', 'Family']) await expect(week.getByText(name, { exact: true }).first()).toBeVisible();
+    await expect(week.getByText('11:00 – 12:30')).toBeVisible();
     expect(await sideways()).toBe(false);
+    expect(await clipped()).toEqual([]);
+
+    // Connected calendars are drawn as the calendar draws them: an outline and a grey bar, never a
+    // colour of their own. Only the event written in Koyomi has one.
+    const tinted = await week.locator('[style*="color-mix"]').allInnerTexts();
+    expect(tinted.map((text) => text.split('\n')[0])).toEqual(['Team lunch']);
+
+    await page.setViewportSize({ width: 860, height: 900 });
+    for (const day of ['MON', 'TUE', 'WED', 'THU']) await expect(week.getByText(day, { exact: true })).toBeVisible();
+    await expect(week.getByText('FRI', { exact: true })).toBeHidden();
+    expect(await sideways()).toBe(false);
+    expect(await clipped()).toEqual([]);
 
     await page.setViewportSize({ width: 390, height: 844 });
-    for (const day of ['MON', 'TUE', 'WED']) await expect(page.getByText(day, { exact: true })).toBeVisible();
-    for (const day of ['THU', 'SUN']) await expect(page.getByText(day, { exact: true })).toBeHidden();
+    await expect(week.getByText('TUE', { exact: true })).toBeVisible();
+    for (const day of ['MON', 'WED', 'THU', 'FRI']) await expect(week.getByText(day, { exact: true })).toBeHidden();
+    await expect(week.getByText('Tuesday 10 November')).toBeVisible();
+    // On a phone a short event has room for its time.
+    for (const time of ['10:00', '12:30', '15:15']) await expect(week.getByText(time, { exact: true })).toBeVisible();
     expect(await sideways()).toBe(false);
-    // No label in the sample week is cut short.
-    const clipped = await page.locator('section[aria-label="A sample week"] .truncate').evaluateAll((els) =>
-      els.filter((el) => el.clientWidth > 0 && el.scrollWidth > el.clientWidth).map((el) => el.textContent),
-    );
-    expect(clipped).toEqual([]);
+    expect(await clipped()).toEqual([]);
+  });
+
+  test('adding something is one line: it types once it is in view, and is simply there with reduced motion', async ({ page }) => {
+    await page.goto('/home');
+    // Once in the sample week; the line below has not begun to type while it is out of view.
+    const lunch = page.getByText('Team lunch', { exact: true });
+    await expect(lunch).toHaveCount(1);
+    await page.getByRole('heading', { name: 'Adding something is one line.' }).scrollIntoViewIfNeeded();
+    await expect(lunch).toHaveCount(2, { timeout: 8000 });
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.reload();
+    await expect(page.getByText('Team lunch', { exact: true })).toHaveCount(2);
   });
 });
 
@@ -109,7 +178,7 @@ test.describe('privacy and terms', () => {
 
     // The wordmark goes home, and Open Koyomi to the calendar.
     await page.getByRole('link', { name: 'Koyomi, home' }).click();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Calendar, simplified.');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('All your calendars. One quiet place.', { useInnerText: true });
     await page.goto('/terms');
     await page.getByRole('link', { name: /Open Koyomi/ }).click();
     await expect(page.locator('[data-day]')).toHaveCount(7);
@@ -438,20 +507,18 @@ for (const theme of ['light', 'dark'] as const) {
           expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), `${path}: sideways scroll`).toBe(false);
         }
 
-        // Two places by name. The landing page's last line, which gained its two links...
+        // Two places by name. The landing page's last line and its two links...
         await page.getByRole('contentinfo').scrollIntoViewIfNeeded();
-        const footer = (await read(page)).filter((r) => ['koyomi.guru', 'Privacy', 'Terms'].includes(r.text));
-        expect(footer.map((r) => r.text).sort()).toEqual(['Privacy', 'Terms', 'koyomi.guru']);
+        const footer = (await read(page)).filter((r) => ['Koyomi · 6Away', 'Privacy', 'Terms'].includes(r.text));
+        expect(footer.map((r) => r.text).sort()).toEqual(['Koyomi · 6Away', 'Privacy', 'Terms']);
         expect(footer.filter((r) => r.ratio < 4.5 || r.faded).map((r) => `"${r.text}" ${r.ratio}:1`)).toEqual([]);
 
-        // ...and the sample week's times. The one on Sunday sits on a tinted event in the shaded
-        // weekend, and at night it used to be 4.3:1.
-        if (width >= 680) {
-          await page.getByRole('region', { name: 'A sample week' }).scrollIntoViewIfNeeded();
-          const times = (await read(page)).filter((r) => /^\d\d:\d\d$/.test(r.text));
-          expect(times.map((r) => r.text)).toContain('18:00');
-          expect(times.filter((r) => r.ratio < 4.5).map((r) => `"${r.text}" ${r.ratio}:1`)).toEqual([]);
-        }
+        // ...and the sample week's small times: on the sheet, on an outlined event, and on the one
+        // tinted event (which shows its time on a phone).
+        await page.getByRole('region', { name: 'Koyomi week view' }).scrollIntoViewIfNeeded();
+        const times = (await read(page)).filter((r) => /^\d\d:\d\d( – \d\d:\d\d)?$/.test(r.text));
+        expect(times.map((r) => r.text)).toContain(width >= 720 ? '11:00 – 12:30' : '12:30');
+        expect(times.filter((r) => r.ratio < 4.5).map((r) => `"${r.text}" ${r.ratio}:1`)).toEqual([]);
       });
     }
   });
@@ -461,7 +528,7 @@ test.describe('host names', () => {
   // Only the Host header tells the two sites apart, so that is all these requests change.
   const get = (request: APIRequestContext, host: string, path: string) => request.get(path, { headers: { host }, maxRedirects: 0 });
   // Something only the landing page says. (Its headline is also in the calendar's own description.)
-  const LANDING = 'The ones you already have.';
+  const LANDING = 'Bring your calendars together';
 
   test('koyomi.guru shows the landing page at /', async ({ request }) => {
     const response = await get(request, 'koyomi.guru', '/');
