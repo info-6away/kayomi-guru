@@ -1,3 +1,4 @@
+import ICAL from 'ical.js';
 import { budgetOf, occurrencesOf } from '../calendars/ical';
 import type { CalendarInfo, CalendarResult, ExternalEvent } from '../calendars/types';
 import { CALDAV, DAV, DavError, child, children, dav, hrefIn, onOrigin, responses, textOf, type DavRequest } from './caldav';
@@ -230,6 +231,36 @@ async function objects(y: YahooClient, c: YahooCredential, calendar: string, sta
 }
 
 /**
+ * Yahoo keeps each occurrence changed or cancelled in a series as an object of its own, beside
+ * the series, under the same UID (seen on real Yahoo: a deleted occurrence is such an object with
+ * STATUS:CANCELLED). Read one object at a time, a cancelled occurrence would leave the series' own
+ * standing, and a moved one would replace it only if it happened to come later. So the objects
+ * are taken as a calendar holds them: one calendar for each UID, with every time zone the objects
+ * bring. An object that is not iCalendar is left out; the others are read.
+ */
+function byUid(texts: string[]): string[] {
+  const zones = new Map<string, unknown>();
+  const events = new Map<string, unknown[]>();
+  for (const text of texts) {
+    let root: InstanceType<typeof ICAL.Component>;
+    try {
+      root = new ICAL.Component(ICAL.parse(text));
+    } catch {
+      continue;
+    }
+    for (const zone of root.getAllSubcomponents('vtimezone')) {
+      const id = String(zone.getFirstPropertyValue('tzid') ?? '');
+      if (id && !zones.has(id)) zones.set(id, zone.toJSON());
+    }
+    for (const event of root.getAllSubcomponents('vevent')) {
+      const uid = String(event.getFirstPropertyValue('uid') ?? '').trim();
+      if (uid) events.set(uid, [...(events.get(uid) ?? []), event.toJSON()]);
+    }
+  }
+  return [...events.values()].map((list) => new ICAL.Component(['vcalendar', [['version', {}, 'text', '2.0']], [...zones.values(), ...list]]).toString());
+}
+
+/**
  * One calendar's events in the span, each occurrence of a repeating event as an event of its
  * own. Always a whole reading: Yahoo keeps no "what changed since". A calendar outside the
  * account's own calendar home is never asked about.
@@ -262,24 +293,22 @@ export async function readCalendar(
     const budget = budgetOf();
     const reading = { provider: 'yahoo' as const, connectionId: asked.connectionId, calendarId, fetchedAt: asked.fetchedAt, timeMin: span.timeMin, timeMax: span.timeMax, budget };
     let breath = performance.now();
-    for (const [list, repeatingOnly] of [
-      [inSpan, false],
-      [before, true],
-    ] as const) {
-      for (const item of list) {
-        if (budget.left <= 0) budget.ranOut = true;
-        if (budget.ranOut) break;
-        if (!item.text) continue;
-        try {
-          for (const event of occurrencesOf(item.text, { ...reading, repeatingOnly })) events.set(event.id, event);
-        } catch {
-          // One object that is not iCalendar is left out; the calendar's others are read.
-        }
-        // Working out a large calendar does not hold up everyone else this server is answering.
-        if (performance.now() - breath > 20) {
-          await new Promise((resolve) => setImmediate(resolve));
-          breath = performance.now();
-        }
+    // Both answers as one calendar: an object can be in both, and a series can be in one with an
+    // occurrence of it changed in the other. What does not repeat and lies before the span (from a
+    // look back the server would not filter) is passed over as it is read.
+    const texts = [...new Map([...inSpan, ...before].filter((item) => item.text).map((item) => [item.href, item.text])).values()];
+    for (const text of byUid(texts)) {
+      if (budget.left <= 0) budget.ranOut = true;
+      if (budget.ranOut) break;
+      try {
+        for (const event of occurrencesOf(text, { ...reading, repeatingOnly: false })) events.set(event.id, event);
+      } catch {
+        // One event that cannot be worked out is left out; the calendar's others are read.
+      }
+      // Working out a large calendar does not hold up everyone else this server is answering.
+      if (performance.now() - breath > 20) {
+        await new Promise((resolve) => setImmediate(resolve));
+        breath = performance.now();
       }
     }
     if (budget.ranOut) report('yahoo', new Error('A Yahoo calendar took longer to work out than Koyomi allows; what was not worked out in time is left out'));
