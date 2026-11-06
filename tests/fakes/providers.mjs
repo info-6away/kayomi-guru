@@ -427,6 +427,152 @@ async function microsoft(req, res, url) {
   send(res, 404, { error: 'not_found' });
 }
 
+// ---------- Yahoo ----------
+
+// CalDAV, as Yahoo's server at caldav.calendar.yahoo.com behaves, on an origin of its own (as
+// Yahoo's is): Basic credentials on every request, a refusal that is a JSON body with no
+// challenge, /.well-known/caldav sending the client to /principals/, the principal under
+// /principals/users/<email>/, a calendar home of its own, and time spans matched to an event by
+// its first occurrence only (Yahoo does not expand a series to see whether it reaches a span).
+// Anything that would change a calendar is never answered, and is written down.
+
+const YAHOO_PORT = Number(process.env.FAKE_YAHOO_PORT ?? 4316);
+const YAHOO_ORIGIN = `http://localhost:${YAHOO_PORT}`;
+/** One Yahoo account per test, by its email. */
+const yahooAccounts = new Map();
+/** Every request Koyomi must never send: anything but PROPFIND, REPORT and OPTIONS. */
+const yahooWrites = [];
+const yBlank = () => ({ password: null, id: random().replace(/[^a-z0-9]/gi, ''), calendars: new Map(), revoked: false, fail: null, hold: null, waiting: [], redirect: null, log: [] });
+const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Prefixes of its own, as a server's are: what is read is the namespace, never the prefix.
+const multistatus = (responses) => `<?xml version="1.0" encoding="UTF-8"?>\n<D:multistatus xmlns:D="DAV:" xmlns:CAL="urn:ietf:params:xml:ns:caldav">${responses.join('')}</D:multistatus>`;
+const found = (href, props) => `<D:response><D:href>${xml(href)}</D:href><D:propstat><D:prop>${props}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`;
+const refuse = (res) => {
+  res.writeHead(401, { 'content-type': 'application/json' });
+  res.end('{"error":{"code": 4003, "message":"Invalid User credential"}}');
+};
+const basicOf = (req) => {
+  const [, encoded] = /^Basic (.+)$/.exec(req.headers.authorization ?? '') ?? [];
+  if (!encoded) return null;
+  const text = Buffer.from(encoded, 'base64').toString('utf8');
+  const at = text.indexOf(':');
+  return at < 0 ? null : { email: text.slice(0, at).toLowerCase(), password: text.slice(at + 1) };
+};
+/** Roughly when an object's first occurrence is, which is all Yahoo matches a span on. Zones are not looked at. */
+function firstSpan(ics) {
+  const events = ics.replace(/BEGIN:VTIMEZONE[\s\S]*?END:VTIMEZONE\r?\n?/g, '');
+  const value = (name) => new RegExp(`^${name}(?:;[^:\\r\\n]*)?:([0-9TZ]+)`, 'm').exec(events)?.[1];
+  const at = (v) => (!v ? NaN : v.length === 8 ? Date.UTC(+v.slice(0, 4), +v.slice(4, 6) - 1, +v.slice(6, 8)) : Date.UTC(+v.slice(0, 4), +v.slice(4, 6) - 1, +v.slice(6, 8), +v.slice(9, 11), +v.slice(11, 13), +v.slice(13, 15)));
+  const start = at(value('DTSTART'));
+  const end = at(value('DTEND'));
+  return [start, Number.isNaN(end) ? start + (value('DTSTART')?.length === 8 ? 864e5 : 3600e3) : Math.max(end, start + 1)];
+}
+const utc = (stamp) => Date.UTC(+stamp.slice(0, 4), +stamp.slice(4, 6) - 1, +stamp.slice(6, 8), +stamp.slice(9, 11), +stamp.slice(11, 13), +stamp.slice(13, 15));
+
+async function yahoo(req, res) {
+  const url = new URL(req.url, YAHOO_ORIGIN);
+  const text = await body(req);
+  if (!['PROPFIND', 'REPORT', 'OPTIONS'].includes(req.method)) {
+    yahooWrites.push({ method: req.method, path: url.pathname });
+    return send(res, 405, { error: 'Koyomi only reads' });
+  }
+  if (req.method === 'OPTIONS') {
+    res.writeHead(200, { dav: '1, 3, calendar-access' });
+    return res.end();
+  }
+  const who = basicOf(req);
+  const acct = who && yahooAccounts.get(who.email);
+  // Yahoo sends the well-known address to its principals on the same server. A test can make it
+  // send the client somewhere else instead, which must not be followed.
+  if (url.pathname === '/.well-known/caldav') {
+    const to = acct?.redirect === 'away' ? 'http://evil.example/principals/' : acct?.redirect === 'other-origin' ? `http://127.0.0.1:${YAHOO_PORT}/principals/` : '/principals/';
+    res.writeHead(301, { location: to });
+    return res.end();
+  }
+  if (!acct || acct.revoked || who.password !== acct.password) {
+    if (acct) acct.log.push({ type: 'refused', method: req.method, path: url.pathname });
+    return refuse(res);
+  }
+  const principal = `/principals/users/${who.email}/`;
+  const home = `/dav/${acct.id}/Calendar/`;
+  const kind = url.pathname === '/principals/' ? 'principal' : url.pathname === principal ? 'home' : url.pathname === home ? 'calendars' : 'events';
+  const entry = { type: kind, method: req.method, path: url.pathname, depth: req.headers.depth ?? null, user: who.email };
+  acct.log.push(entry);
+  if (acct.fail === 'unavailable') return send(res, 503, {});
+  if (acct.fail === 'throttled') return send(res, 429, {}, { 'retry-after': '30' });
+  if (acct.hold === kind) await new Promise((resolve) => acct.waiting.push(resolve));
+  const reply = (doc) => {
+    res.writeHead(207, { 'content-type': 'application/xml; charset=utf-8' });
+    res.end(doc);
+  };
+  if (acct.fail === 'malformed' && kind === 'events') return reply('<D:multistatus xmlns:D="DAV:"><D:response>');
+  if (acct.fail === 'doctype') return reply('<?xml version="1.0"?><!DOCTYPE lol [<!ENTITY a "aaaaaaaaaa">]><D:multistatus xmlns:D="DAV:"/>');
+
+  if (kind === 'principal' && req.method === 'PROPFIND') return reply(multistatus([found('/principals/', `<D:current-user-principal><D:href>${xml(principal)}</D:href></D:current-user-principal>`)]));
+  if (kind === 'home' && req.method === 'PROPFIND') return reply(multistatus([found(principal, `<CAL:calendar-home-set><D:href>${xml(home)}</D:href></CAL:calendar-home-set>`)]));
+  if (kind === 'calendars' && req.method === 'PROPFIND') {
+    const own = [...acct.calendars.values()].map((c) =>
+      found(
+        `${home}${c.id}/`,
+        `<D:resourcetype><D:collection/><CAL:calendar/></D:resourcetype><D:displayname>${xml(c.name)}</D:displayname>` +
+          `<CAL:supported-calendar-component-set><CAL:comp name="${c.todo ? 'VTODO' : 'VEVENT'}"/></CAL:supported-calendar-component-set>` +
+          `<D:current-user-privilege-set><D:privilege><D:read/></D:privilege>${c.readOnly ? '' : '<D:privilege><D:write/></D:privilege>'}</D:current-user-privilege-set>`,
+      ),
+    );
+    return reply(multistatus([found(home, '<D:resourcetype><D:collection/></D:resourcetype>'), ...own]));
+  }
+  const match = url.pathname.startsWith(home) ? /^([^/]+)\/$/.exec(url.pathname.slice(home.length)) : null;
+  const cal = match && acct.calendars.get(decodeURIComponent(match[1]));
+  if (!cal) return send(res, 404, {});
+  if (req.method !== 'REPORT') return reply(multistatus([found(url.pathname, '<D:resourcetype><D:collection/><CAL:calendar/></D:resourcetype>')]));
+  if (cal.denied) return send(res, 403, {});
+  const range = /time-range\s+start="(\d{8}T\d{6}Z)"\s+end="(\d{8}T\d{6}Z)"/.exec(text);
+  if (!range) return send(res, 400, {});
+  const [from, to] = [utc(range[1]), utc(range[2])];
+  const repeatingOnly = /prop-filter\s+name="RRULE"/.test(text);
+  if (repeatingOnly && acct.fail === 'no-prop-filter') return send(res, 400, {});
+  Object.assign(entry, { calendar: cal.id, start: range[1], end: range[2], repeatingOnly, parts: /<c:comp name="VEVENT">/i.test(text) });
+  const objects = [...cal.objects.entries()].filter(([, ics]) => {
+    const [start, end] = firstSpan(ics);
+    return start < to && end > from && (!repeatingOnly || /^RRULE:/m.test(ics));
+  });
+  // The whole of each object, as Yahoo sends it, whatever parts were asked for.
+  return reply(multistatus(objects.map(([name, ics]) => found(`${url.pathname}${name}.ics`, `<D:getetag>"${createHash('sha1').update(ics).digest('hex').slice(0, 12)}"</D:getetag><CAL:calendar-data>${xml(ics)}</CAL:calendar-data>`))));
+}
+
+async function yahooControl(req, res, email, what) {
+  if (req.method === 'PUT') yahooAccounts.set(email, yBlank());
+  const acct = yahooAccounts.get(email) ?? (yahooAccounts.set(email, yBlank()), yahooAccounts.get(email));
+  // The log has the email and what was asked, and never a password.
+  if (req.method === 'GET') return send(res, 200, { log: acct.log, held: acct.waiting.length, writes: yahooWrites });
+  const data = JSON.parse((await body(req)) || '{}');
+  // PUT /__fake/yahoo/:email  { password, calendars: [{ id, name, readOnly?, todo?, objects: { name: ics } }] }
+  if (!what) {
+    acct.password = data.password;
+    acct.calendars = new Map(data.calendars.map((c) => [c.id, { id: c.id, name: c.name, readOnly: !!c.readOnly, todo: !!c.todo, denied: false, objects: new Map(Object.entries(c.objects ?? {})) }]));
+    return send(res, 200, { home: `/dav/${acct.id}/Calendar/` });
+  }
+  // POST .../change  { calendar, put?: { name: ics }, remove?: [names] }: something changed at Yahoo.
+  if (what === '/change') {
+    const cal = acct.calendars.get(data.calendar);
+    for (const [name, ics] of Object.entries(data.put ?? {})) cal.objects.set(name, ics);
+    for (const name of data.remove ?? []) cal.objects.delete(name);
+    return send(res, 200, {});
+  }
+  // POST .../state  { revoked?, password?, fail?: null | 'unavailable' | 'throttled' | 'malformed' | 'doctype' | 'no-prop-filter',
+  //                   hold?: null | 'principal' | 'home' | 'calendars' | 'events', redirect?: null | 'away' | 'other-origin', deny? }
+  if ('revoked' in data) acct.revoked = data.revoked;
+  if ('password' in data) acct.password = data.password;
+  if ('fail' in data) acct.fail = data.fail;
+  if ('redirect' in data) acct.redirect = data.redirect;
+  if (data.deny) acct.calendars.get(data.deny).denied = true;
+  if ('hold' in data) {
+    acct.hold = data.hold;
+    if (!data.hold) acct.waiting.splice(0).forEach((answer) => answer());
+  }
+  return send(res, 200, {});
+}
+
 // ---------- Test controls ----------
 
 async function control(req, res, url) {
@@ -444,6 +590,8 @@ async function control(req, res, url) {
   }
   const ms = /^\/__fake\/microsoft\/([^/]+)(\/change|\/state)?$/.exec(url.pathname);
   if (ms) return msControl(req, res, decodeURIComponent(ms[1]), ms[2]);
+  const ya = /^\/__fake\/yahoo\/([^/]+)(\/change|\/state)?$/.exec(url.pathname);
+  if (ya) return yahooControl(req, res, decodeURIComponent(ya[1]).toLowerCase(), ya[2]);
   const match = /^\/__fake\/google\/([^/]+)(\/change|\/state)?$/.exec(url.pathname);
   if (!match) return send(res, 404, {});
   const id = decodeURIComponent(match[1]);
@@ -544,3 +692,8 @@ createServer((req, res) => {
   const handler = url.pathname.startsWith('/idp/') ? idp : url.pathname.startsWith('/google/') ? google : url.pathname.startsWith('/microsoft/') ? microsoft : control;
   handler(req, res, url).catch((error) => send(res, 500, { error: String(error?.message ?? error) }));
 }).listen(PORT, () => console.log(`fake providers on ${ORIGIN}`));
+
+// Yahoo's CalDAV server has an origin of its own.
+createServer((req, res) => {
+  yahoo(req, res).catch((error) => send(res, 500, { error: String(error?.message ?? error) }));
+}).listen(YAHOO_PORT, () => console.log(`fake Yahoo CalDAV on ${YAHOO_ORIGIN}`));

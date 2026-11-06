@@ -36,8 +36,9 @@ export interface Connection {
  * @param tokenKey The key provider tokens are sealed with (seal.ts).
  */
 export const accountKey = (tokenKey: string, subject: string, provider: Provider, providerAccountId: string) =>
-  // An address is the same address in any case. Microsoft's subject is not: its case is part of it.
-  fingerprint(provider === 'google' ? providerAccountId.trim().toLowerCase() : providerAccountId.trim(), tokenKey, `account\n${subject}\n${provider}`);
+  // An address is the same address in any case, and so is Yahoo's principal, which is made from
+  // one. Microsoft's subject is not, and neither is a calendar link: their case is part of them.
+  fingerprint(provider === 'google' || provider === 'yahoo' ? providerAccountId.trim().toLowerCase() : providerAccountId.trim(), tokenKey, `account\n${subject}\n${provider}`);
 
 /** What a token's seal is tied to: it only opens on the row it was made for. */
 export const sealContext = (connection: Pick<Connection, 'subject' | 'provider' | 'accountKey'>) => `${connection.subject}:${connection.provider}:${connection.accountKey}`;

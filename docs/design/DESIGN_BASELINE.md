@@ -127,22 +127,28 @@ connected. It took over Plan's place exactly, so nothing about the frame moved:
   what is on screen: "Koyomi", or "Koyomi and 3 more". It opens the same bottom sheet. Testers
   read the bar as a caption; the chevron is the one sign that it opens something. Desktop is unchanged.
 - **The drawer is a list, not a settings page.** "Koyomi", always shown and ticked. Then, under
-  a small "GOOGLE" heading, and a "MICROSOFT" one below it in the same style, each connected
+  a small "GOOGLE" heading, and "MICROSOFT" and "YAHOO" ones below it in the same style, each connected
   account: its address as a quiet line, and its calendars under it, each a row that is on (a
   tick) or off (a ring), then "Disconnect" as small text at the end, on the right. A heading is
   there only when an account is under it. Then "＋ Add calendar account", drawn like Plan's old
-  "＋ Add" row. Where both providers are offered, pressing it opens two quiet rows under it, "Google" and
-  "Microsoft", in the row's own type and indented to its text, and nothing more; pressing it
-  again closes them. Where only one is offered, it goes straight there. With nothing connected,
-  one sentence under it says what adding an account means, naming the providers offered, with a
-  link to the Privacy Policy.
+  "＋ Add" row. Where more than one provider is offered, pressing it opens a quiet row for each
+  under it, "Google", "Microsoft", "Yahoo", in the row's own type and indented to its text, and
+  nothing more; pressing it again closes them. Where only one is offered, it goes straight there.
+  Choosing Yahoo opens a small form in the same place, as Yahoo has no page to send anyone to:
+  "Connect Yahoo Calendar", then "Yahoo email" and "Yahoo app password" as plain fields with
+  their labels above them, one muted sentence saying to use a Yahoo app password and where to
+  make one, with a quiet "How" link to Yahoo's own help, then "Connect Yahoo" as a pill and
+  "Cancel" as text. Reconnecting a Yahoo account shows its address instead of the email field.
+  With nothing connected, one sentence under it says what adding an account means, naming the
+  providers offered, with a link to the Privacy Policy.
 - **Ending a connection is asked about first.** Disconnect (Remove calendar, for a calendar link)
   opens a small question in its place: "Disconnect this Google account?", what that does, and
   that Koyomi's own events stay as they are, with Cancel (which has the focus) and Disconnect in
   vermilion. The words say no more than is true: Google is asked to end Koyomi's access,
-  Microsoft offers apps no way to, and a calendar link keeps working wherever else it is used.
+  Microsoft offers apps no way to, a Yahoo app password keeps working at Yahoo until it is
+  deleted there, and a calendar link keeps working wherever else it is used.
   Deleting an event of Koyomi's own is not asked about.
-- **Trouble is noticed.** What says something did not happen (a link that gave no calendar, an
+- **Trouble is noticed.** What says something did not happen (a link that gave no calendar, an app password Yahoo refused, an
   account that needs reconnecting or can't be read, a Refresh that could not read something) is
   set in `verm-text` with a small outlined mark before it, apart from the advice around it. No
   banners, no toasts. What is only news (a calendar was removed) stays in `ink2`.
@@ -179,6 +185,8 @@ pictures with Microsoft with `npm run screenshots -- --microsoft`.
 | Phone Day with Google events | [mobile-day-google-light.png](mobile-day-google-light.png) |
 | Calendars with Google and Microsoft accounts | [desktop-calendars-microsoft-light.png](desktop-calendars-microsoft-light.png) |
 | Add calendar account, choosing where | [desktop-calendars-choice-light.png](desktop-calendars-choice-light.png) |
+| Connecting Yahoo: the form | [desktop-calendars-yahoo-form-light.png](desktop-calendars-yahoo-form-light.png) |
+| A Yahoo account in Calendars | [desktop-calendars-yahoo-light.png](desktop-calendars-yahoo-light.png) |
 
 ![Desktop Week with Google events, light](desktop-week-google-light.png)
 

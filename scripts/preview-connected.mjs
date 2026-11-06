@@ -11,7 +11,7 @@
 // (docs/CALENDAR_CONNECTIONS.md says which).
 
 import { spawn, spawnSync } from 'node:child_process';
-import { DEMO_ACCOUNTS, DEMO_MICROSOFT_ACCOUNTS, FAKE_PORT, PORT, TEST_ENV } from '../tests/fakes/env.mjs';
+import { DEMO_ACCOUNTS, DEMO_MICROSOFT_ACCOUNTS, DEMO_YAHOO_ACCOUNT, FAKE_PORT, PORT, TEST_ENV } from '../tests/fakes/env.mjs';
 
 const env = { ...process.env, ...TEST_ENV, FAKE_PORT: String(FAKE_PORT) };
 const next = ['node_modules/next/dist/bin/next'];
@@ -38,7 +38,8 @@ for (let attempt = 0; attempt < 50; attempt++) {
     (await Promise.all(Object.entries(DEMO_ACCOUNTS).map(([id, account]) => tell(`google/${id}`, account)))).every(Boolean) &&
     (await Promise.all(Object.entries(DEMO_MICROSOFT_ACCOUNTS).map(([id, account]) => tell(`microsoft/${id}`, account)))).every(Boolean) &&
     (await tell('turns', Object.keys(DEMO_ACCOUNTS))) &&
-    (await tell('microsoft-turns', Object.keys(DEMO_MICROSOFT_ACCOUNTS)));
+    (await tell('microsoft-turns', Object.keys(DEMO_MICROSOFT_ACCOUNTS))) &&
+    (await tell(`yahoo/${encodeURIComponent(DEMO_YAHOO_ACCOUNT.email)}`, DEMO_YAHOO_ACCOUNT));
   if (ready) break;
   await new Promise((resolve) => setTimeout(resolve, 200));
 }

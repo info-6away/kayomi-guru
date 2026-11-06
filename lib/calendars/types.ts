@@ -10,9 +10,9 @@
  * (an .ics feed) the person subscribes to by its private address. It has no account and no
  * permission behind it, only the link.
  */
-export type Provider = 'google' | 'microsoft' | 'link';
+export type Provider = 'google' | 'microsoft' | 'yahoo' | 'link';
 /** Every provider Koyomi can read from, in the order they are offered and listed. */
-export const PROVIDERS: readonly Provider[] = ['google', 'microsoft', 'link'];
+export const PROVIDERS: readonly Provider[] = ['google', 'microsoft', 'yahoo', 'link'];
 
 /** A calendar among everything connected on this device: `${connectionId}:${calendarId}`. */
 export const calendarKey = (connectionId: string, calendarId: string) => `${connectionId}:${calendarId}`;
@@ -153,6 +153,7 @@ export interface EventsResponse {
  * - `busy`: the provider is unavailable or limiting requests; try later.
  * - `slow_down`: this account has been asked about too often, here or by the provider; try later.
  * - `blocked`: the provider will not let that account's calendar be read at all.
+ * - `refused`: the provider did not accept the credential just given for an account (Yahoo's app password).
  * - `unavailable`: calendar connections are not set up on this server.
  *
  * Adding or updating a calendar link has words of its own:
@@ -170,6 +171,7 @@ export type ApiError =
   | 'busy'
   | 'slow_down'
   | 'blocked'
+  | 'refused'
   | 'unavailable'
   | 'bad_request'
   | 'bad_link'

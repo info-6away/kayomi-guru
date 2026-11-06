@@ -38,7 +38,7 @@ export interface Ctx {
 // One per server instance, kept on the global object so every route shares them.
 const shared = globalThis as typeof globalThis & {
   koyomiStore?: { database: string; store: ConnectionStore };
-  koyomiAccess?: Map<string, { token: string; until: number }>;
+  koyomiAccess?: Map<string, { token: string; until: number; sealed: string }>;
   koyomiWaiting?: Map<string, Promise<unknown>>;
   koyomiPaused?: Map<string, number>;
 };
@@ -159,7 +159,9 @@ const pauseKey = (id: string, account?: string) => `${id}:${account}`;
  * is never sent to a browser, never logged and never written anywhere unsealed. Where the
  * provider hands out a new refresh token with each use (Microsoft), the new one is sealed and
  * put in the old one's place. Access tokens are held in memory until they expire, each under
- * its own connection, and asked for once however many requests are waiting.
+ * its own connection, and asked for once however many requests are waiting. One is held only for
+ * the sealed token it came from: once the person has reconnected, on this server or another, one
+ * that came from what they replaced is not used again (for Yahoo it holds the old app password).
  *
  * @param cost What this read counts for against the account's allowance.
  * @param reached Told which account this is, as soon as that is known.
@@ -179,7 +181,7 @@ async function accessFor(ctx: Ctx, id: string, cost: number, reached: { account?
   if (until > Date.now()) return { error: 'slow_down', retryAfter: Math.ceil((until - Date.now()) / 1000) };
 
   const held = access().get(id);
-  if (held && held.until > Date.now()) return { token: held.token, provider };
+  if (held && held.until > Date.now() && held.sealed === connection.sealedToken) return { token: held.token, provider };
 
   let refreshToken: string;
   try {
@@ -190,14 +192,16 @@ async function accessFor(ctx: Ctx, id: string, cost: number, reached: { account?
   }
   const token = await once(`${id}:token`, async () => {
     const fresh = await provider.refreshAccess(refreshToken);
+    let sealed = connection.sealedToken;
     if (fresh.refreshToken && fresh.refreshToken !== refreshToken) {
       // Put in place of the one it was traded for, and only that one: if the person has
       // reconnected meanwhile, their new token stays. The old one still works for a while, so a
       // write that does not happen loses nothing.
-      await ctx.store.renewToken(ctx.subject, id, connection.sealedToken, seal(fresh.refreshToken, ctx.config.tokenKey, sealContext(connection))).catch((error) => report('renewing', error));
+      sealed = seal(fresh.refreshToken, ctx.config.tokenKey, sealContext(connection));
+      await ctx.store.renewToken(ctx.subject, id, connection.sealedToken, sealed).catch((error) => report('renewing', error));
     }
     // Something good for less than a minute is not worth holding (a calendar link's, which is the link itself, is held for none).
-    if (fresh.expiresIn > 60) access().set(id, { token: fresh.accessToken, until: Date.now() + (fresh.expiresIn - 60) * 1000 });
+    if (fresh.expiresIn > 60) access().set(id, { token: fresh.accessToken, until: Date.now() + (fresh.expiresIn - 60) * 1000, sealed });
     return fresh.accessToken;
   });
   return { token, provider };

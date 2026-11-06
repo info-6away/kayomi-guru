@@ -9,7 +9,7 @@ export interface ProviderWords {
   heading: string;
   /** An account whose address has not been read yet. */
   unnamed: string;
-  /** In the choice of where to add an account. */
+  /** In the choice of where to add an account, and in a list of them. */
   label: string;
   /** Where an event came from, in its popover. */
   source: string;
@@ -71,6 +71,22 @@ export const WORDS: Record<Provider, ProviderWords> = {
     kept: 'your Microsoft calendar',
     yours: 'Microsoft calendar',
   },
+  yahoo: {
+    heading: 'YAHOO',
+    unnamed: 'Yahoo account',
+    label: 'Yahoo',
+    source: 'Yahoo Calendar',
+    // Yahoo has no address for one event, so there is no way back to show.
+    open: '',
+    blocked: 'Yahoo doesn’t let Koyomi read this account’s calendar.',
+    ...ACCOUNT,
+    confirm: 'Disconnect this Yahoo account?',
+    // Yahoo gives apps no way to cancel an app password, so this says only what Koyomi itself does.
+    confirmWhy: 'Its calendars will be removed from Koyomi, and Koyomi deletes its copy of the app password. The app password itself keeps working at Yahoo until you delete it there. Your own Koyomi events stay as they are.',
+    pill: 'Yahoo calendar needs reconnecting',
+    kept: 'your Yahoo calendar',
+    yours: 'Yahoo calendar',
+  },
   link: {
     heading: 'CALENDAR LINKS',
     unnamed: 'Calendar link',
@@ -94,4 +110,10 @@ export const WORDS: Record<Provider, ProviderWords> = {
 export function which(providers: Provider[]): Provider | 'several' | null {
   const distinct = [...new Set(providers)];
   return distinct.length > 1 ? 'several' : (distinct[0] ?? null);
+}
+
+/** The providers by name, as a sentence lists them: "Google", "Google and Microsoft", "Google, Microsoft and Yahoo". */
+export function listed(providers: Provider[]): string {
+  const names = [...new Set(providers)].map((provider) => WORDS[provider].label);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? 'Google');
 }
