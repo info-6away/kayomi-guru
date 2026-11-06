@@ -6,6 +6,8 @@
 :root {
   --bg: #F5F1E8;
   --paper: #EFEADF;
+  /* The landing page's sample week: a sheet a shade lighter than the page it lies on. */
+  --sheet: #FAF8F2;
   --ink: #252421;
   --ink2: #56524B;
   --muted: #6A655C;
@@ -55,6 +57,7 @@
 :root[data-theme="dark"] {
   --bg: #1D1D1B;
   --paper: #252522;
+  --sheet: #252522;
   --ink: #ECE8DE;
   --ink2: #BDB8AD;
   /* Secondary text at night: 5.7:1 on the page and 5.2:1 on a drawer, so thin type still reads. */
@@ -91,6 +94,7 @@
 @theme inline {
   --color-bg: var(--bg);
   --color-paper: var(--paper);
+  --color-sheet: var(--sheet);
   --color-ink: var(--ink);
   --color-ink2: var(--ink2);
   --color-muted: var(--muted);
