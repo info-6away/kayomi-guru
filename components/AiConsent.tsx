@@ -43,7 +43,14 @@ export function AiConsent({ label, host, groups, form }: { label: string; host: 
       <input type="hidden" name="timezone" value={zone} />
       <h1 className="font-mincho text-[clamp(26px,4vw,34px)] leading-[1.3] font-normal text-balance">Allow {name} to read these calendars?</h1>
       <p className="mt-4 text-[15px] leading-[1.8] text-pretty text-ink2">
-        {Name} will receive event titles and times from the calendars you select when you ask it calendar-related questions.
+        {Name} will receive event titles and times from the calendars you select, and their names, when you ask it calendar-related questions.
+      </p>
+      <p className="mt-3 text-[15px] leading-[1.8] text-pretty text-ink2">
+        <span className="text-ink">{Name} is not part of Koyomi.</span> What it receives is kept by the company that runs it, under that company’s own
+        privacy policy and terms. Revoking access later stops it reading more; it cannot take back what it already received.{' '}
+        <a href="/privacy" className="underline decoration-line underline-offset-4 hover:text-ink">
+          How Koyomi handles this
+        </a>
       </p>
 
       {any ? (

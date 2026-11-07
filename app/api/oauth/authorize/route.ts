@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/server/auth';
 import { aiConfig, ownHost } from '@/lib/server/ai/config';
-import { checkRequest, consentCookie, sealPending } from '@/lib/server/ai/consent';
+import { checkRequest, consentCookie, notGranted, sealPending } from '@/lib/server/ai/consent';
 import { aiStoreFor } from '@/lib/server/ai/context';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +25,10 @@ export async function GET(request: Request) {
   if ('page' in checked) return refusal(checked.page);
   if ('redirect' in checked) return NextResponse.redirect(checked.redirect, 302);
   const signedIn = await auth.getCurrentUser();
+  // During the private beta only the people on the allowlist get as far as choosing calendars.
+  // Someone signed in who is not on it is sent back with the plain OAuth refusal, which says
+  // nothing about who is.
+  if (signedIn && !config.allowed(signedIn.sub)) return NextResponse.redirect(notGranted(config, checked.ok), 302);
   const next = signedIn ? '/ai/consent' : `/api/auth/signin?returnTo=${encodeURIComponent('/ai/consent')}`;
   const response = NextResponse.redirect(new URL(next, config.issuer), 303);
   response.cookies.set(consentCookie(sealPending(config, checked.ok)));

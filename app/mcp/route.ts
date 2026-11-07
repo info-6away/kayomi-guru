@@ -13,7 +13,7 @@ export const runtime = 'nodejs';
 
 /** One line per request: what was done and how it went. Never a title, a name, a time or a token. */
 function logLine(id: string, grant: Grant | null, started: number, entries: ToolLog[], status?: string) {
-  const tools = entries.map((e) => `${e.tool}:${e.status}${e.calendars !== undefined ? `:c${e.calendars}` : ''}${e.events !== undefined ? `:e${e.events}` : ''}`).join(',');
+  const tools = entries.map((e) => `${e.tool}:${e.status}${e.calendars !== undefined ? `:c${e.calendars}` : ''}${e.events !== undefined ? `:e${e.events}` : ''}${e.truncated ? ':t' : ''}`).join(',');
   console.info(`[mcp] req=${id} grant=${grant ? grant.id.slice(0, 8) : '-'} ms=${Date.now() - started}${tools ? ` tools=${tools}` : ''}${status ? ` status=${status}` : ''}`);
 }
 

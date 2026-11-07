@@ -10,10 +10,14 @@ export type TokenAnswer = { status: number; body: Record<string, unknown> };
 
 const refuse = (error: string, description: string, status = 400): TokenAnswer => ({ status, body: { error, error_description: description } });
 
-async function issue(config: AiConfig, store: AiStore, grantId: string, clientId: string): Promise<TokenAnswer> {
-  const access = issueAccess(config, grantId, clientId);
+/** Said the same whether access was revoked or the person is not (or no longer) in the beta: nothing tells the client which. */
+const ENDED = 'Access has been revoked';
+
+async function issue(config: AiConfig, store: AiStore, grantId: string, clientId: string, now: number): Promise<TokenAnswer> {
   const refresh = secret('kr');
-  await store.saveRefresh(hashOf(config, refresh), grantId, Date.now() + REFRESH_SECONDS * 1000);
+  // A request at the same moment may have ended the grant (a spent token coming back): then nothing is issued.
+  if (!(await store.saveRefresh(hashOf(config, refresh), grantId, now + REFRESH_SECONDS * 1000))) return refuse('invalid_grant', ENDED);
+  const access = issueAccess(config, grantId, clientId, now);
   return { status: 200, body: { access_token: access.token, token_type: 'Bearer', expires_in: access.expiresIn, refresh_token: refresh, scope: SCOPE } };
 }
 
@@ -25,7 +29,7 @@ const resourceOk = (config: AiConfig, given: string | null) => given === null ||
  * it was sent to, with the PKCE verifier its challenge was made from. A code used twice ends its
  * grant: whoever has it, the person did not mean for them to.
  */
-export async function redeemCode(config: AiConfig, store: AiStore, form: URLSearchParams): Promise<TokenAnswer> {
+export async function redeemCode(config: AiConfig, store: AiStore, form: URLSearchParams, now = Date.now()): Promise<TokenAnswer> {
   const code = form.get('code');
   const clientId = form.get('client_id');
   if (!code || !clientId) return refuse('invalid_request', 'code and client_id are required');
@@ -37,35 +41,38 @@ export async function redeemCode(config: AiConfig, store: AiStore, form: URLSear
     return refuse('invalid_grant', 'The code has already been used');
   }
   const record = taken.record;
-  if (record.expiresAt <= Date.now()) return refuse('invalid_grant', 'The code has expired');
+  if (record.expiresAt <= now) return refuse('invalid_grant', 'The code has expired');
   if (record.clientId !== clientId) return refuse('invalid_grant', 'The code was issued to another client');
   if (form.get('redirect_uri') !== record.redirectUri) return refuse('invalid_grant', 'redirect_uri does not match the authorization request');
   if (!pkceMatches(form.get('code_verifier'), record.codeChallenge)) return refuse('invalid_grant', 'PKCE verification failed');
   const grant = await store.getGrant(record.grantId);
-  if (!grant || grant.clientId !== clientId) return refuse('invalid_grant', 'Access has been revoked');
-  return issue(config, store, grant.id, clientId);
+  if (!grant || grant.clientId !== clientId || !config.allowed(grant.subject)) return refuse('invalid_grant', ENDED);
+  return issue(config, store, grant.id, clientId, now);
 }
 
 /**
- * Trades a refresh token for a new pair. Each refresh token works once: the old one is spent as the
- * new one is issued, and a spent one coming back ends the grant (someone has a copy).
+ * Trades a refresh token for a new pair. Each refresh token is replaced on first use. Within a
+ * few seconds of that (REFRESH_GRACE_SECONDS, at most REFRESH_GRACE_REUSES more times) it is
+ * answered again with a new pair, for a client that lost the first answer or asked twice at once;
+ * the pair it was given first stays good too. After that, a spent one coming back ends the grant:
+ * someone has a copy.
  */
-export async function refresh(config: AiConfig, store: AiStore, form: URLSearchParams): Promise<TokenAnswer> {
+export async function refresh(config: AiConfig, store: AiStore, form: URLSearchParams, now = Date.now()): Promise<TokenAnswer> {
   const token = form.get('refresh_token');
   const clientId = form.get('client_id');
   if (!token || !clientId) return refuse('invalid_request', 'refresh_token and client_id are required');
   if (!resourceOk(config, form.get('resource'))) return refuse('invalid_target', 'Koyomi issues tokens only for its MCP endpoint');
-  const taken = await store.takeRefresh(hashOf(config, token));
+  const taken = await store.takeRefresh(hashOf(config, token), now);
   if (!taken) return refuse('invalid_grant', 'The refresh token is not valid');
-  if (taken.replay) {
+  if (taken.kind === 'replay') {
     await store.revokeGrant(taken.record.grantId);
     return refuse('invalid_grant', 'The refresh token has already been used');
   }
-  if (taken.record.expiresAt <= Date.now()) return refuse('invalid_grant', 'The refresh token has expired');
+  if (taken.record.expiresAt <= now) return refuse('invalid_grant', 'The refresh token has expired');
   const grant = await store.getGrant(taken.record.grantId);
-  if (!grant) return refuse('invalid_grant', 'Access has been revoked');
+  if (!grant || !config.allowed(grant.subject)) return refuse('invalid_grant', ENDED);
   if (grant.clientId !== clientId) return refuse('invalid_grant', 'The refresh token was issued to another client');
-  return issue(config, store, grant.id, clientId);
+  return issue(config, store, grant.id, clientId, now);
 }
 
 /** RFC 7009: ends the grant a token belongs to. Says nothing either way about whether there was one. */

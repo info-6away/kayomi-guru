@@ -37,7 +37,7 @@ function googleProvider(g: google.GoogleClient): CalendarProvider {
           if (event) events.push(event);
           else if (item.id) removed.push(item.id);
         }
-        return { calendarId, full, events, removed: full ? [] : removed, syncToken: page.nextSyncToken };
+        return { calendarId, full, events, removed: full ? [] : removed, syncToken: page.nextSyncToken, ...(page.cut ? { cut: true as const } : {}) };
       } catch (error) {
         if (error instanceof google.GoogleError && error.kind === 'not_found') return { calendarId, gone: true };
         throw error;

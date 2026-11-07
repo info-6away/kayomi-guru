@@ -330,8 +330,20 @@ test('a next page is followed only on Graph’s own address, and only so far', a
   await withMicrosoft(
     (url) => Response.json({ value: [{ id: `e${url.searchParams.get('$skiptoken') ?? 0}` }], '@odata.nextLink': `https://graph.microsoft.com/v1.0/me/calendars/c/calendarView?$skiptoken=${Math.random()}` }),
     async (asked) => {
-      expect(await listEvents(CLIENT, 'token', 'c', SPAN)).toHaveLength(MAX_EVENT_PAGES);
+      const report = { cut: false };
+      expect(await listEvents(CLIENT, 'token', 'c', SPAN, undefined, report)).toHaveLength(MAX_EVENT_PAGES);
       expect(asked).toHaveLength(MAX_EVENT_PAGES);
+      // Said to be cut short, so that free time is never worked out as though it were all.
+      expect(report.cut).toBe(true);
+    },
+  );
+  // One that ends is not.
+  await withMicrosoft(
+    () => Response.json({ value: [{ id: 'only' }] }),
+    async () => {
+      const report = { cut: true };
+      await listEvents(CLIENT, 'token', 'c', SPAN, undefined, report);
+      expect(report.cut).toBe(false);
     },
   );
 });

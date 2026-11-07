@@ -38,6 +38,10 @@ export function back(config: AiConfig, redirectUri: string, params: Record<strin
   return url.toString();
 }
 
+/** OAuth's refusal for someone the private beta does not include: the same words whoever it is. */
+export const notGranted = (config: AiConfig, pending: Pick<Pending, 'redirectUri' | 'state'>) =>
+  back(config, pending.redirectUri, { error: 'access_denied', error_description: 'Access was not granted', state: pending.state });
+
 const printable = (value: string | null, max: number) => value === null || (value.length <= max && /^[\x20-\x7e]*$/.test(value));
 
 /**
@@ -51,6 +55,8 @@ export async function checkRequest(config: AiConfig, store: AiStore, params: URL
   const client = await resolveClient(config, store, clientId, test);
   if (!client) return { page: 'Koyomi does not recognise the app asking for access, or could not check it just now.' };
   if (!redirectUri || !redirectMatches(client.redirectUris, redirectUri)) return { page: 'The address this app asked to return to is not one of its own.' };
+  // A registered client in use is not one to tidy away (CLIENT_RETENTION).
+  if (client.kind === 'registered') await store.touchClient(client.clientId);
 
   const state = params.get('state');
   const fail = (error: string, description: string): Checked => ({ redirect: back(config, redirectUri, { error, error_description: description, state }) });

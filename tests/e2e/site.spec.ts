@@ -426,6 +426,13 @@ test.describe('privacy and terms', () => {
       'records which kind of request it was and how many events were returned, never what they say',
       // What the assistant does with it is its own company's affair, and said no more strongly than that.
       'What the assistant receives is then held by the company that runs it, under that company’s own privacy policy and terms.',
+      'Revoking its access stops it reading more; it cannot take back what it has already received.',
+      // Not open to everyone yet, and not claimed to be.
+      'It is in a private beta, and not yet open to every Koyomi account.',
+      // Google's data: the one way it reaches another company, at the person's request, and what then governs it.
+      'unless you connect an AI assistant yourself.',
+      'Connecting an AI assistant is the one way Koyomi sends Google Calendar data to another company, and it does so only because you ask it to',
+      'including whether it uses them to train its models, is governed by its own privacy policy and terms, not by Koyomi.',
       // Local events never.
       'Your Koyomi calendar, the events you write in Koyomi, stays on your device and is never available to an assistant.',
       // What the server keeps, and revoking.

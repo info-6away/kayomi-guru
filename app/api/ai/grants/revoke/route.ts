@@ -13,6 +13,7 @@ export async function POST(request: Request) {
   if (!config) return new Response(null, { status: 404 });
   const ctx = await signedIn();
   if (isAnswer(ctx)) return respond(ctx);
+  if (!config.allowed(ctx.subject)) return new Response(null, { status: 404 });
   if (!sameOrigin(request, ctx.config)) return respond(no('bad_request', 403));
   const body = (await request.json().catch(() => null)) as { grantId?: unknown } | null;
   if (typeof body?.grantId !== 'string') return respond(no('bad_request', 400));

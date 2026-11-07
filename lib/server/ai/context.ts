@@ -30,8 +30,9 @@ export function unauthorized(config: AiConfig, invalid: boolean): Response {
 
 /**
  * The grant behind a request's bearer token, or null. The token must be Koyomi's, unexpired, for
- * this endpoint, and its grant must still be in force and belong to the client the token was
- * issued to. Only the Authorization header is read: never a query string, never a cookie.
+ * this endpoint, and its grant must still be in force, belong to the client the token was issued
+ * to, and be of a person in the beta's allowlist (taking someone off it ends their access at
+ * once). Only the Authorization header is read: never a query string, never a cookie.
  */
 export async function grantFor(config: AiConfig, request: Request): Promise<{ grant: Grant; token: string; expiresAt: number } | null> {
   const header = request.headers.get('authorization') ?? '';
@@ -40,7 +41,7 @@ export async function grantFor(config: AiConfig, request: Request): Promise<{ gr
   const claims = readAccess(config, match[1]);
   if (!claims) return null;
   const grant = await aiStoreFor(config).getGrant(claims.g);
-  if (!grant || grant.clientId !== claims.c) return null;
+  if (!grant || grant.clientId !== claims.c || !config.allowed(grant.subject)) return null;
   return { grant, token: match[1], expiresAt: claims.e };
 }
 

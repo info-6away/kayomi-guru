@@ -10,13 +10,18 @@
 do $$
 begin
   -- Clients that registered themselves (RFC 7591). Clients known by a metadata document (an
-  -- https client_id) are not stored: their document is fetched when needed.
+  -- https client_id) are not stored: their document is fetched when needed. A record nothing
+  -- uses is removed in time (CLIENT_RETENTION in lib/server/ai/store.ts): a week after it was
+  -- made if it never started an authorization, ninety days after its last one otherwise, and
+  -- never while a grant or a code names it.
   create table if not exists ai_clients (
     client_id     text        primary key,
     redirect_uris text[]      not null,
     -- What the client called itself. Shown to nobody as a fact and never used for a decision.
     client_name   text,
-    created_at    timestamptz not null default now()
+    created_at    timestamptz not null default now(),
+    -- When it last started an authorization (written at most once an hour).
+    last_used_at  timestamptz
   );
 
   create table if not exists ai_grants (
@@ -36,6 +41,7 @@ begin
     window_spent      integer     not null default 0
   );
   create index if not exists ai_grants_by_person on ai_grants (auth_subject);
+  create index if not exists ai_grants_by_client on ai_grants (client_id);
 
   -- The calendars a grant may read: one connection's calendar, named by a keyed hash of its id.
   -- connection_id is not a foreign key on purpose: migration 003 rebuilds calendar_connections'
@@ -62,13 +68,18 @@ begin
     used_at        timestamptz
   );
 
-  -- Refresh tokens: kept as a keyed hash, each replaced on use.
+  -- Refresh tokens: kept as a keyed hash, each replaced on use. A used one may come back a few
+  -- times within seconds of its first use (REFRESH_GRACE_SECONDS and REFRESH_GRACE_REUSES in
+  -- lib/server/ai/tokens.ts); after that, coming back ends its grant.
   create table if not exists ai_refresh_tokens (
-    token_hash text        primary key,
-    grant_id   uuid        not null references ai_grants (grant_id) on delete cascade,
-    expires_at timestamptz not null,
-    used_at    timestamptz,
-    created_at timestamptz not null default now()
+    token_hash  text        primary key,
+    grant_id    uuid        not null references ai_grants (grant_id) on delete cascade,
+    expires_at  timestamptz not null,
+    -- Its first use: when it was replaced.
+    used_at     timestamptz,
+    -- How many times it came back within the grace after that.
+    reuse_count integer     not null default 0,
+    created_at  timestamptz not null default now()
   );
   create index if not exists ai_refresh_tokens_by_grant on ai_refresh_tokens (grant_id);
 end

@@ -23,7 +23,11 @@ export interface Source {
   calendarId: string;
 }
 
-export type Reason = 'needs_reconnecting' | 'temporarily_unavailable' | 'rate_limited' | 'blocked';
+/**
+ * Why a calendar is in `unavailable` (not read at all), or, for `too_many_events`, in
+ * `partly_read`: it was read, but stopped before the end of the span, so what is missing is not known.
+ */
+export type Reason = 'needs_reconnecting' | 'temporarily_unavailable' | 'rate_limited' | 'blocked' | 'too_many_events';
 
 export interface Unavailable {
   calendar: string;
@@ -125,15 +129,22 @@ export interface SourceEvent {
 }
 
 /**
- * Every event of these calendars within the span, read whole (not "what changed since"), and the
- * calendars that could not be read just now. One calendar failing is said of that calendar alone.
+ * Every event of these calendars within the span, read whole (not "what changed since"), the
+ * calendars that could not be read just now, and those whose reading stopped before the end of
+ * the span (`partly`). One calendar failing is said of that calendar alone.
  */
-export async function readEvents(ctx: Ctx, sources: Source[], span: { timeMin: string; timeMax: string }, deadline: AbortSignal): Promise<{ events: SourceEvent[]; unavailable: Unavailable[]; removed: number }> {
+export async function readEvents(
+  ctx: Ctx,
+  sources: Source[],
+  span: { timeMin: string; timeMax: string },
+  deadline: AbortSignal,
+): Promise<{ events: SourceEvent[]; unavailable: Unavailable[]; partly: Unavailable[]; removed: number }> {
   const events: SourceEvent[] = [];
   const unavailable: Unavailable[] = [];
+  const partly: Unavailable[] = [];
   let removed = 0;
   await inTurn(sources, 4, async (source) => {
-    type Got = { failed: Reason | 'gone' } | { events: ExternalEvent[] };
+    type Got = { failed: Reason | 'gone' } | { events: ExternalEvent[]; cut: boolean };
     const result = await remembered<Got>(`${ctx.subject}:${source.connectionId}:${source.calendarId}:${span.timeMin}:${span.timeMax}`, async () => {
       const read = await reading(ctx, source.connectionId, 1, (token, provider) =>
         provider.readCalendar(token, { connectionId: source.connectionId, calendarId: source.calendarId, syncToken: null, span, fetchedAt: new Date().toISOString() }, deadline),
@@ -142,14 +153,15 @@ export async function readEvents(ctx: Ctx, sources: Source[], span: { timeMin: s
       const calendar: CalendarResult = read.data;
       if ('gone' in calendar) return { keep: false, value: { failed: 'gone' as const } };
       if ('failed' in calendar) return { keep: false, value: { failed: 'temporarily_unavailable' as const } };
-      return { keep: true, value: { events: calendar.events } };
+      return { keep: true, value: { events: calendar.events, cut: calendar.cut === true } };
     });
     if ('failed' in result) {
       if (result.failed === 'gone') removed++;
       else unavailable.push({ calendar: source.handle, name: source.name, provider: source.provider, reason: result.failed });
       return;
     }
+    if (result.cut) partly.push({ calendar: source.handle, name: source.name, provider: source.provider, reason: 'too_many_events' });
     for (const event of result.events) events.push({ source, event });
   });
-  return { events, unavailable, removed };
+  return { events, unavailable, partly, removed };
 }

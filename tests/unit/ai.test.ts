@@ -4,7 +4,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { expect, test } from '@playwright/test';
 import type { ExternalEvent, Provider } from '../../lib/calendars/types';
 import { clientFromDocument, labelFor, redirectAllowed, redirectMatches, register } from '../../lib/server/ai/clients';
-import { hashOf, type AiConfig } from '../../lib/server/ai/config';
+import { allowlist, hashOf, type AiConfig } from '../../lib/server/ai/config';
 import { checkRequest, formToken, formTokenMatches, openPending, sealPending } from '../../lib/server/ai/consent';
 import { freeIntervals, merge, workingIntervals } from '../../lib/server/ai/free';
 import { authorizationServer, protectedResource } from '../../lib/server/ai/metadata';
@@ -20,10 +20,11 @@ import { memoryStore, sqlStore, type Sql } from '../../lib/server/connections';
 // four tools over a reader that stands in for the providers.
 
 const KEY = '0123456789abcdef'.repeat(4);
-const configFor = (issuer = 'https://app.koyomi.guru'): AiConfig => ({
+const configFor = (issuer = 'https://app.koyomi.guru', allowed: AiConfig['allowed'] = () => true): AiConfig => ({
   connections: { appUrl: issuer, tokenKey: KEY, database: 'memory', google: null, microsoft: null, yahoo: null, link: null },
   issuer,
   resource: `${issuer}/mcp`,
+  allowed,
 });
 const config = configFor();
 
@@ -61,6 +62,22 @@ test.describe('tokens', () => {
     expect(secret('kr')).not.toBe(one);
     expect(hashOf(config, one)).not.toContain(one.slice(3));
     expect(hashOf(config, one)).toBe(hashOf(config, one));
+  });
+});
+
+test.describe('private beta', () => {
+  test('the allowlist is exact 6Away subjects from Production settings; empty means nobody', () => {
+    const allowed = allowlist({ KOYOMI_MCP_ALLOWLIST: ' subj-1, subj-2\nsubj-3 ', VERCEL: '1' });
+    for (const s of ['subj-1', 'subj-2', 'subj-3']) expect(allowed(s), s).toBe(true);
+    for (const s of ['subj', 'subj-12', 'SUBJ-1', ' subj-1', '', null, undefined]) expect(allowed(s), String(s)).toBe(false);
+    for (const env of [{}, { KOYOMI_MCP_ALLOWLIST: '' }, { KOYOMI_MCP_ALLOWLIST: ' , ' }]) expect(allowlist(env)('subj-1')).toBe(false);
+  });
+
+  test('the browser tests’ way in for their stand-in people does nothing on a Vercel deployment', () => {
+    expect(allowlist({ KOYOMI_TEST_AI_ALLOW_PREFIX: 'user-' })('user-a1')).toBe(true);
+    expect(allowlist({ KOYOMI_TEST_AI_ALLOW_PREFIX: 'user-' })('outsider-a1')).toBe(false);
+    expect(allowlist({ KOYOMI_TEST_AI_ALLOW_PREFIX: 'user-', VERCEL: '1' })('user-a1')).toBe(false);
+    expect(allowlist({ KOYOMI_TEST_AI_ALLOW_PREFIX: ' ' })('anyone')).toBe(false);
   });
 });
 
@@ -149,6 +166,16 @@ test.describe('authorization request', () => {
     return checkRequest(config, store, params);
   };
 
+  test('a registered client that starts an authorization is in use, and is not tidied away', async () => {
+    const fresh = register({ redirect_uris: ['https://grok.com/cb'] });
+    if (!('client' in fresh)) throw new Error('registration');
+    await store.saveClient(fresh.client, Date.now() - 10 * 864e5);
+    const params = new URLSearchParams({ response_type: 'code', client_id: fresh.client.clientId, redirect_uri: 'https://grok.com/cb', code_challenge: CHALLENGE, code_challenge_method: 'S256' });
+    expect(await checkRequest(config, store, params)).toHaveProperty('ok');
+    expect(await store.pruneClients()).toBe(0);
+    expect(await store.getClient(fresh.client.clientId)).not.toBeNull();
+  });
+
   test('an unknown client or a foreign redirect address gets a page, never a redirect', async () => {
     expect(await ask({ client_id: 'kc_unknownunknownunknownunknownunkn' })).toHaveProperty('page');
     expect(await ask({ redirect_uri: 'https://evil.example/cb' })).toHaveProperty('page');
@@ -202,11 +229,11 @@ test('migration 004 applies after 001–003, again and again, and stores no even
   const columns = (await db.query<{ table_name: string; column_name: string }>(`select table_name, column_name from information_schema.columns where table_name like 'ai_%' order by table_name, ordinal_position`)).rows;
   const names = columns.map((c) => `${c.table_name}.${c.column_name}`);
   expect(names).toEqual([
-    'ai_clients.client_id', 'ai_clients.redirect_uris', 'ai_clients.client_name', 'ai_clients.created_at',
+    'ai_clients.client_id', 'ai_clients.redirect_uris', 'ai_clients.client_name', 'ai_clients.created_at', 'ai_clients.last_used_at',
     'ai_codes.code_hash', 'ai_codes.grant_id', 'ai_codes.client_id', 'ai_codes.redirect_uri', 'ai_codes.code_challenge', 'ai_codes.resource', 'ai_codes.expires_at', 'ai_codes.used_at',
     'ai_grant_calendars.grant_id', 'ai_grant_calendars.connection_id', 'ai_grant_calendars.calendar_fingerprint', 'ai_grant_calendars.created_at',
     'ai_grants.grant_id', 'ai_grants.auth_subject', 'ai_grants.client_id', 'ai_grants.client_label', 'ai_grants.redirect_host', 'ai_grants.time_zone', 'ai_grants.created_at', 'ai_grants.last_used_at', 'ai_grants.window_started_at', 'ai_grants.window_spent',
-    'ai_refresh_tokens.token_hash', 'ai_refresh_tokens.grant_id', 'ai_refresh_tokens.expires_at', 'ai_refresh_tokens.used_at', 'ai_refresh_tokens.created_at',
+    'ai_refresh_tokens.token_hash', 'ai_refresh_tokens.grant_id', 'ai_refresh_tokens.expires_at', 'ai_refresh_tokens.used_at', 'ai_refresh_tokens.reuse_count', 'ai_refresh_tokens.created_at',
   ]);
   expect(names.join(' ')).not.toMatch(/title|event|calendar_id|calendar_name|email|account|token_sealed/);
 });
@@ -266,24 +293,154 @@ for (const kind of ['Postgres', 'memory'] as const) {
       expect((await redeemCode(config, store, form({ code, client_id: 'c', redirect_uri: 'https://claude.ai/cb', code_verifier: VERIFIER }))).body).toMatchObject({ error: 'invalid_grant', error_description: 'The code has expired' });
     });
 
-    test('refresh tokens rotate; a spent one coming back ends the grant; another client cannot use one', async () => {
+    // Every refresh below is given its moment, so the grace window is tested to the second, not by waiting.
+    const T0 = Date.parse('2026-11-07T10:00:00Z');
+    const turnOf = (store: AiStore) => (token: unknown, at: number, clientId = 'https://claude.ai/oauth/doc') =>
+      refresh(config, store, form({ grant_type: 'refresh_token', refresh_token: String(token), client_id: clientId }), at);
+
+    test('refresh tokens rotate on every use, and another client cannot use one', async () => {
       const { store, mine } = await setup();
-      const { code, grantId } = await grantAndCode(store, mine);
+      const turn = turnOf(store);
+      const { code } = await grantAndCode(store, mine);
       const first = (await redeem(store, code)).body;
-      const turn = (token: string, clientId = 'https://claude.ai/oauth/doc') => refresh(config, store, form({ grant_type: 'refresh_token', refresh_token: token, client_id: clientId }));
-      const second = await turn(String(first.refresh_token));
+      const second = await turn(first.refresh_token, T0);
       expect(second.status).toBe(200);
       expect(second.body.refresh_token).not.toBe(first.refresh_token);
-      expect((await turn(String(second.body.refresh_token), 'https://chatgpt.com/oauth/client.json')).body).toMatchObject({ error: 'invalid_grant' });
-      // That attempt spent the token: the rightful client now finds it used, and the grant ends.
-      expect((await turn(String(second.body.refresh_token))).body).toMatchObject({ error: 'invalid_grant', error_description: 'The refresh token has already been used' });
+      const third = await turn(second.body.refresh_token, T0 + 60_000);
+      expect(third.status).toBe(200);
+      expect(new Set([first.refresh_token, second.body.refresh_token, third.body.refresh_token]).size).toBe(3);
+      expect((await turn(third.body.refresh_token, T0 + 120_000, 'https://chatgpt.com/oauth/client.json')).body).toMatchObject({ error: 'invalid_grant', error_description: 'The refresh token was issued to another client' });
+    });
+
+    test('a lost answer: the just-replaced token works again within 30 seconds, and both new pairs work', async () => {
+      const { store, mine } = await setup();
+      const turn = turnOf(store);
+      const { code, grantId } = await grantAndCode(store, mine);
+      const first = (await redeem(store, code)).body;
+      // The client asks; Koyomi answers; the answer never arrives. It asks again with the same token.
+      const lost = await turn(first.refresh_token, T0);
+      const retried = await turn(first.refresh_token, T0 + 5_000);
+      expect(lost.status).toBe(200);
+      expect(retried.status).toBe(200);
+      expect(retried.body.refresh_token).not.toBe(lost.body.refresh_token);
+      expect(readAccess(config, String(retried.body.access_token), T0 + 5_000)).toMatchObject({ g: grantId });
+      // Whichever pair the client kept carries on, used once each.
+      expect((await turn(retried.body.refresh_token, T0 + 60_000)).status).toBe(200);
+      expect((await turn(lost.body.refresh_token, T0 + 60_000)).status).toBe(200);
+      expect(await store.getGrant(grantId)).not.toBeNull();
+    });
+
+    test('refreshes at once: exactly one first use, the rest within the grace, all answered; never more than three extra', async () => {
+      const { store, mine } = await setup();
+      const turn = turnOf(store);
+      const { code, grantId } = await grantAndCode(store, mine);
+      const first = (await redeem(store, code)).body;
+      const parallel = await Promise.all([0, 1, 2].map(() => turn(first.refresh_token, T0)));
+      expect(parallel.map((a) => a.status)).toEqual([200, 200, 200]);
+      expect(new Set(parallel.map((a) => a.body.refresh_token)).size).toBe(3);
+      // One more within the grace is the third extra use, and still answered.
+      expect((await turn(first.refresh_token, T0 + 1_000)).status).toBe(200);
+      // A fifth is more than any client retrying would send: the token is someone's copy, and the grant ends.
+      expect((await turn(first.refresh_token, T0 + 2_000)).body).toMatchObject({ error: 'invalid_grant', error_description: 'The refresh token has already been used' });
       expect(await store.getGrant(grantId)).toBeNull();
+      for (const answer of parallel) expect((await turn(answer.body.refresh_token, T0 + 3_000)).body).toMatchObject({ error: 'invalid_grant' });
+    });
+
+    test('five at once: one first use, three in the grace, and the fifth ends the grant, with no answer half-made', async () => {
+      const { store, mine } = await setup();
+      const turn = turnOf(store);
+      const { code, grantId } = await grantAndCode(store, mine);
+      const first = (await redeem(store, code)).body;
+      const answers = await Promise.all([0, 1, 2, 3, 4].map(() => turn(first.refresh_token, T0)));
+      // Exactly one is the copy that ends the grant. The other four were each answered before
+      // that, or are told access has ended: none fails, and none is given a token of an ended grant.
+      expect(answers.filter((a) => a.body.error_description === 'The refresh token has already been used')).toHaveLength(1);
+      const others = answers.filter((a) => a.body.error_description !== 'The refresh token has already been used');
+      for (const answer of others) expect([200, 'Access has been revoked']).toContain(answer.status === 200 ? 200 : answer.body.error_description);
+      expect(await store.getGrant(grantId)).toBeNull();
+      for (const answer of others.filter((a) => a.status === 200)) expect((await turn(answer.body.refresh_token, T0 + 1_000)).status).toBe(400);
+    });
+
+    test('after the grace a spent token is spent for good: coming back ends the grant and every token of it', async () => {
+      const { store, mine } = await setup();
+      const turn = turnOf(store);
+      const { code, grantId } = await grantAndCode(store, mine);
+      const first = (await redeem(store, code)).body;
+      const second = await turn(first.refresh_token, T0);
+      // 30 seconds exactly is past the grace (it is "within 30 seconds", not "up to and including").
+      expect((await turn(first.refresh_token, T0 + 30_000)).body).toMatchObject({ error: 'invalid_grant', error_description: 'The refresh token has already been used' });
+      expect(await store.getGrant(grantId)).toBeNull();
+      expect((await turn(second.body.refresh_token, T0 + 31_000)).body).toMatchObject({ error: 'invalid_grant' });
+
+      // And a day later, the same.
+      const again = await grantAndCode(store, mine);
+      const pair = (await redeem(store, again.code)).body;
+      expect((await turn(pair.refresh_token, T0)).status).toBe(200);
+      expect((await turn(pair.refresh_token, T0 + 864e5)).body).toMatchObject({ error_description: 'The refresh token has already been used' });
+      expect(await store.getGrant(again.grantId)).toBeNull();
+    });
+
+    test('an expired refresh token is refused without ending the grant', async () => {
+      const { store, mine } = await setup();
+      const { grantId } = await grantAndCode(store, mine);
+      const token = secret('kr');
+      await store.saveRefresh(hashOf(config, token), grantId, T0 - 1);
+      expect((await turnOf(store)(token, T0)).body).toMatchObject({ error: 'invalid_grant', error_description: 'The refresh token has expired' });
+      expect(await store.getGrant(grantId)).not.toBeNull();
+    });
+
+    test('someone not (or no longer) in the beta: no tokens from a code or a refresh, and the grant is kept for if they are let back in', async () => {
+      const { store, mine } = await setup();
+      const outside = configFor('https://app.koyomi.guru', (subject) => subject !== 'person-a');
+      const { code, grantId } = await grantAndCode(store, mine);
+      const refused = await redeemCode(outside, store, form({ grant_type: 'authorization_code', code, client_id: 'https://claude.ai/oauth/doc', redirect_uri: 'https://claude.ai/api/mcp/auth_callback', code_verifier: VERIFIER }));
+      expect(refused.body).toMatchObject({ error: 'invalid_grant', error_description: 'Access has been revoked' });
 
       const again = await grantAndCode(store, mine);
       const pair = (await redeem(store, again.code)).body;
-      expect((await turn(String(pair.refresh_token))).status).toBe(200);
-      expect((await turn(String(pair.refresh_token))).body).toMatchObject({ error_description: 'The refresh token has already been used' });
-      expect(await store.getGrant(again.grantId)).toBeNull();
+      expect((await refresh(outside, store, form({ refresh_token: String(pair.refresh_token), client_id: 'https://claude.ai/oauth/doc' }), T0)).body).toMatchObject({ error: 'invalid_grant', error_description: 'Access has been revoked' });
+      expect(await store.getGrant(again.grantId)).not.toBeNull();
+      expect(grantId).not.toBe(again.grantId);
+    });
+
+    test('self-registered clients nothing uses are tidied away; never one a grant or a code names', async () => {
+      const { store, mine } = await setup();
+      const DAY = 864e5;
+      const client = async (made: number) => {
+        const registered = register({ redirect_uris: ['https://grok.com/cb'] });
+        if (!('client' in registered)) throw new Error('registration');
+        await store.saveClient(registered.client, made);
+        return registered.client.clientId;
+      };
+      const abandoned = await client(T0);
+      const recent = await client(T0 + 2 * DAY);
+      const used = await client(T0);
+      await store.touchClient(used, T0 + DAY);
+      // Touched again within the hour: not written, so its last use stays T0 + 1 day.
+      await store.touchClient(used, T0 + DAY + 30 * 60_000);
+      const granted = await client(T0);
+      const grantId = await store.createGrant({ subject: 'person-a', clientId: granted, clientLabel: 'Grok', redirectHost: 'grok.com', timeZone: 'UTC', calendars: [{ connectionId: mine, fingerprint: 'fp' }] });
+      const token = secret('kr');
+      await store.saveRefresh(hashOf(config, token), grantId, T0 + 400 * DAY);
+
+      // Eight days on: the one never used is gone, the rest stay.
+      expect(await store.pruneClients(T0 + 8 * DAY)).toBe(1);
+      expect(await store.getClient(abandoned)).toBeNull();
+      for (const id of [recent, used, granted]) expect(await store.getClient(id), id).not.toBeNull();
+      // Ninety days and a quarter of an hour after its last use (T0 + 1 day: the touch half an hour
+      // later was not written), the used one goes; so does the one registered later and never used.
+      expect(await store.pruneClients(T0 + 91 * DAY + 15 * 60_000)).toBe(2);
+      expect(await store.getClient(used)).toBeNull();
+      expect(await store.getClient(recent)).toBeNull();
+      // The one with a grant is kept however old, and its grant and token work as before.
+      expect(await store.pruneClients(T0 + 365 * DAY)).toBe(0);
+      expect(await store.getClient(granted)).not.toBeNull();
+      expect(await store.getGrant(grantId)).not.toBeNull();
+      expect((await refresh(config, store, form({ refresh_token: token, client_id: granted }), T0 + 365 * DAY)).status).toBe(200);
+      // Once its grant is revoked, it is tidied like any other.
+      await store.revokeGrant(grantId);
+      expect(await store.pruneClients(T0 + 456 * DAY)).toBe(1);
+      expect(await store.getClient(granted)).toBeNull();
     });
 
     test('revoking: by token, by its own client only; by the person, theirs only; it ends refresh as well', async () => {
@@ -395,7 +552,7 @@ test.describe('tools', () => {
   });
   const allDay = (s: Source, id: string, title: string, start: string, end: string): SourceEvent => ({ ...timed(s, id, title, start, end), event: { ...timed(s, id, title, start, end).event, allDay: true } });
 
-  function context(events: SourceEvent[], { failing = [] as Source[], unavailable = [] as Unavailable[], sources = [work, personal, outlook, yahoo] } = {}): ToolContext & { asked: { span: { timeMin: string; timeMax: string }; handles: string[] }[] } {
+  function context(events: SourceEvent[], { failing = [] as Source[], cut = [] as Source[], unavailable = [] as Unavailable[], sources = [work, personal, outlook, yahoo] } = {}): ToolContext & { asked: { span: { timeMin: string; timeMax: string }; handles: string[] }[] } {
     const asked: { span: { timeMin: string; timeMax: string }; handles: string[] }[] = [];
     const authorized: Authorized = { sources, unavailable, removed: 0 };
     return {
@@ -411,6 +568,8 @@ test.describe('tools', () => {
           return {
             events: events.filter((e) => set.has(e.source.handle) && !failing.includes(e.source)),
             unavailable: failing.filter((f) => set.has(f.handle)).map((f) => ({ calendar: f.handle, name: f.name, provider: f.provider, reason: 'temporarily_unavailable' as const })),
+            // Read, but stopped before the end of the span: its events so far are given.
+            partly: cut.filter((f) => set.has(f.handle)).map((f) => ({ calendar: f.handle, name: f.name, provider: f.provider, reason: 'too_many_events' as const })),
             removed: 0,
           };
         },
@@ -471,9 +630,87 @@ test.describe('tools', () => {
       { calendar: 'cal_gone', name: null, provider: 'microsoft', reason: 'needs_reconnecting' },
       { calendar: 'cal_yahoo', name: 'Yahoo', provider: 'yahoo', reason: 'temporarily_unavailable' },
     ]);
-    expect(free.warning).toMatch(/Not every calendar could be checked/);
+    expect(free.warning).toMatch(/Not every calendar could be fully checked/);
+    expect(free.partly_read).toEqual([]);
+    expect(free.truncated).toBe(false);
     expect((await getScheduleTool(ctx, { date: '2026-11-10' })).complete).toBe(false);
     expect((await listCalendarsTool(ctx)).complete).toBe(false);
+  });
+
+  // 600 half-hour events on one working calendar, back to back from 2026-11-09 00:00 Dubai, then a gap.
+  const MANY = Array.from({ length: 600 }, (_, i) => {
+    const start = Date.parse('2026-11-08T20:00:00Z') + i * 30 * 60_000;
+    return timed(work, `m${i}`, `Booked ${i}`, new Date(start).toISOString(), new Date(start + 30 * 60_000).toISOString());
+  });
+
+  test('more than 500 events: the first 500 in time order, said to be truncated, and still complete', async () => {
+    const ctx = context(MANY);
+    const all = await getEventsTool(ctx, { start: '2026-11-09', end: '2026-11-30' });
+    expect(all).toMatchObject({ complete: true, unavailable: [], partly_read: [], truncated: true, total_events: 600 });
+    expect(all.events).toHaveLength(500);
+    expect(all.events[0].title).toBe('Booked 0');
+    expect(all.events[499].title).toBe('Booked 499');
+    expect(all.truncation).toMatch(/Only the first 500 of 600 events/);
+    // At the cap exactly: not truncated, and no note.
+    const exactly = await getEventsTool(context(MANY.slice(0, 500)), { start: '2026-11-09', end: '2026-11-30' });
+    expect(exactly).toMatchObject({ truncated: false, total_events: 500 });
+    expect(exactly).not.toHaveProperty('truncation');
+    expect(exactly.events).toHaveLength(500);
+  });
+
+  test('a day with more than 500 events: one cap over the whole day, all-day events first', async () => {
+    const holidays = Array.from({ length: 30 }, (_, i) => allDay(yahoo, `h${i}`, `Note ${i}`, '2026-11-09', '2026-11-09'));
+    // 48 half hours a day in Dubai: give the day ten times that from several calendars.
+    const crowded = Array.from({ length: 480 }, (_, i) => {
+      const start = Date.parse('2026-11-08T20:00:00Z') + (i % 48) * 30 * 60_000;
+      return timed([work, personal, outlook][i % 3], `d${i}`, `Slot ${i}`, new Date(start).toISOString(), new Date(start + 30 * 60_000).toISOString());
+    });
+    const day = await getScheduleTool(context([...holidays, ...crowded]), { date: '2026-11-09' });
+    expect(day).toMatchObject({ complete: true, truncated: true, total_events: 510 });
+    expect(day.all_day_events).toHaveLength(30);
+    expect(day.events).toHaveLength(470);
+    expect(day.all_day_events.length + day.events.length).toBe(500);
+  });
+
+  test('free time is worked out from every event read, never from the 500 listed', async () => {
+    // The 600 events fill 2026-11-09 00:00 to 2026-11-21 12:00 in Dubai. Events past the 500th
+    // still block their time: nothing is free before 12:00 on the 21st.
+    const ctx = context(MANY);
+    const free = await findFreeTimeTool(ctx, { start: '2026-11-09', end: '2026-11-21T18:00', duration_minutes: 30 });
+    expect(free.complete).toBe(true);
+    expect(free.busy_count).toBe(1);
+    expect(free.free).toEqual([{ start: '2026-11-21T12:00:00+04:00', end: '2026-11-21T18:00:00+04:00', minutes: 360 }]);
+    expect(free.truncated).toBe(false);
+  });
+
+  test('more than 500 free stretches: the first 500 listed and said to be truncated', async () => {
+    // A 5-minute event every 20 minutes for 14 days leaves 1008 free stretches of 15 minutes.
+    const ticks = Array.from({ length: 14 * 24 * 3 }, (_, i) => {
+      const start = Date.parse('2026-11-08T20:00:00Z') + i * 20 * 60_000;
+      return timed(personal, `t${i}`, 'Tick', new Date(start).toISOString(), new Date(start + 5 * 60_000).toISOString());
+    });
+    const free = await findFreeTimeTool(context(ticks), { start: '2026-11-09', end: '2026-11-22', duration_minutes: 10 });
+    expect(free.complete).toBe(true);
+    expect(free.truncated).toBe(true);
+    expect(free.free).toHaveLength(500);
+    expect(free.total_free).toBeGreaterThan(500);
+    expect(free.truncation).toMatch(/free stretches/);
+  });
+
+  test('provider failure and a calendar read only in part are not truncation, and the answer says which it is', async () => {
+    const partly = context(DAY, { cut: [outlook] });
+    const events = await getEventsTool(partly, { start: '2026-11-10', end: '2026-11-10' });
+    expect(events).toMatchObject({ complete: false, unavailable: [], truncated: false });
+    expect(events.partly_read).toEqual([{ calendar: 'cal_outlook', name: 'Calendar', provider: 'microsoft', reason: 'too_many_events' }]);
+    // What was read of it is still given.
+    expect(events.events.map((e) => e.title)).toContain('Call supplier');
+    const free = await findFreeTimeTool(partly, { start: '2026-11-10T09:00', end: '2026-11-10T18:00', duration_minutes: 60 });
+    expect(free.complete).toBe(false);
+    expect(free.warning).toMatch(/partly_read/);
+
+    const failing = await getEventsTool(context(DAY, { failing: [outlook] }), { start: '2026-11-10', end: '2026-11-10' });
+    expect(failing).toMatchObject({ complete: false, partly_read: [], truncated: false });
+    expect(failing.unavailable.map((u) => u.reason)).toEqual(['temporarily_unavailable']);
   });
 
   test('only the calendars asked for, and only ones this grant may read', async () => {

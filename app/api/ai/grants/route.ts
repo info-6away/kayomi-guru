@@ -16,6 +16,8 @@ export async function POST(request: Request) {
   if (!config) return new Response(null, { status: 404 });
   const ctx = await signedIn();
   if (isAnswer(ctx)) return respond(ctx);
+  // Outside the private beta's allowlist this is not here at all, and Calendars shows nothing of it.
+  if (!config.allowed(ctx.subject)) return new Response(null, { status: 404 });
   if (!sameOrigin(request, ctx.config)) return respond(no('bad_request', 403));
   const body = (await request.json().catch(() => null)) as { calendars?: unknown } | null;
   const known = Array.isArray(body?.calendars) ? body.calendars.slice(0, 500) : [];

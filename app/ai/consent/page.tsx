@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { AiConsent, type ConsentGroup } from '@/components/AiConsent';
 import { JOB_TIMEOUT_MS, inTurn, storeFor } from '@/lib/server/api';
 import { auth } from '@/lib/server/auth';
 import { aiConfig } from '@/lib/server/ai/config';
-import { CONSENT_COOKIE, formToken, openPending } from '@/lib/server/ai/consent';
+import { CONSENT_COOKIE, formToken, notGranted, openPending } from '@/lib/server/ai/consent';
 import { listing } from '@/lib/server/listing';
 
 export const dynamic = 'force-dynamic';
@@ -51,6 +51,9 @@ export default async function ConsentPage() {
   if (!pending) return <Notice title="This request has ended" text="Requests to connect an assistant last ten minutes. Go back to the assistant and connect Koyomi again." />;
   const user = await auth.getCurrentUser();
   if (!user) return <Notice title="Sign in to continue" text={`${pending.label} asked to read some of your calendars through Koyomi. Sign in first, then choose which.`} action={{ href: `/api/auth/signin?returnTo=${encodeURIComponent('/ai/consent')}`, label: 'Sign in' }} />;
+  // The private beta: nobody outside the allowlist sees a calendar here, whatever address they
+  // open. The assistant is told only that access was not granted.
+  if (!config.allowed(user.sub)) redirect(notGranted(config, pending));
 
   const ctx = { config: config.connections, store: storeFor(config.connections), subject: user.sub };
   const deadline = AbortSignal.timeout(JOB_TIMEOUT_MS);

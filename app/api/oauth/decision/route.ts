@@ -40,6 +40,8 @@ export async function POST(request: Request) {
   const pending = openPending(config, jar.get(CONSENT_COOKIE)?.value);
   const user = await auth.getCurrentUser();
   const form = await request.formData().catch(() => null);
+  // Outside the private beta's allowlist there is nothing here.
+  if (user && !config.allowed(user.sub)) return new Response(null, { status: 404 });
   if (!pending || !user || !form || !formTokenMatches(config, pending, user.sub, form.get('form'))) {
     return new Response('This request has ended. Go back to the assistant and connect Koyomi again.', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
   }

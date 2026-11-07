@@ -24,6 +24,9 @@ interface AiGrant {
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
 export function AiAccess({ calendars, mobile }: { calendars: ExternalCalendar[]; mobile: boolean }) {
+  // Shown only once the server has said this person may use it: during the private beta it
+  // answers 404 to everyone not on the allowlist, exactly as when AI access is off.
+  const [allowed, setAllowed] = useState(false);
   const [open, setOpen] = useState(false);
   const [grants, setGrants] = useState<AiGrant[] | null>(null);
   const [endpoint, setEndpoint] = useState<string | null>(null);
@@ -36,15 +39,24 @@ export function AiAccess({ calendars, mobile }: { calendars: ExternalCalendar[];
   const load = useCallback(async () => {
     try {
       const response = await fetch('/api/ai/grants', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendars: JSON.parse(known) }), cache: 'no-store' });
+      if (response.status === 404) {
+        setAllowed(false);
+        return;
+      }
       if (!response.ok) throw new Error(String(response.status));
       const body = (await response.json()) as { endpoint: string; grants: AiGrant[] };
       setGrants(body.grants);
       setEndpoint(body.endpoint);
+      setAllowed(true);
       setFailed(false);
     } catch {
       setFailed(true);
     }
   }, [known]);
+  // Once to learn whether to show anything at all, and again whenever it is opened.
+  useEffect(() => {
+    void load();
+  }, [load]);
   useEffect(() => {
     if (open) void load();
   }, [open, load]);
@@ -67,6 +79,7 @@ export function AiAccess({ calendars, mobile }: { calendars: ExternalCalendar[];
   };
   const nameOf = (c: { connectionId: string; calendarId: string }) => calendars.find((k) => k.connectionId === c.connectionId && k.calendarId === c.calendarId)?.name;
 
+  if (!allowed) return null;
   return (
     // Not a group of its own: in Calendars a group is an account.
     <div className="mt-5 border-t border-line pt-2" data-ai-access>

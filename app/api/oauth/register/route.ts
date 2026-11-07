@@ -25,7 +25,11 @@ export async function POST(request: Request) {
   } catch {}
   const registered = register(body);
   if ('error' in registered) return Response.json({ error: registered.error, error_description: registered.description }, { status: 400, headers: HEADERS });
-  await aiStoreFor(config).saveClient(registered.client);
+  const store = aiStoreFor(config);
+  // Registering is the only way records are added, so it is where old unused ones are cleared
+  // (CLIENT_RETENTION). A failure to tidy never stops a registration.
+  await store.pruneClients().catch((error: unknown) => console.warn(`[oauth] pruning failed: ${error instanceof Error ? error.name : 'unknown'}`));
+  await store.saveClient(registered.client);
   return Response.json(registered.body, { status: 201, headers: HEADERS });
 }
 

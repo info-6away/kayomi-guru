@@ -176,7 +176,8 @@ test.describe('AI assistants', () => {
     expect(free.complete).toBe(false);
     expect(free.unavailable).toHaveLength(2);
     expect(free.unavailable.every((u: { provider: string; reason: string }) => u.provider === 'google' && u.reason === 'temporarily_unavailable')).toBe(true);
-    expect(free.warning).toMatch(/Not every calendar could be checked/);
+    expect(free.warning).toMatch(/Not every calendar could be fully checked/);
+    expect(free).toMatchObject({ partly_read: [], truncated: false });
     expect((await call(client, 'get_schedule', { date: TOMORROW })).structuredContent.complete).toBe(false);
     await google.becomes(id, { fail: null });
     await client.close();
@@ -270,12 +271,87 @@ test.describe('AI assistants', () => {
     const grantId = mine.grants[0].id;
     const other = await browser.newContext();
     const otherPage = await other.newPage();
-    await actAs(otherPage, `someone-else-${id}`);
+    // Another person in the beta (the prefix the tests' allowlist lets in).
+    await actAs(otherPage, `user-someone-else-${id}`);
     await signInOnly(otherPage);
     expect(await (await otherPage.request.post(`${APP}/api/ai/grants/revoke`, { headers: { origin: APP }, data: { grantId } })).json()).toEqual({ revoked: false });
     expect((await (await otherPage.request.post(`${APP}/api/ai/grants`, { headers: { origin: APP }, data: { calendars: [] } })).json()).grants).toEqual([]);
     await other.close();
     expect((await (await page.request.post(`${APP}/api/ai/grants`, { headers: { origin: APP }, data: { calendars: [] } })).json()).grants.map((g: { id: string }) => g.id)).toEqual([grantId]);
+  });
+
+  test('refreshing over the token endpoint: a retry or two at once is answered, a token kept back and used later ends access', async ({ page, id }) => {
+    const { client, tokens } = await connectedAssistant(page, id);
+    const turn = async (refreshToken: string) => {
+      const response = await fetch(`${APP}/api/oauth/token`, form({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: client, resource: MCP }));
+      return { status: response.status, body: await response.json() };
+    };
+    const works = async (accessToken: string) => (await fetch(MCP, { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: '{}' })).status !== 401;
+    // Two of the assistant's servers refresh with the same token at the same moment: both are answered.
+    const [a, b] = await Promise.all([turn(tokens.refresh_token), turn(tokens.refresh_token)]);
+    expect([a.status, b.status]).toEqual([200, 200]);
+    expect(a.body.refresh_token).not.toBe(b.body.refresh_token);
+    expect(await works(a.body.access_token)).toBe(true);
+    expect(await works(b.body.access_token)).toBe(true);
+    // The pair it keeps carries on, replaced on each use.
+    const next = await turn(a.body.refresh_token);
+    expect(next.status).toBe(200);
+    // The first token, sent again and again: two more are still within the grace; the one after is a copy, and access ends.
+    expect((await turn(tokens.refresh_token)).status).toBe(200);
+    expect((await turn(tokens.refresh_token)).status).toBe(200);
+    expect(await turn(tokens.refresh_token)).toMatchObject({ status: 400, body: { error: 'invalid_grant', error_description: 'The refresh token has already been used' } });
+    expect(await works(next.body.access_token)).toBe(false);
+    expect((await turn(next.body.refresh_token)).status).toBe(400);
+  });
+
+  test('the private beta: someone not on the allowlist sees no AI access and never reaches a calendar choice, whatever address they open', async ({ page, id, browser }) => {
+    const outsider = `outsider-${id}`;
+    await actAs(page, outsider);
+    await google.has(id, aiAccount());
+    const asked = page.waitForResponse((response) => response.url() === `${APP}/api/ai/grants`);
+    await open(page);
+    await connect(page);
+    await openCalendars(page);
+    // Calendars asks once whether there is anything to show, is told there is not, and shows nothing.
+    expect((await asked).status()).toBe(404);
+    await expect(toggle(page, 'Personal')).toBeVisible();
+    await expect(view(page).getByText('AI access')).toHaveCount(0);
+    await expect(page.locator('[data-ai-access]')).toHaveCount(0);
+    // The same 404 as when AI access is off: nothing says the beta exists, or who is in it.
+    for (const path of ['/api/ai/grants', '/api/ai/grants/revoke']) {
+      const answer = await page.request.post(`${APP}${path}`, { headers: { origin: APP }, data: { calendars: [], grantId: 'x' } });
+      expect(answer.status(), path).toBe(404);
+      expect(await answer.text(), path).toBe('');
+    }
+
+    // An assistant's link while signed in: straight back to the assistant, refused. (Read from the
+    // redirect itself: the assistant's address is not a page these tests serve.)
+    const clientId = await registerClient();
+    const link = (state: string) => `${APP}/api/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, state, code_challenge: pkce().challenge, code_challenge_method: 'S256', resource: MCP })}`;
+    const refusedTo = (answer: { status(): number; headers(): Record<string, string> }, state: string) => {
+      expect([302, 303, 307]).toContain(answer.status());
+      const location = new URL(answer.headers().location, APP);
+      expect(`${location.origin}${location.pathname}`).toBe(CALLBACK);
+      expect(Object.fromEntries(location.searchParams)).toEqual({ error: 'access_denied', error_description: 'Access was not granted', state, iss: APP });
+    };
+    refusedTo(await page.request.get(link('signed-in'), { maxRedirects: 0 }), 'signed-in');
+    // The consent page and the answer to it, opened by address: nothing of theirs, and no way to answer.
+    await page.goto(`${APP}/ai/consent`);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('This request has ended');
+    await expect(page.getByRole('checkbox')).toHaveCount(0);
+    expect((await page.request.post(`${APP}/api/oauth/decision`, { headers: { origin: APP }, form: { action: 'allow', form: 'x', calendar: 'x' }, maxRedirects: 0 })).status()).toBe(404);
+
+    // The same link signed out: Koyomi keeps the request and sends them to sign in; once they have,
+    // the consent page sends them back refused, never showing the choice.
+    const fresh = await browser.newContext();
+    const signedOut = await fresh.newPage();
+    await actAs(signedOut, outsider);
+    const toSignIn = await signedOut.request.get(link('signed-out'), { maxRedirects: 0 });
+    expect(toSignIn.status()).toBe(303);
+    expect(toSignIn.headers().location).toContain('/api/auth/signin?returnTo=%2Fai%2Fconsent');
+    await signInOnly(signedOut);
+    refusedTo(await signedOut.request.get(`${APP}/ai/consent`, { maxRedirects: 0 }), 'signed-out');
+    await fresh.close();
   });
 
   test('an assistant in a loop is stopped, and the same question does not reach Google again and again', async ({ page, id }) => {

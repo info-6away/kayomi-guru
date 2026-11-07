@@ -135,6 +135,11 @@ export type CalendarResult =
       /** Provider ids of events that no longer exist, or no longer belong on a calendar. */
       removed: string[];
       syncToken: string | null;
+      /**
+       * Set when the reading stopped before the end of the span: more events than Koyomi reads at
+       * once, or more than it can work out in time. What was read is right; it is not all there is.
+       */
+      cut?: true;
     }
   /** The calendar is no longer there for this account. */
   | { calendarId: string; gone: true }

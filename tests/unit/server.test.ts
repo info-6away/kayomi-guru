@@ -489,6 +489,8 @@ test('a calendar that never ends is not read for ever', async () => {
     expect(read.items).toHaveLength(MAX_EVENT_PAGES);
     // Cut short, so not to be trusted as complete: no cursor, and the next reading starts again.
     expect(read.nextSyncToken).toBeNull();
+    // And said to be cut short, so that free time is never worked out as though it were all.
+    expect(read.cut).toBe(true);
     for (const url of asked) expect(url.searchParams.get('maxResults')).toBe('2500');
   });
   await withGoogle(() => Response.json({ items: [{ id: 'c' }], nextPageToken: 'more' }), async (asked) => {

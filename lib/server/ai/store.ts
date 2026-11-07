@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Allowance, Sql } from '../connections';
 import { isConnectionId } from '../connections';
+import { REFRESH_GRACE_REUSES, REFRESH_GRACE_SECONDS } from './tokens';
 
 // Where AI access is kept (migrations/004_ai_access.sql): clients that registered themselves,
 // grants (a person allowing one client to read some calendars), each grant's calendars, and the
@@ -40,12 +41,35 @@ export interface CodeRecord {
   expiresAt: number;
 }
 
-/** What taking a code or a refresh token found: the record, and whether it had been taken before. */
+/** What taking a code found: the record, and whether it had been taken before. */
 export type Taken<T> = { record: T; replay: boolean } | null;
 
+/**
+ * What taking a refresh token found: its first use (`fresh`), a use again within the grace after
+ * that (`grace`), or a use after the grace or beyond its count (`replay`), which ends the grant.
+ */
+export type TakenRefresh = { kind: 'fresh' | 'grace' | 'replay'; record: { grantId: string; expiresAt: number } } | null;
+
+/**
+ * How long a self-registered client's record is kept with nothing of it in use (docs/MCP.md):
+ * one that never started an authorization is removed a week after it registered, and one that did
+ * is removed ninety days after it last did. Never while a grant or a code names it, so no
+ * person's access ever ends because its client's record was tidied away. Clients known by a
+ * metadata document have no record to remove.
+ */
+export const CLIENT_RETENTION = { unusedDays: 7, idleDays: 90 };
+/** How often a client's last use is written down: at most once an hour. */
+const TOUCH_MS = 60 * 60 * 1000;
+/** How many records one tidying removes at most. */
+const PRUNE_BATCH = 200;
+
 export interface AiStore {
-  saveClient(client: AiClient): Promise<void>;
+  saveClient(client: AiClient, now?: number): Promise<void>;
   getClient(clientId: string): Promise<AiClient | null>;
+  /** Notes that a self-registered client has started an authorization (at most once an hour). */
+  touchClient(clientId: string, now?: number): Promise<void>;
+  /** Removes self-registered clients past CLIENT_RETENTION that no grant or code names. Returns how many. */
+  pruneClients(now?: number): Promise<number>;
   /**
    * Records that `subject` allowed `clientId` to read `calendars`, ending any grant the same person
    * gave the same client before. Only the person's own connections can be named: any other is
@@ -63,9 +87,14 @@ export interface AiStore {
   saveCode(hash: string, code: CodeRecord): Promise<void>;
   /** Marks a code used. `replay` is true when it had been used before. */
   takeCode(hash: string): Promise<Taken<CodeRecord>>;
-  saveRefresh(hash: string, grantId: string, expiresAt: number): Promise<void>;
-  /** Marks a refresh token used. `replay` is true when it had been used before. */
-  takeRefresh(hash: string): Promise<Taken<{ grantId: string; expiresAt: number }>>;
+  /** Keeps a new refresh token. False when its grant has ended meanwhile (revoked by a request at the same moment). */
+  saveRefresh(hash: string, grantId: string, expiresAt: number): Promise<boolean>;
+  /**
+   * Uses a refresh token: the first use marks it used at `now`; a use within REFRESH_GRACE_SECONDS
+   * after that, up to REFRESH_GRACE_REUSES times, is `grace`; anything later is `replay`. Atomic:
+   * of any number of uses at once, exactly one is `fresh`.
+   */
+  takeRefresh(hash: string, now?: number): Promise<TakenRefresh>;
   /** The grant a refresh token belongs to, used or not, without using it. */
   refreshGrant(hash: string): Promise<string | null>;
 }
@@ -107,12 +136,33 @@ export function sqlAiStore(sql: Sql): AiStore {
   };
 
   return {
-    async saveClient(client) {
-      await sql`insert into ai_clients (client_id, redirect_uris, client_name) values (${client.clientId}, ${client.redirectUris}::text[], ${client.clientName})`;
+    async saveClient(client, now = Date.now()) {
+      await sql`
+        insert into ai_clients (client_id, redirect_uris, client_name, created_at)
+        values (${client.clientId}, ${client.redirectUris}::text[], ${client.clientName}, ${new Date(now).toISOString()})`;
     },
     async getClient(clientId) {
       const [row] = await sql`select client_id, redirect_uris, client_name from ai_clients where client_id = ${clientId}`;
       return row ? { clientId: String(row.client_id), redirectUris: (row.redirect_uris as string[]).map(String), clientName: row.client_name == null ? null : String(row.client_name) } : null;
+    },
+    async touchClient(clientId, now = Date.now()) {
+      await sql`
+        update ai_clients set last_used_at = ${new Date(now).toISOString()}
+        where client_id = ${clientId} and (last_used_at is null or last_used_at < ${new Date(now - TOUCH_MS).toISOString()})`;
+    },
+    async pruneClients(now = Date.now()) {
+      const unused = new Date(now - CLIENT_RETENTION.unusedDays * 864e5).toISOString();
+      const idle = new Date(now - CLIENT_RETENTION.idleDays * 864e5).toISOString();
+      // One statement: a client is removed only if, at that moment, no grant and no code names it.
+      const rows = await sql`
+        delete from ai_clients where client_id in (
+          select c.client_id from ai_clients c
+          where ((c.last_used_at is null and c.created_at < ${unused}) or c.last_used_at < ${idle})
+            and not exists (select 1 from ai_grants g where g.client_id = c.client_id)
+            and not exists (select 1 from ai_codes k where k.client_id = c.client_id)
+          limit ${PRUNE_BATCH})
+        returning client_id`;
+      return rows.length;
     },
     async createGrant(grant) {
       await sql`delete from ai_grants where auth_subject = ${grant.subject} and client_id = ${grant.clientId}`;
@@ -203,13 +253,37 @@ export function sqlAiStore(sql: Sql): AiStore {
     },
     async saveRefresh(hash, grantId, expiresAt) {
       await sql`delete from ai_refresh_tokens where expires_at < now() - interval '1 day'`;
-      await sql`insert into ai_refresh_tokens (token_hash, grant_id, expires_at) values (${hash}, ${grantId}, ${new Date(expiresAt).toISOString()})`;
+      try {
+        const rows = await sql`
+          insert into ai_refresh_tokens (token_hash, grant_id, expires_at)
+          select ${hash}, ${grantId}::uuid, ${new Date(expiresAt).toISOString()}
+          where exists (select 1 from ai_grants where grant_id = ${grantId}::uuid)
+          returning token_hash`;
+        return rows.length > 0;
+      } catch (error) {
+        // The grant was deleted between that check and this row: a foreign key violation.
+        if ((error as { code?: unknown })?.code === '23503') return false;
+        throw error;
+      }
     },
-    async takeRefresh(hash) {
-      const [fresh] = await sql`update ai_refresh_tokens set used_at = now() where token_hash = ${hash} and used_at is null returning grant_id, expires_at`;
-      const row = fresh ?? (await sql`select grant_id, expires_at from ai_refresh_tokens where token_hash = ${hash}`)[0];
-      if (!row) return null;
-      return { replay: !fresh, record: { grantId: String(row.grant_id), expiresAt: new Date(row.expires_at as string).getTime() } };
+    async takeRefresh(hash, now = Date.now()) {
+      const record = (row: Record<string, unknown>) => ({ grantId: String(row.grant_id), expiresAt: new Date(row.expires_at as string).getTime() });
+      // Each step is one statement that changes the row it reads, so two uses at once are told
+      // apart by the database: one finds it unused, the next finds it used.
+      const [fresh] = await sql`
+        update ai_refresh_tokens set used_at = ${new Date(now).toISOString()}
+        where token_hash = ${hash} and used_at is null
+        returning grant_id, expires_at`;
+      if (fresh) return { kind: 'fresh', record: record(fresh) };
+      const [grace] = await sql`
+        update ai_refresh_tokens set reuse_count = reuse_count + 1
+        where token_hash = ${hash} and used_at is not null
+          and used_at > ${new Date(now - REFRESH_GRACE_SECONDS * 1000).toISOString()}
+          and reuse_count < ${REFRESH_GRACE_REUSES}
+        returning grant_id, expires_at`;
+      if (grace) return { kind: 'grace', record: record(grace) };
+      const [spent] = await sql`select grant_id, expires_at from ai_refresh_tokens where token_hash = ${hash}`;
+      return spent ? { kind: 'replay', record: record(spent) } : null;
     },
     async refreshGrant(hash) {
       const [row] = await sql`select grant_id from ai_refresh_tokens where token_hash = ${hash}`;
@@ -223,18 +297,35 @@ export function sqlAiStore(sql: Sql): AiStore {
  * a grant's calendars are checked against the person's connections where they are read.
  */
 export function memoryAiStore(): AiStore {
-  const clients = new Map<string, AiClient>();
+  const clients = new Map<string, AiClient & { createdAt: number; lastUsedAt: number | null }>();
   const grants = new Map<string, Grant & { revoked: boolean; windowStart: number; spent: number }>();
   const codes = new Map<string, CodeRecord & { used: boolean }>();
-  const refresh = new Map<string, { grantId: string; expiresAt: number; used: boolean }>();
+  const refresh = new Map<string, { grantId: string; expiresAt: number; usedAt: number | null; reuses: number }>();
   const plain = ({ revoked: _r, windowStart: _w, spent: _s, ...grant }: Grant & { revoked: boolean; windowStart: number; spent: number }): Grant => ({ ...grant, calendars: [...grant.calendars] });
   return {
-    async saveClient(client) {
-      clients.set(client.clientId, { ...client, redirectUris: [...client.redirectUris] });
+    async saveClient(client, now = Date.now()) {
+      clients.set(client.clientId, { ...client, redirectUris: [...client.redirectUris], createdAt: now, lastUsedAt: null });
     },
     async getClient(clientId) {
       const client = clients.get(clientId);
-      return client ? { ...client, redirectUris: [...client.redirectUris] } : null;
+      return client ? { clientId: client.clientId, redirectUris: [...client.redirectUris], clientName: client.clientName } : null;
+    },
+    async touchClient(clientId, now = Date.now()) {
+      const client = clients.get(clientId);
+      if (client && (client.lastUsedAt === null || client.lastUsedAt < now - TOUCH_MS)) client.lastUsedAt = now;
+    },
+    async pruneClients(now = Date.now()) {
+      const named = new Set([...[...grants.values()].map((g) => g.clientId), ...[...codes.values()].map((c) => c.clientId)]);
+      let removed = 0;
+      for (const [id, client] of clients) {
+        if (removed >= PRUNE_BATCH) break;
+        const old = client.lastUsedAt === null ? client.createdAt < now - CLIENT_RETENTION.unusedDays * 864e5 : client.lastUsedAt < now - CLIENT_RETENTION.idleDays * 864e5;
+        if (old && !named.has(id)) {
+          clients.delete(id);
+          removed++;
+        }
+      }
+      return removed;
     },
     async createGrant(grant) {
       for (const [id, other] of grants) if (other.subject === grant.subject && other.clientId === grant.clientId) grants.delete(id);
@@ -280,14 +371,24 @@ export function memoryAiStore(): AiStore {
       return { replay, record };
     },
     async saveRefresh(hash, grantId, expiresAt) {
-      refresh.set(hash, { grantId, expiresAt, used: false });
+      if (!grants.has(grantId)) return false;
+      refresh.set(hash, { grantId, expiresAt, usedAt: null, reuses: 0 });
+      return true;
     },
-    async takeRefresh(hash) {
+    async takeRefresh(hash, now = Date.now()) {
+      // No await before the token is marked: in one process this is as atomic as the database's.
       const token = refresh.get(hash);
       if (!token) return null;
-      const replay = token.used;
-      token.used = true;
-      return { replay, record: { grantId: token.grantId, expiresAt: token.expiresAt } };
+      const record = { grantId: token.grantId, expiresAt: token.expiresAt };
+      if (token.usedAt === null) {
+        token.usedAt = now;
+        return { kind: 'fresh', record };
+      }
+      if (token.usedAt > now - REFRESH_GRACE_SECONDS * 1000 && token.reuses < REFRESH_GRACE_REUSES) {
+        token.reuses++;
+        return { kind: 'grace', record };
+      }
+      return { kind: 'replay', record };
     },
     async refreshGrant(hash) {
       return refresh.get(hash)?.grantId ?? null;

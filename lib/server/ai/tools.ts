@@ -12,10 +12,20 @@ import { addDays, dayStart, isDay, isZone, localDay, localIso, parseMoment } fro
 export const MAX_EVENTS_DAYS = 31;
 export const MAX_FREE_DAYS = 14;
 export const MAX_TITLE = 300;
+/**
+ * The most events (or free stretches) one answer lists. Past it, an answer lists the first ones in
+ * time order and says `truncated: true` with how many there were: never as though that were all.
+ * Truncating is about the size of the answer only; `complete` still says whether every calendar
+ * was read, and free time is always worked out from every event that was read.
+ */
+export const MAX_EVENTS_PER_ANSWER = 500;
 
 export interface CalendarAccess {
   calendars(): Promise<Authorized>;
-  events(sources: Source[], span: { timeMin: string; timeMax: string }): Promise<{ events: SourceEvent[]; unavailable: Unavailable[]; removed: number }>;
+  events(
+    sources: Source[],
+    span: { timeMin: string; timeMax: string },
+  ): Promise<{ events: SourceEvent[]; unavailable: Unavailable[]; partly?: Unavailable[]; removed: number }>;
 }
 
 export interface ToolContext {
@@ -118,20 +128,35 @@ function eventOut(ctx: ToolContext, { source, event }: SourceEvent, zone: string
 }
 
 interface Completeness {
+  /** True only when every chosen calendar was read, to the end of the range. */
   complete: boolean;
+  /** Calendars that could not be read at all just now. */
   unavailable: Unavailable[];
+  /** Calendars read only in part (more events than Koyomi reads at once): what is missing is not known. */
+  partly_read: Unavailable[];
   removed_calendars: number;
 }
 
-function completeness(chosen: Authorized, read: { unavailable: Unavailable[]; removed: number }): Completeness {
-  const unavailable = [...chosen.unavailable, ...read.unavailable].map((u) => ({ ...u, name: u.name === null ? null : cleanTitle(u.name) }));
-  return { complete: unavailable.length === 0, unavailable, removed_calendars: chosen.removed + read.removed };
+const named = (u: Unavailable) => ({ ...u, name: u.name === null ? null : cleanTitle(u.name) });
+
+function completeness(chosen: Authorized, read: { unavailable: Unavailable[]; partly?: Unavailable[]; removed: number }): Completeness {
+  const unavailable = [...chosen.unavailable, ...read.unavailable].map(named);
+  const partly = (read.partly ?? []).map(named);
+  return { complete: unavailable.length === 0 && partly.length === 0, unavailable, partly_read: partly, removed_calendars: chosen.removed + read.removed };
 }
+
+/** At most MAX_EVENTS_PER_ANSWER of a list, the first in order, and whether any were left out. */
+function capped<T>(list: T[]): { shown: T[]; truncated: boolean; total: number } {
+  return { shown: list.slice(0, MAX_EVENTS_PER_ANSWER), truncated: list.length > MAX_EVENTS_PER_ANSWER, total: list.length };
+}
+
+const truncation = (total: number, what = 'events') =>
+  `Only the first ${MAX_EVENTS_PER_ANSWER} of ${total} ${what}, in time order, are listed. Ask about a shorter range or fewer calendars for the rest. This is not a failure: "complete" says whether every calendar was read.`;
 
 /** The events of the chosen calendars overlapping the range, in order: by start, all-day first on a day. */
 async function eventsIn(ctx: ToolContext, zone: string, range: Interval, handles: unknown) {
   const chosen = pick(await ctx.access.calendars(), handles);
-  const read = chosen.sources.length ? await ctx.access.events(chosen.sources, spanFor(range)) : { events: [], unavailable: [], removed: 0 };
+  const read = chosen.sources.length ? await ctx.access.events(chosen.sources, spanFor(range)) : { events: [], unavailable: [], partly: [], removed: 0 };
   // The same event can come twice (a calendar shared into two of the person's accounts is two
   // calendars, and stays two); the same event of the same calendar only once.
   const seen = new Set<string>();
@@ -149,6 +174,7 @@ async function eventsIn(ctx: ToolContext, zone: string, range: Interval, handles
 
 export async function listCalendarsTool(ctx: ToolContext) {
   const authorized = await ctx.access.calendars();
+  // Listing reads no events, so nothing here can be read in part.
   const { complete, unavailable, removed_calendars } = completeness(authorized, { unavailable: [], removed: 0 });
   return {
     calendars: authorized.sources.map((s) => ({ calendar: s.handle, name: cleanTitle(s.name), provider: s.provider, primary: s.primary, status: 'available' as const })),
@@ -164,7 +190,18 @@ export async function getEventsTool(ctx: ToolContext, input: { start?: unknown; 
   const zone = zoneOf(ctx, input.timezone);
   const range = rangeOf(ctx, zone, input.start, input.end, MAX_EVENTS_DAYS);
   const { within, ...complete } = await eventsIn(ctx, zone, range, input.calendars);
-  return { timezone: zone, start: localIso(range.start, zone), end: localIso(range.end, zone), ...complete, events: within.map((each) => eventOut(ctx, each, zone)), notice: NOTICE };
+  const { shown, truncated, total } = capped(within);
+  return {
+    timezone: zone,
+    start: localIso(range.start, zone),
+    end: localIso(range.end, zone),
+    ...complete,
+    truncated,
+    total_events: total,
+    ...(truncated ? { truncation: truncation(total) } : {}),
+    events: shown.map((each) => eventOut(ctx, each, zone)),
+    notice: NOTICE,
+  };
 }
 
 export async function getScheduleTool(ctx: ToolContext, input: { date?: unknown; timezone?: unknown; calendars?: unknown }) {
@@ -172,11 +209,16 @@ export async function getScheduleTool(ctx: ToolContext, input: { date?: unknown;
   if (!isDay(input.date)) throw new ToolInputError('invalid_time', 'date must be one calendar day, "YYYY-MM-DD".');
   const range = rangeOf(ctx, zone, input.date, input.date, 1);
   const { within, ...complete } = await eventsIn(ctx, zone, range, input.calendars);
-  const all = within.map((each) => eventOut(ctx, each, zone));
+  // One cap over the day's whole list (all-day events first, then by start), then split.
+  const { shown, truncated, total } = capped(within);
+  const all = shown.map((each) => eventOut(ctx, each, zone));
   return {
     date: input.date,
     timezone: zone,
     ...complete,
+    truncated,
+    total_events: total,
+    ...(truncated ? { truncation: truncation(total) } : {}),
     all_day_events: all.filter((e) => e.all_day),
     events: all.filter((e) => !e.all_day),
     notice: NOTICE,
@@ -197,7 +239,11 @@ export async function findFreeTimeTool(
   // Timed events block their time, tentative ones too. All-day events are told, and block only when asked to.
   const busy = merge(within.filter(({ event }) => allDayBusy || !event.allDay).map(({ event }) => intervalOf(event, zone)));
   const allowed = input.working_hours ? workingIntervals(range, zone, input.working_hours) : [range];
-  const free = freeIntervals(range, busy, duration * 60_000, allowed);
+  // Worked out from every event that was read, never from a shortened list. What could not be
+  // read (unavailable, partly_read) is said in so many words, not left to be noticed.
+  const free = capped(freeIntervals(range, busy, duration * 60_000, allowed));
+  const allDay = capped(within.filter(({ event }) => event.allDay));
+  const truncated = free.truncated || allDay.truncated;
   return {
     timezone: zone,
     start: localIso(range.start, zone),
@@ -210,11 +256,19 @@ export async function findFreeTimeTool(
       ? {}
       : {
           warning:
-            'Not every calendar could be checked (see unavailable). These times are free only in the calendars that were read; tell the person which calendars were not checked before relying on them.',
+            'Not every calendar could be fully checked (see unavailable and partly_read). These times are free only in what was read; they may not be free at all. Tell the person which calendars were not fully checked before relying on them.',
         }),
-    free: free.map((i) => ({ start: localIso(i.start, zone), end: localIso(i.end, zone), minutes: Math.round((i.end - i.start) / 60_000) })),
+    truncated,
+    ...(truncated
+      ? {
+          truncation: [free.truncated ? truncation(free.total, 'free stretches') : null, allDay.truncated ? truncation(allDay.total, 'all-day events') : null].filter(Boolean).join(' '),
+        }
+      : {}),
+    free: free.shown.map((i) => ({ start: localIso(i.start, zone), end: localIso(i.end, zone), minutes: Math.round((i.end - i.start) / 60_000) })),
+    total_free: free.total,
     busy_count: busy.length,
-    all_day_events: within.filter(({ event }) => event.allDay).map((each) => eventOut(ctx, each, zone)),
+    all_day_events: allDay.shown.map((each) => eventOut(ctx, each, zone)),
+    total_all_day_events: allDay.total,
     notice: NOTICE,
   };
 }

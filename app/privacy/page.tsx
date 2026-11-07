@@ -177,6 +177,7 @@ export default function Privacy() {
         Connecting an AI assistant, such as Claude, ChatGPT or Grok, to Koyomi is optional. You choose which of your connected calendars it may
         read, one by one: none is chosen for you, and a calendar you connect later is not included until you choose it. The access is read-only.
         The assistant can list those calendars, read their events and look for free time in them. It cannot create, change or delete anything.
+        It is in a private beta, and not yet open to every Koyomi account.
       </P>
       <P>
         The assistant never receives your Google, Microsoft or Yahoo credentials, your Yahoo app password or a calendar link. It receives a token
@@ -191,7 +192,8 @@ export default function Privacy() {
         say.
       </P>
       <P>
-        What the assistant receives is then held by the company that runs it, under that company’s own privacy policy and terms.
+        What the assistant receives is then held by the company that runs it, under that company’s own privacy policy and terms. Revoking its
+        access stops it reading more; it cannot take back what it has already received.
       </P>
       <P>
         Your Koyomi calendar, the events you write in Koyomi, stays on your device and is never available to an assistant.
@@ -294,7 +296,14 @@ export default function Privacy() {
       <P>
         Your Google Calendar data is not sold. It is not used for advertising, not used for analytics or to build a profile of you, and not used
         to train artificial-intelligence or machine-learning models. It is not given to anyone for purposes of their own. The only companies
-        that handle any of it are the three named below, and each handles only what is said there.
+        that handle any of it are the three named below, and each handles only what is said there, unless you connect an AI assistant yourself.
+      </P>
+      <P>
+        Connecting an AI assistant is the one way Koyomi sends Google Calendar data to another company, and it does so only because you ask it
+        to: if you choose a Google calendar for an assistant, Koyomi sends that calendar’s events to the assistant when it asks, as described
+        under Connecting an AI assistant, for that and nothing else. What the assistant’s company then does with them, including whether it uses
+        them to train its models, is governed by its own privacy policy and terms, not by Koyomi. You can revoke the assistant’s access at any
+        time.
       </P>
       <P>
         Koyomi’s use of information received from Google APIs adheres to the{' '}

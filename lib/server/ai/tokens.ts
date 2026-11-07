@@ -9,10 +9,18 @@ import { keyFor, type AiConfig } from './config';
 //   in the database, so revoking a grant ends its tokens at once.
 // - Refresh token and authorization code: 256 random bits, given out once and kept only as a
 //   keyed hash.
+//
+// A refresh token is replaced every time it is used. For REFRESH_GRACE_SECONDS after that first
+// use, the same token may come back up to REFRESH_GRACE_REUSES more times and is answered with a
+// new pair each time: a client whose answer was lost on the way, or two of its servers refreshing
+// at once, is not mistaken for a thief. After that it is spent for good, and coming back again
+// ends the grant (someone holds a copy). Every token of the grant then stops working.
 
 export const ACCESS_SECONDS = 15 * 60;
 export const REFRESH_SECONDS = 30 * 24 * 60 * 60;
 export const CODE_SECONDS = 5 * 60;
+export const REFRESH_GRACE_SECONDS = 30;
+export const REFRESH_GRACE_REUSES = 3;
 
 export interface AccessClaims {
   /** The grant. */

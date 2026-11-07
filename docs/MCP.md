@@ -110,7 +110,10 @@ designed from (`10db829`, 2026-11-07), then the design.
     `Referrer-Policy: strict-origin-when-cross-origin`. API routes are same-origin only (POST needs
     `Origin` = the app). The MCP endpoint is the exception: it is called server-to-server, carries
     a bearer token and never a cookie, so it does not use the cookie session or the same-origin
-    rule. The service worker ignores `/api/`; the OAuth endpoints live under `/api/oauth/`.
+    rule. The service worker ignores `/api/`; the OAuth endpoints live under `/api/oauth/`. It did
+    answer every other page, including `/ai/consent`, and after 4 seconds without a response it
+    serves the saved calendar: the consent page could have turned into the calendar on a slow
+    connection. It now ignores `/ai/` as well.
     `/.well-known/...` paths are rewritten to route handlers.
 25. **Privacy and Terms.** Privacy names every provider, what is read and kept, and its tests pin
     the wording. A new section is needed for AI connections (what the AI receives, transient
@@ -172,7 +175,13 @@ Koyomi becomes a small OAuth 2.1 authorization server, on `https://app.koyomi.gu
     addresses, small size and time limits, no redirects), requires `client_id` to equal the URL
     and `token_endpoint_auth_method` to allow `none`, and caches it briefly in memory.
   - *Dynamic registration* (Grok documents nothing; DCR is the common denominator): stores
-    `client_id` (random), `redirect_uris`, and a display name it never trusts.
+    `client_id` (random), `redirect_uris`, and a display name it never trusts. **Retention**
+    (`CLIENT_RETENTION`): a registration that never started an authorization is removed 7 days
+    after it was made; one that did, 90 days after it last did (written at most once an hour,
+    when an authorization starts). Never while any grant or code names it, so no person's access
+    ever ends because its client's record was tidied. Tidying happens when a new client
+    registers (the only way records are added), at most 200 at a time, in one statement that
+    checks for grants and codes as it deletes. No background job.
   - Redirect URIs: exact match; https, or loopback (`localhost`/`127.0.0.1`, port may differ, as
     for native apps). The consent page always shows where the person will be sent.
 - **Authorization request**: `response_type=code`, `client_id`, `redirect_uri`, `state`,
@@ -188,22 +197,34 @@ Koyomi becomes a small OAuth 2.1 authorization server, on `https://app.koyomi.gu
 - **Access tokens**: `ka1.<payload>.<HMAC>` — grant id, client id, audience (the MCP URL),
   expiry (15 minutes). Every request also loads the grant: revoked, missing, wrong client or
   wrong audience → 401. Revocation is immediate.
-- **Refresh tokens**: 256-bit random, stored hashed, 30 days, rotated on every use; reuse of a
-  spent one revokes the grant.
+- **Refresh tokens**: 256-bit random, stored hashed, 30 days, rotated on every use. A just-replaced
+  token gets a **grace of 30 seconds and at most 3 more uses** (`REFRESH_GRACE_SECONDS`,
+  `REFRESH_GRACE_REUSES`): each is answered with a new pair, and the pair given first stays good.
+  That covers an answer lost on the way (the client retries with the same token) and a client's
+  servers refreshing at once. After the grace, or beyond the count, the token is spent for good
+  and coming back revokes the grant and every token of it. Rotation is never skipped: every use,
+  grace or not, gets a new refresh token. The database decides which use is first (one
+  `update … where used_at is null`), so of any number of uses at once exactly one is first; if a
+  copy coming back ends the grant while another refresh is being answered, that one gets
+  `invalid_grant`, never a token of an ended grant.
 - **Keys**: derived from `TOKEN_ENCRYPTION_KEY` with their own labels (as `fingerprint()` does).
   No new secret.
 
 ### Grants and calendar permissions (migration 004)
 
 ```
-ai_clients         client_id, redirect_uris, client_name (display only), created_at       (DCR only)
+ai_clients         client_id, redirect_uris, client_name (display only), created_at,
+                   last_used_at                                                          (DCR only)
 ai_grants          grant_id, auth_subject, client_id, client_label, redirect_host, time_zone,
                    created_at, last_used_at, window_started_at, window_spent
 ai_grant_calendars grant_id → ai_grants (on delete cascade), connection_id,
                    calendar_fingerprint                (an HMAC of the calendar id; never the id)
 ai_codes           code_hash, grant_id → ai_grants (cascade), client_id, redirect_uri, code_challenge, resource, expires_at, used_at
-ai_refresh_tokens  token_hash, grant_id → ai_grants (cascade), expires_at, used_at
+ai_refresh_tokens  token_hash, grant_id → ai_grants (cascade), expires_at, used_at, reuse_count
 ```
+
+Indexes: `ai_grants (auth_subject)`, `ai_grants (client_id)` (for tidying registrations),
+`ai_refresh_tokens (grant_id)`.
 
 - No event, title, calendar name, account address or provider calendar id is stored.
 - Revoking a grant, or allowing the same client again, **deletes** the grant and, by cascade,
@@ -231,8 +252,22 @@ ai_refresh_tokens  token_hash, grant_id → ai_grants (cascade), expires_at, use
 | `find_free_time` | `start`, `end`, `duration_minutes`, `timezone?`, `calendars?`, `working_hours?` | 14 days |
 
 All within the existing read window (35 days back, 189 ahead). Every result carries `timezone`
-(the zone used), `complete`, and `unavailable` (calendar handle, name, provider, reason) when
-something could not be read; `find_free_time` adds an explicit warning when incomplete.
+(the zone used), `complete`, `unavailable` (calendars not read at all: handle, name, provider,
+reason) and `partly_read` (calendars whose reading stopped before the end of the range: more
+events than a reader takes at once, Google 4 × 2,500 or Microsoft 20 × 500 per calendar, or more
+than Yahoo and calendar links can work out in time; reason `too_many_events`). `complete` is true
+only when both are empty. `find_free_time` adds an explicit warning when incomplete.
+
+**Answer cap: 500** (`MAX_EVENTS_PER_ANSWER`). An answer lists at most 500 events (or free
+stretches, or all-day events), the first in time order, with `truncated: true`, the total
+(`total_events`, `total_free`, `total_all_day_events`) and a `truncation` note. Truncation is only
+about the size of the answer and never changes `complete`, so an assistant can tell three things
+apart: a provider failing (`unavailable`), a calendar read only in part (`partly_read`), and a
+whole reading too long to list (`truncated`). `get_schedule` applies one cap to the day's whole
+list (all-day events first), then splits it. `find_free_time` works out free time from every event
+that was read, never from the 500 listed; when anything was not fully read it says so in so many
+words. A provider reader that stops early now says so (`cut` on its reading), where before it
+returned what it had as though that were all; the app's own reading is unchanged.
 Event fields: `event_id` (opaque, per grant), `title`, `start`, `end` (in the zone asked for,
 with offset; days for all-day), `all_day`, `calendar` (handle), `calendar_name`, `provider`,
 `tentative`. Nothing else: no description, location, attendees, links or account addresses.
@@ -258,7 +293,7 @@ with offset; days for all-day), `all_day`, `calendar` (handle), `calendar_name`,
 
 ### Koyomi UI
 
-In the Calendars pane, under the accounts: **AI access**. The endpoint to give an assistant, the
+Only for people in the private beta (below). In the Calendars pane, under the accounts: **AI access**. The endpoint to give an assistant, the
 list of AI connections (client, read-only, how many calendars, when) with **Revoke**, and two
 plain lines: "Koyomi never shares calendars with an AI unless you explicitly authorize it." and
 "Local Koyomi events stay on this device and are not shared with AI connections." Revoking ends
@@ -267,7 +302,85 @@ that AI's access at once and touches no calendar connection.
 ### Feature flag
 
 `KOYOMI_MCP=on` (runtime, Production only when it is turned on). Off: `/mcp`, the metadata and
-OAuth endpoints answer 404 and the AI access section is not shown.
+OAuth endpoints, the consent page and the grants API answer 404 and the AI access section is not
+shown, for everyone, whatever the allowlist says.
+
+### Private beta allowlist
+
+`KOYOMI_MCP=on` alone lets nobody in. `KOYOMI_MCP_ALLOWLIST` (Vercel, Production only; never in
+this repository) lists the 6Away subjects who may use AI access, separated by commas or spaces:
+stable ids, never addresses, exact matches only. Unset or empty means nobody. The first beta is
+the owner's subject alone.
+
+It is checked everywhere a person meets the feature:
+
+| Where | Not on the list |
+| --- | --- |
+| Calendars → AI access | not shown: the page asks `/api/ai/grants`, which answers 404 exactly as when the flag is off |
+| `/api/ai/grants`, `/api/ai/grants/revoke` | 404, empty body |
+| `/api/oauth/authorize`, signed in | straight back to the client with `error=access_denied`, "Access was not granted" |
+| `/api/oauth/authorize`, signed out | 6Away sign-in, then `/ai/consent`, which sends them back the same way: no calendar is listed |
+| `/ai/consent` opened by address | nothing of theirs; with a pending request, the same refusal |
+| `/api/oauth/decision` | 404 |
+| Token endpoint (code or refresh) | `invalid_grant`, "Access has been revoked", the same words as a revoked grant; the grant is kept |
+| `/mcp` | 401, as for a revoked token |
+
+So taking someone off the list ends their access at the next request, and putting them back
+restores it. Nothing says who is on it: refusals use the same words for everyone, the value is a
+server setting with no `NEXT_PUBLIC_` name, and the discovery documents are the same for all.
+There is no admin screen. The browser tests let their own stand-in people in by a prefix
+(`KOYOMI_TEST_AI_ALLOW_PREFIX`), which is ignored on any Vercel deployment.
+
+### Release gates (wider than the private beta)
+
+1. **Google verification and Limited Use.** Koyomi's Google scopes are sensitive scopes under
+   Google's Limited Use rules, which forbid transfers to third parties except, among others, for
+   user-facing features that are prominent in the app's interface and only with the user's
+   consent. Sending a person's chosen Google calendars to the AI client they chose, at their
+   request, is meant to be exactly that, and Privacy and the consent page say so. But it is a new
+   use of Google data while Koyomi's verification is still being reviewed, and Google requires the
+   privacy policy and in-product disclosures to cover it before data is used that way. **AI access
+   is not opened beyond the private beta until Koyomi's Google verification and Limited Use
+   disclosure position for this use is confirmed** (in the verification resubmission, or by asking
+   Google's review team). The private beta is not that confirmation.
+2. Private tests in ChatGPT, Claude and Grok, and the cross-client comparison.
+3. The migration runner question below, then migration 004 rehearsed and applied.
+4. Privacy and Terms dates set at merge.
+
+### Migration 004 and the migration runner (evaluated 2026-11-07; not applied anywhere)
+
+`scripts/migrate.mjs` sends **every** file in `migrations/` on every run, in name order, one
+request (one transaction) per file. There is no record of what has been applied. Re-running
+001–003 on Production does this:
+
+| File | On a re-run |
+| --- | --- |
+| 001 | `create table if not exists`: nothing |
+| 002 | `alter table … add column if not exists` (twice): nothing changes, but it takes the table's exclusive lock for a moment |
+| 003 | in one block: `delete from calendar_connections where provider_account_id is null` (finds nothing today: the column is `not null`); then **`drop constraint calendar_connections_pkey, add primary key (connection_id)`: the live table's primary key is dropped and rebuilt, under an exclusive lock, every time** |
+| 004 | `create table if not exists` / `create index if not exists` in one block: nothing on a second run |
+
+Nothing is lost by it today: 003 runs as one transaction, so the key is never left missing, and
+with a handful of rows it takes milliseconds. But it is destructive DDL on the live table that
+004 does not need, run for no reason; and it is why no table may ever reference
+`calendar_connections` (the drop would fail and stop every later file). Applying 004 through it
+means doing that on Production. **So 004 is not rehearsed or applied until the runner is
+corrected.** Proposed, smallest first:
+
+1. **`--only <file>` in `scripts/migrate.mjs`** (a few lines): apply exactly the named file(s),
+   refusing any name not in `migrations/`. Production path for 004:
+   `npm run db:migrate -- --only 004_ai_access.sql --yes`. Nothing historical is re-run.
+2. *Optional hardening:* make 003 a true no-op on a re-run, guarding its key swap with a check
+   that the primary key is not already `(connection_id)`. Then the plain command is safe too, and
+   a reference to `calendar_connections` becomes possible later.
+3. *Not proposed now:* a ledger table of applied migrations. Sounder in the long run, but larger,
+   and it needs a first write to Production to record 001–003.
+
+Then, before Production: a disposable Neon branch of Production (made in the Neon console or
+with an API key; `neonctl` hangs on this machine), the exact command run on it twice, with
+`calendar_connections`' row count and a schema snapshot taken before, between and after.
+**Rollback:** `drop table ai_refresh_tokens, ai_codes, ai_grant_calendars, ai_grants, ai_clients;`
+(one statement; nothing outside these five refers to any of them, and no other table changes).
 
 ### What stays local
 
@@ -299,11 +412,27 @@ stored on the server.
   events, time zones (Dubai, London and New York across DST, 25-hour days), free time, partial
   failure, bounds, hostile titles (instruction, markup, control and bidi characters, 5,000
   characters, Unicode, empty), duplicate ids across accounts, all-day spans, recurrence, and
-  that the tool code can only read.
+  that the tool code can only read. Since the corrections: the allowlist (exact subjects,
+  nobody when empty, the test prefix dead on Vercel, codes and refreshes refused outside it);
+  the refresh grace to the second with a given clock (a lost answer retried, three at once, five
+  at once, the boundary at 30 s, a day later, expiry), on both stores; tidying registrations
+  (never used, used, touched within the hour, named by a grant, after revoking), on both stores;
+  the 500 cap (over, exactly at, a crowded day, free time from every event, more than 500 free
+  stretches) and `partly_read` told apart from `unavailable` and `truncated`.
+- `tests/unit/sw.test.ts`: the real `public/sw.js` in a stand-in worker scope with no network:
+  `/ai/…` pages and their data requests are left to the network, `/` still opens from the cache.
+- `tests/unit/server.test.ts`, `microsoft.test.ts`: a Google or Microsoft reading stopped at its
+  page limit says `cut`.
 - `tests/e2e/ai.spec.ts`: the whole flow in a browser against the stand-ins with the official
-  MCP client, on 2026-07-28 and on the 2025 handshake.
+  MCP client, on 2026-07-28 and on the 2025 handshake; refreshing over the real token endpoint
+  (two at once, retries, the copy that ends access); someone outside the allowlist (no AI access
+  in Calendars, 404s, refused back to the assistant signed in and signed out, no calendar ever
+  listed). `tests/e2e/pwa.spec.ts`: with the worker in charge, `/ai/consent` comes from the
+  server, never the worker.
 
 ### MCP Inspector (2.14.0, CLI), against the production build with the stand-ins
+
+(Run at `5badfb0`, before the corrections; to be run again on the corrected build.)
 
 | Check | Result |
 | --- | --- |
@@ -322,5 +451,8 @@ stored on the server.
 
 ### Still to do (needs a public deployment; see the PR)
 
-ChatGPT, Claude and Grok private connectors; the cross-client comparison; the real
-multi-provider acceptance with the owner's accounts.
+The runner correction and migration 004 (above); the MCP Inspector again on the corrected build;
+ChatGPT, Claude and Grok private connectors (Grok stays a target: its documentation describes
+custom MCP connectors with required authentication; only if real testing shows it needs a
+manually pasted long-lived token is it dropped); the cross-client comparison; the real
+multi-provider acceptance with the owner's accounts; the release gates above.
