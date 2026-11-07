@@ -282,3 +282,45 @@ stored on the server.
    assistant can mention it; a `treat_all_day_as_busy` input lets it choose otherwise.
 2. **Default time zone.** The zone of the browser in which the person approved access, stored
    with the grant, and named in every answer.
+
+---
+
+## Part 3: acceptance so far
+
+### Automated
+
+- `tests/unit/ai.test.ts`: tokens (audience, expiry, forgery, key), PKCE (RFC 7636 vector),
+  redirect manipulation (trailing slash, query, look-alike hosts, ports, fragments), client
+  naming by redirect host, metadata documents (self-naming, public client), registration,
+  the authorization request (page vs redirect, `iss`, `state`, `resource`), codes (once,
+  client, redirect, verifier, expiry, replay ending the grant), refresh rotation and reuse,
+  revocation (own client only, the person's own only), the grant allowance, both stores
+  (Postgres via PGlite on the real migrations, and memory), migration 004 storing nothing about
+  events, time zones (Dubai, London and New York across DST, 25-hour days), free time, partial
+  failure, bounds, hostile titles (instruction, markup, control and bidi characters, 5,000
+  characters, Unicode, empty), duplicate ids across accounts, all-day spans, recurrence, and
+  that the tool code can only read.
+- `tests/e2e/ai.spec.ts`: the whole flow in a browser against the stand-ins with the official
+  MCP client, on 2026-07-28 and on the 2025 handshake.
+
+### MCP Inspector (2.14.0, CLI), against the production build with the stand-ins
+
+| Check | Result |
+| --- | --- |
+| Discovery and every schema (`tools/list --strict`) | 4 tools, all `readOnlyHint`, no portability problems |
+| Authentication | bearer token from the real consent flow accepted; no token gives the 401 challenge, and the Inspector starts OAuth from it |
+| `list_calendars` | the 2 chosen calendars only, `complete: true`, default zone Asia/Dubai |
+| `get_schedule` in Asia/Dubai, Europe/London, America/New_York | the same 4 events, each in that zone's offset; all-day apart |
+| `find_free_time` 60 min, 09:00–18:00 | 10:30–13:00, 14:00–15:00, 16:00–18:00; the all-day event listed |
+| Invalid arguments (bad date, 3-minute duration) | refused by the schema |
+| 80-day range, `Mars/Olympus`, unknown calendar handle | `range_too_long`, `invalid_timezone`, `unknown_calendar` |
+| Provider failing | `complete: false`, the warning, the calendars named |
+| Malicious title | returned as plain text in its place; nothing else changed |
+| 40 calls in a row | 29 answered, 11 `rate_limited` (30 a minute for the grant) |
+| Revoked by the client (RFC 7009) | the next request is 401 |
+| Server log | 113 `[mcp]` lines: no title, address or token in any |
+
+### Still to do (needs a public deployment; see the PR)
+
+ChatGPT, Claude and Grok private connectors; the cross-client comparison; the real
+multi-provider acceptance with the owner's accounts.
