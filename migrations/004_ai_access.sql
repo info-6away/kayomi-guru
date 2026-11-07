@@ -2,7 +2,9 @@
 -- connected calendars, and the OAuth state that goes with it. Nothing about events is kept here:
 -- no titles, no times, no calendar names, no provider calendar ids (only a keyed hash of each),
 -- no account addresses. A grant has its own life, apart from the calendar connections: revoking
--- one touches no connection, and disconnecting a calendar removes it from every grant.
+-- one touches no connection, and disconnecting a calendar removes it from every grant. A grant
+-- that is revoked, or replaced by a new one for the same assistant, is deleted with everything
+-- under it: nothing is kept of access that has ended.
 --
 -- One statement, as every file here is (scripts/migrate.mjs sends each file as one request).
 do $$
@@ -29,7 +31,6 @@ begin
     time_zone         text        not null,
     created_at        timestamptz not null default now(),
     last_used_at      timestamptz,
-    revoked_at        timestamptz,
     -- The grant's own allowance of tool calls (as calendar_connections has one for providers).
     window_started_at timestamptz,
     window_spent      integer     not null default 0

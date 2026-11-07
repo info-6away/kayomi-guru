@@ -133,7 +133,8 @@ export async function resolveClient(config: AiConfig, store: AiStore, clientId: 
     const client = await store.getClient(clientId);
     return client ? { clientId, redirectUris: client.redirectUris, kind: 'registered' } : null;
   }
-  const address = documentAddress(clientId);
+  // The browser tests' stand-in is the one document fetched over http (never on a deployment).
+  const address = documentAddress(clientId) ?? (test && clientId.startsWith(`${test}/`) ? new URL(clientId) : null);
   if (!address) return null;
   const cache = documents();
   const held = cache.get(clientId);

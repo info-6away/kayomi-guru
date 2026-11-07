@@ -52,11 +52,11 @@ export interface AiStore {
    * left out by the store itself.
    */
   createGrant(grant: Omit<Grant, 'id' | 'createdAt' | 'lastUsedAt'>): Promise<string>;
-  /** A grant that has not been revoked, with its calendars whose connections still exist. */
+  /** A grant in force, with its calendars whose connections still exist. */
   getGrant(grantId: string): Promise<Grant | null>;
-  /** This person's grants that have not been revoked, oldest first. */
+  /** This person's grants, oldest first. */
   listGrants(subject: string): Promise<Grant[]>;
-  /** Ends a grant. With `subject`, only that person's. True if it was in force. */
+  /** Ends a grant, deleting it and everything under it. With `subject`, only that person's. True if there was one. */
   revokeGrant(grantId: string, subject?: string): Promise<boolean>;
   /** Counts one tool call against the grant's allowance, and notes when it was last used. */
   spendGrant(grantId: string, cost: number, allowance: Allowance): Promise<{ allowed: boolean; retryAfter: number } | null>;
@@ -115,7 +115,7 @@ export function sqlAiStore(sql: Sql): AiStore {
       return row ? { clientId: String(row.client_id), redirectUris: (row.redirect_uris as string[]).map(String), clientName: row.client_name == null ? null : String(row.client_name) } : null;
     },
     async createGrant(grant) {
-      await sql`update ai_grants set revoked_at = now() where auth_subject = ${grant.subject} and client_id = ${grant.clientId} and revoked_at is null`;
+      await sql`delete from ai_grants where auth_subject = ${grant.subject} and client_id = ${grant.clientId}`;
       // Calendars of connections that have since been disconnected: no grant reads them, and they go.
       await sql`delete from ai_grant_calendars gc where not exists (select 1 from calendar_connections c where c.connection_id = gc.connection_id)`;
       const [row] = await sql`
@@ -140,24 +140,24 @@ export function sqlAiStore(sql: Sql): AiStore {
       if (!UUID(grantId)) return null;
       const [row] = await sql`
         select grant_id, auth_subject, client_id, client_label, redirect_host, time_zone, created_at, last_used_at from ai_grants
-        where grant_id = ${grantId} and revoked_at is null`;
+        where grant_id = ${grantId}`;
       if (!row) return null;
       return grantOf(row, (await calendarsOf([grantId])).get(grantId) ?? []);
     },
     async listGrants(subject) {
       const rows = await sql`
         select grant_id, auth_subject, client_id, client_label, redirect_host, time_zone, created_at, last_used_at from ai_grants
-        where auth_subject = ${subject} and revoked_at is null
+        where auth_subject = ${subject}
         order by created_at, grant_id`;
       const calendars = await calendarsOf(rows.map((row) => String(row.grant_id)));
       return rows.map((row) => grantOf(row, calendars.get(String(row.grant_id)) ?? []));
     },
     async revokeGrant(grantId, subject) {
       if (!UUID(grantId)) return false;
+      // Deleted, and with it its calendars, codes and refresh tokens (on delete cascade).
       const rows = subject === undefined
-        ? await sql`update ai_grants set revoked_at = now() where grant_id = ${grantId} and revoked_at is null returning grant_id`
-        : await sql`update ai_grants set revoked_at = now() where grant_id = ${grantId} and auth_subject = ${subject} and revoked_at is null returning grant_id`;
-      if (rows.length) await sql`delete from ai_refresh_tokens where grant_id = ${grantId}`;
+        ? await sql`delete from ai_grants where grant_id = ${grantId} returning grant_id`
+        : await sql`delete from ai_grants where grant_id = ${grantId} and auth_subject = ${subject} returning grant_id`;
       return rows.length > 0;
     },
     async spendGrant(grantId, cost, allowance) {
@@ -171,7 +171,7 @@ export function sqlAiStore(sql: Sql): AiStore {
           window_spent = case
             when window_started_at is null or window_started_at <= now() - make_interval(secs => ${allowance.seconds}::int) then ${cost}::int
             else least(window_spent + ${cost}::int, ${CEILING}::int) end
-        where grant_id = ${grantId} and revoked_at is null
+        where grant_id = ${grantId}
         returning window_spent, ceil(extract(epoch from (window_started_at + make_interval(secs => ${allowance.seconds}::int) - now()))) as retry_after`;
       if (!row) return null;
       return { allowed: Number(row.window_spent) <= allowance.units, retryAfter: Math.max(1, Number(row.retry_after) || 1) };
@@ -237,7 +237,7 @@ export function memoryAiStore(): AiStore {
       return client ? { ...client, redirectUris: [...client.redirectUris] } : null;
     },
     async createGrant(grant) {
-      for (const other of grants.values()) if (other.subject === grant.subject && other.clientId === grant.clientId) other.revoked = true;
+      for (const [id, other] of grants) if (other.subject === grant.subject && other.clientId === grant.clientId) grants.delete(id);
       const id = randomUUID();
       grants.set(id, { ...grant, calendars: grant.calendars.filter((c) => UUID(c.connectionId)), id, createdAt: new Date().toISOString(), lastUsedAt: null, revoked: false, windowStart: 0, spent: 0 });
       return id;
@@ -251,9 +251,10 @@ export function memoryAiStore(): AiStore {
     },
     async revokeGrant(grantId, subject) {
       const grant = grants.get(grantId);
-      if (!grant || grant.revoked || (subject !== undefined && grant.subject !== subject)) return false;
-      grant.revoked = true;
+      if (!grant || (subject !== undefined && grant.subject !== subject)) return false;
+      grants.delete(grantId);
       for (const [hash, token] of refresh) if (token.grantId === grantId) refresh.delete(hash);
+      for (const [hash, code] of codes) if (code.grantId === grantId) codes.delete(hash);
       return true;
     },
     async spendGrant(grantId, cost, allowance) {

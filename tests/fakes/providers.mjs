@@ -577,6 +577,12 @@ async function yahooControl(req, res, email, what) {
 
 async function control(req, res, url) {
   if (url.pathname === '/__fake/health') return send(res, 200, { ok: true });
+  // A stand-in AI assistant's client metadata document (docs/MCP.md): its client_id is this very
+  // address, and it returns to a loopback address the browser tests listen for.
+  if (url.pathname === '/__fake/ai-client.json') {
+    const self = `http://localhost:${process.env.FAKE_PORT ?? 4315}/__fake/ai-client.json`;
+    return send(res, 200, { client_id: url.searchParams.get('as') ?? self, client_name: 'Claude', redirect_uris: ['http://127.0.0.1:4398/callback'], token_endpoint_auth_method: 'none' });
+  }
   if (url.pathname === '/__fake/exchanges') return send(res, 200, exchanges.filter((e) => e.code === url.searchParams.get('code')));
   // PUT /__fake/turns  ["first", "second"]: who consents next, for someone with no cookie to say.
   if (url.pathname === '/__fake/turns') {

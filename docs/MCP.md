@@ -198,18 +198,23 @@ Koyomi becomes a small OAuth 2.1 authorization server, on `https://app.koyomi.gu
 ```
 ai_clients         client_id, redirect_uris, client_name (display only), created_at       (DCR only)
 ai_grants          grant_id, auth_subject, client_id, client_label, redirect_host, time_zone,
-                   created_at, last_used_at, revoked_at, window_started_at, window_spent
-ai_grant_calendars grant_id → ai_grants, connection_id → calendar_connections (on delete cascade),
+                   created_at, last_used_at, window_started_at, window_spent
+ai_grant_calendars grant_id → ai_grants (on delete cascade), connection_id,
                    calendar_fingerprint                (an HMAC of the calendar id; never the id)
-ai_codes           code_hash, grant_id, client_id, redirect_uri, code_challenge, resource, expires_at, used_at
-ai_refresh_tokens  token_hash, grant_id, expires_at, used_at
+ai_codes           code_hash, grant_id → ai_grants (cascade), client_id, redirect_uri, code_challenge, resource, expires_at, used_at
+ai_refresh_tokens  token_hash, grant_id → ai_grants (cascade), expires_at, used_at
 ```
 
 - No event, title, calendar name, account address or provider calendar id is stored.
+- Revoking a grant, or allowing the same client again, **deletes** the grant and, by cascade,
+  its calendars, codes and refresh tokens. Nothing of ended access is kept.
 - A calendar is authorized by `(connection, fingerprint)`. Calendars that appear later are *not*
-  authorized. A calendar that disappears at the provider is reported as missing. Disconnecting
-  a provider deletes its grant rows by cascade; reconnecting the same account keeps its
-  connection id and so its grants.
+  authorized. A calendar that disappears at the provider is counted in `removed_calendars`.
+- `connection_id` is deliberately not a foreign key: migration 003 rebuilds
+  `calendar_connections`' primary key every time the migrations run, and a reference to it would
+  make that fail. Instead every read joins on the connection *and* on its person, so a
+  disconnected account's calendars stop counting at once; their rows are cleared the next time a
+  grant is written. Reconnecting the same account keeps its connection id and so its grants.
 - Display visibility (device) and AI access (server) are separate and never read each other.
 - One active grant per (person, client): authorizing again replaces the earlier grant.
 - **Client label** comes from the *validated redirect host*: `claude.ai` → Claude, `chatgpt.com`

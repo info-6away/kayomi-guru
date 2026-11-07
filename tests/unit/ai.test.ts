@@ -205,7 +205,7 @@ test('migration 004 applies after 001–003, again and again, and stores no even
     'ai_clients.client_id', 'ai_clients.redirect_uris', 'ai_clients.client_name', 'ai_clients.created_at',
     'ai_codes.code_hash', 'ai_codes.grant_id', 'ai_codes.client_id', 'ai_codes.redirect_uri', 'ai_codes.code_challenge', 'ai_codes.resource', 'ai_codes.expires_at', 'ai_codes.used_at',
     'ai_grant_calendars.grant_id', 'ai_grant_calendars.connection_id', 'ai_grant_calendars.calendar_fingerprint', 'ai_grant_calendars.created_at',
-    'ai_grants.grant_id', 'ai_grants.auth_subject', 'ai_grants.client_id', 'ai_grants.client_label', 'ai_grants.redirect_host', 'ai_grants.time_zone', 'ai_grants.created_at', 'ai_grants.last_used_at', 'ai_grants.revoked_at', 'ai_grants.window_started_at', 'ai_grants.window_spent',
+    'ai_grants.grant_id', 'ai_grants.auth_subject', 'ai_grants.client_id', 'ai_grants.client_label', 'ai_grants.redirect_host', 'ai_grants.time_zone', 'ai_grants.created_at', 'ai_grants.last_used_at', 'ai_grants.window_started_at', 'ai_grants.window_spent',
     'ai_refresh_tokens.token_hash', 'ai_refresh_tokens.grant_id', 'ai_refresh_tokens.expires_at', 'ai_refresh_tokens.used_at', 'ai_refresh_tokens.created_at',
   ]);
   expect(names.join(' ')).not.toMatch(/title|event|calendar_id|calendar_name|email|account|token_sealed/);
