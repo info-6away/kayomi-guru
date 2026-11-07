@@ -6,6 +6,7 @@ import { PROVIDERS, type Provider } from '@/lib/calendars/types';
 import { WORDS, listed, which } from '@/lib/calendars/words';
 import { hm } from '@/lib/dates';
 import { install, useCanInstall } from '@/lib/install';
+import { AiAccess } from './AiAccess';
 import { AlertIcon, TROUBLE } from './ui';
 
 const QUIET = 'underline decoration-line underline-offset-4 hover:text-ink disabled:no-underline disabled:opacity-60';
@@ -167,6 +168,8 @@ interface Props {
   /** On a wide screen the drawer sits beside the calendar instead of over it. */
   pushes: boolean;
   external: External;
+  /** Whether AI access is offered on this deployment (docs/MCP.md). */
+  ai?: boolean;
   onClose: () => void;
 }
 
@@ -175,7 +178,7 @@ interface Props {
  * outside, each account under its own address. This is all there is to it. No accounts page,
  * no settings.
  */
-export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Props) {
+export function CalendarsPanel({ mobile, open, pushes, external, ai = false, onClose }: Props) {
   const { available, providers, status, connections, calendars, syncing, note, asking } = external;
   const canInstall = useCanInstall();
   const slideMs = mobile ? 260 : 220;
@@ -428,6 +431,9 @@ export function CalendarsPanel({ mobile, open, pushes, external, onClose }: Prop
             <span>{note}</span>
           </p>
         )}
+
+        {/* AI assistants reading chosen calendars: only once there is an account to read, and only while signed in. */}
+        {ai && status === 'connected' && <AiAccess calendars={calendars} mobile={mobile} />}
       </div>
 
       {(status !== 'off' || canInstall) && (

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Kayomi from '@/components/Kayomi';
+import { aiConfig } from '@/lib/server/ai/config';
 import { calendarProviders } from '@/lib/server/env';
 
 // The calendar. Its tab title and install details live here rather than in the shared layout,
@@ -16,5 +17,5 @@ export default function Page() {
   // Decided when the site is built: which providers this deployment has what calendar
   // connections need for. With none there is Koyomi's own calendar and nothing to connect, and
   // the server is never asked anything.
-  return <Kayomi calendars={calendarProviders()} />;
+  return <Kayomi calendars={calendarProviders()} ai={aiConfig() !== null} />;
 }

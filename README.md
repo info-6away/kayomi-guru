@@ -8,6 +8,10 @@ your calendars.
 - **The calendars you already have.** Google Calendar, Microsoft (Outlook) and Yahoo calendars,
   read-only, from as many accounts at each as you choose to connect, shown beside your own. That
   is the only part with a server behind it. See [Calendar connections](docs/CALENDAR_CONNECTIONS.md).
+- **AI assistants (off unless `KOYOMI_MCP=on`, and then only for the people in
+  `KOYOMI_MCP_ALLOWLIST`: a private beta).** A read-only MCP endpoint through which an assistant
+  the person authorizes (Claude, ChatGPT, Grok) reads the connected calendars they choose.
+  Koyomi's own events are never included. See [Koyomi for AI assistants](docs/MCP.md).
 
 Koyomi is a calendar and nothing else. It used to carry a list of things waiting for a time,
 called Plan; that is gone (see "Data model" for what became of what it stored).

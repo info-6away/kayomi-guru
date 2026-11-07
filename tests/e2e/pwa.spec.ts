@@ -337,6 +337,20 @@ test.describe('the worker', () => {
     await expect(wordmark(page)).toBeVisible();
   });
 
+  test('the page where an AI assistant is allowed is never answered by the worker, so it can never become the saved calendar', async ({ page }) => {
+    await open(page);
+    await offlineReady(page);
+    // The worker answers the calendar's own page...
+    expect((await page.reload())!.fromServiceWorker()).toBe(true);
+    // ...and leaves the consent page to the server, every time: on a slow or absent connection it
+    // fails as any page would, rather than turning into the calendar (see also tests/unit/sw.test.ts).
+    const consent = await page.goto('/ai/consent');
+    expect(consent!.fromServiceWorker()).toBe(false);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('This request has ended');
+    await expect(calendarsButton(page)).toHaveCount(0);
+    expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+  });
+
   test('survives a browser restart, and Chrome finds it installable', async ({ baseURL }, testInfo) => {
     // Starts Chrome twice with a real profile, which is slow when the other tests are running too.
     test.setTimeout(90_000);

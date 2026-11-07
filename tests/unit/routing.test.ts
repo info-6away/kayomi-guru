@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { PREVIEW_APP_PATH, routing } from '../../next.config';
+import { AI_METADATA, PREVIEW_APP_PATH, routing } from '../../next.config';
 
 // Which site a host is shown is decided in next.config.ts, by host name, and in one case by the
 // kind of build: a Vercel Preview shows the landing page at "/" and the calendar at /app.
@@ -10,7 +10,12 @@ const APP_HOST = 'app\\.koyomi\\.guru';
 /** Every rule as it is in production. Local builds, and so every browser test, have exactly these. */
 const PRODUCTION = {
   rewrites: {
-    beforeFiles: [{ source: '/', has: [{ type: 'host', value: SITE_HOST }], destination: '/home' }],
+    beforeFiles: [
+      { source: '/', has: [{ type: 'host', value: SITE_HOST }], destination: '/home' },
+      { source: '/.well-known/oauth-authorization-server', destination: '/api/oauth/metadata' },
+      { source: '/.well-known/oauth-protected-resource', destination: '/api/oauth/resource' },
+      { source: '/.well-known/oauth-protected-resource/mcp', destination: '/api/oauth/resource' },
+    ],
     afterFiles: [],
     fallback: [],
   },
@@ -37,11 +42,13 @@ test('a Vercel Preview build shows the landing page at "/" and the calendar at /
   const preview = routing('preview');
   expect(PREVIEW_APP_PATH).toBe('/app');
 
-  // The site's own host rule first, as in production; then "/" for every host, then /app to the calendar.
+  // The site's own host rule first, as in production; then "/" for every host, then /app to the
+  // calendar; then the AI discovery documents, as in production.
   expect(preview.rewrites.beforeFiles).toEqual([
-    ...PRODUCTION.rewrites.beforeFiles,
+    PRODUCTION.rewrites.beforeFiles[0],
     { source: '/', destination: '/home' },
     { source: '/app', destination: '/' },
+    ...AI_METADATA,
   ]);
   expect(preview.rewrites.afterFiles).toEqual([]);
   expect(preview.rewrites.fallback).toEqual([]);
@@ -54,10 +61,13 @@ test('a Vercel Preview build shows the landing page at "/" and the calendar at /
   expect(preview.env).toEqual({ KOYOMI_PREVIEW: '1' });
 });
 
-test('nothing in the routing touches sign-in or the calendar connections', () => {
+test('nothing in the routing touches sign-in or the calendar connections; only the AI discovery documents lead to /api', () => {
   for (const env of ['production', 'preview', undefined]) {
     const { rewrites, redirects } = routing(env);
     const rules = [...rewrites.beforeFiles, ...rewrites.afterFiles, ...rewrites.fallback, ...redirects];
-    expect(rules.filter((rule) => rule.source.startsWith('/api') || rule.destination.includes('/api')), String(env)).toEqual([]);
+    const api = rules.filter((rule) => rule.source.startsWith('/api') || rule.destination.includes('/api'));
+    expect(api, String(env)).toEqual(AI_METADATA);
+    // And those lead to the two metadata documents and nowhere else.
+    expect([...new Set(api.map((rule) => rule.destination))].sort()).toEqual(['/api/oauth/metadata', '/api/oauth/resource']);
   }
 });

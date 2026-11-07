@@ -9,7 +9,7 @@ import { report } from './log';
  *
  * @returns null if the connection was ended while this was on its way.
  */
-async function listing(ctx: Ctx, connection: Connection, deadline: AbortSignal): Promise<ConnectionListing | null> {
+export async function listing(ctx: Ctx, connection: Connection, deadline: AbortSignal): Promise<ConnectionListing | null> {
   const none = { connectionId: connection.id, provider: connection.provider, account: null, calendars: [] };
   // The provider has already refused this one. Nothing is asked of it until the person reconnects.
   if (connection.status === 'reconnect') return { ...none, state: 'reconnect' };

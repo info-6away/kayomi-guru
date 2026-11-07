@@ -41,7 +41,8 @@ const TAB = 'relative h-8 px-1.5 text-[13px] tracking-[.03em] transition-colors 
 const NONE: Provider[] = [];
 
 /** @param calendars Which providers this deployment can connect calendars from. None, Koyomi's own calendar is all there is. */
-export default function Kayomi({ calendars = NONE }: { calendars?: Provider[] }) {
+/** @param ai Whether this deployment lets AI assistants read chosen calendars (docs/MCP.md). */
+export default function Kayomi({ calendars = NONE, ai = false }: { calendars?: Provider[]; ai?: boolean }) {
   const viewport = useViewport();
   const data = useData();
 
@@ -59,7 +60,7 @@ export default function Kayomi({ calendars = NONE }: { calendars?: Provider[] })
 
   // Layout depends on the window and the calendar on this device's data, so there is nothing to draw before both are known.
   if (!viewport || !data.ready) return <div data-app className="h-dvh bg-bg" />;
-  return <Calendar data={data} w={viewport.w} h={viewport.h} />;
+  return <Calendar data={data} w={viewport.w} h={viewport.h} ai={ai} />;
 }
 
 function useViewport() {
@@ -96,7 +97,7 @@ function useClock() {
   return clock;
 }
 
-function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
+function Calendar({ data, w, h, ai }: { data: Data; w: number; h: number; ai: boolean }) {
   const { today, now } = useClock();
   const [view, setView] = useState<View>('week');
   const [date, setDate] = useState(today);
@@ -534,7 +535,7 @@ function Calendar({ data, w, h }: { data: Data; w: number; h: number }) {
           </>
         )}
 
-        <CalendarsPanel mobile={mobile} open={calendarsOpen} pushes={pushes} external={external} onClose={() => setCalendarsOpen(false)} />
+        <CalendarsPanel mobile={mobile} open={calendarsOpen} pushes={pushes} external={external} ai={ai} onClose={() => setCalendarsOpen(false)} />
 
         {searching && <SearchPanel mobile={mobile} events={data.events} today={today} onClose={() => setSearching(false)} onEvent={reveal} />}
 

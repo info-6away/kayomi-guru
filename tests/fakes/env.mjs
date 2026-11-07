@@ -33,6 +33,15 @@ export const TEST_ENV = {
   KOYOMI_TEST_LINK_ORIGIN: `http://localhost:${FAKE_LINK_PORT}`,
   // A link may be read again at once in a test, which a real server spaces out.
   KOYOMI_TEST_LINK_PACE_MS: '0',
+  // AI assistants (docs/MCP.md), and the one address a client metadata document may be fetched
+  // from as it is, over http: the stand-in's.
+  KOYOMI_MCP: 'on',
+  KOYOMI_TEST_AI_CLIENT_ORIGIN: `http://localhost:${FAKE_PORT}`,
+  // The private beta's allowlist. Each browser test signs in as a person of its own, "user-…",
+  // all let in by this prefix (ignored on Vercel); "someone", the stand-in's default person, is
+  // the one named exactly, for trying it by hand. Anyone else is outside the beta.
+  KOYOMI_MCP_ALLOWLIST: 'someone',
+  KOYOMI_TEST_AI_ALLOW_PREFIX: 'user-',
 };
 
 const local = (day, time) => new Date(`${day}T${time}:00`).toISOString();

@@ -318,7 +318,7 @@ export async function readCalendar(
       }
     }
     if (budget.ranOut) report('yahoo', new Error('A Yahoo calendar took longer to work out than Koyomi allows; what was not worked out in time is left out'));
-    return { calendarId, full: true, events: [...events.values()], removed: [], syncToken: null };
+    return { calendarId, full: true, events: [...events.values()], removed: [], syncToken: null, ...(budget.ranOut ? { cut: true as const } : {}) };
   } catch (error) {
     // This one calendar could not be read: an answer that was not to be trusted.
     if (unreadable(error)) return { calendarId, failed: true };

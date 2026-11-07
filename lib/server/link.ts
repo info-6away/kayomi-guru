@@ -168,7 +168,7 @@ export function linkProvider(link: LinkConfig, tokenKey: string): CalendarProvid
         throw failureOf(new LinkError('not_calendar'));
       }
       if (budget.ranOut) report('link', new Error('A calendar link took longer to work out than Koyomi allows; what was not worked out in time is left out'));
-      return { calendarId, full: true, events, removed: [], syncToken: cursorFor(mark, got) };
+      return { calendarId, full: true, events, removed: [], syncToken: cursorFor(mark, got), ...(budget.ranOut ? { cut: true as const } : {}) };
     },
   };
 }
