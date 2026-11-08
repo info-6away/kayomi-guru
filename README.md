@@ -128,7 +128,8 @@ memory, never in a database, whatever `DATABASE_URL` the machine happens to have
   Yahoo's or a published one.
 - `public/sw.js`: the service worker that keeps the app shell available offline.
 - `scripts/`: `make-icons.mjs` draws the icons and `make-screenshots.mjs` takes the pictures in
-  `docs/design` and the manifest. `migrate.mjs` applies `migrations/` (one table).
+  `docs/design` and the manifest. `migrate.mjs` applies `migrations/` (every file, or one
+  with `--only <file>`; its logic is `migrate-core.mjs`).
   `preview-connected.mjs` runs the app against stand-ins for 6Away, Google and Microsoft.
 - `docs/design/`: the approved visual baseline, with screenshots. Read
   [DESIGN_BASELINE.md](docs/design/DESIGN_BASELINE.md) before changing how anything looks.

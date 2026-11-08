@@ -790,8 +790,18 @@ the rest is there, and a session opens nothing by itself.
    ```
 
    It waits for `--yes` because a machine can have `DATABASE_URL` set for another project. Each
-   file is one statement, applied whole or not at all, and running them all again changes
-   nothing.
+   file is one statement, applied whole or not at all, and running them all again loses nothing;
+   but nothing records what was applied, so it sends every file again, and `003_many_accounts.sql`
+   then drops and rebuilds the table's primary key. **A database that already has the earlier
+   files gets a new one alone**, by name:
+
+   ```sh
+   DATABASE_URL="postgres://..." npm run db:migrate -- --only 004_ai_access.sql         # shows what it would send
+   DATABASE_URL="postgres://..." npm run db:migrate -- --only 004_ai_access.sql --yes   # sends that file only
+   ```
+
+   `--only` takes exactly one file name from `migrations/`, never a path; anything else stops the
+   command (exit code 2) before any database is reached.
 
    **Coming from a release with one account for each person** (anything before
    `003_many_accounts.sql`): run the same command at the moment the new release goes out. That
