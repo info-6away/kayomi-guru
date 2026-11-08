@@ -20,6 +20,8 @@ export interface Source {
   provider: Provider;
   primary: boolean;
   connectionId: string;
+  /** The account (or link) the connection was for when access was checked: it is read only while it still is. */
+  accountKey: string;
   calendarId: string;
 }
 
@@ -43,9 +45,16 @@ export interface Authorized {
   removed: number;
 }
 
-/** A calendar's keyed hash, as a grant stores it: tied to its connection, and to nothing else. */
-export const calendarFingerprint = (config: AiConfig, connectionId: string, calendarId: string) =>
-  fingerprint(calendarId, config.connections.tokenKey, `ai-calendar:${connectionId}`);
+/**
+ * A calendar's keyed hash, as a grant stores it: tied to its connection AND to the account it is
+ * for. A connection can be pointed at another account while keeping its id ("Update link" gives a
+ * calendar link a new address; every link's one calendar has the same id), and what the person
+ * allowed was that account's calendar, not whatever the connection holds later. So after such a
+ * change the grant no longer matches it, and the assistant reads nothing of the new one until the
+ * person allows it. (Vercel Security Review finding 01M6V1S28.)
+ */
+export const calendarFingerprint = (config: AiConfig, connection: Pick<Connection, 'id' | 'accountKey'>, calendarId: string) =>
+  fingerprint(calendarId, config.connections.tokenKey, `ai-calendar:${connection.id}:${connection.accountKey}`);
 
 /** What the assistant calls a calendar: the same in every call of one grant, different in another grant. */
 export const handleFor = (config: AiConfig, grantId: string, connectionId: string, print: string) =>
@@ -78,9 +87,9 @@ const reasonOf = (error: string): Reason | 'gone' =>
 type Listed = { ok: true; calendars: CalendarInfo[] } | { ok: false; reason: Reason | 'gone' };
 
 function listCalendars(ctx: Ctx, connection: Connection, deadline: AbortSignal): Promise<Listed> {
-  return remembered(`${ctx.subject}:${connection.id}:list`, async () => {
+  return remembered(`${ctx.subject}:${connection.id}:${connection.accountKey}:list`, async () => {
     if (connection.status === 'reconnect') return { keep: false, value: { ok: false, reason: 'needs_reconnecting' } as Listed };
-    const read = await reading(ctx, connection.id, 1, (token, provider) => provider.listCalendars(token, deadline));
+    const read = await reading(ctx, connection.id, 1, (token, provider) => provider.listCalendars(token, deadline), connection.accountKey);
     if ('error' in read) return { keep: false, value: { ok: false, reason: reasonOf(read.error) } as Listed };
     return { keep: true, value: { ok: true, calendars: read.data.calendars } as Listed };
   });
@@ -113,10 +122,10 @@ export async function authorizedCalendars(config: AiConfig, ctx: Ctx, grant: Gra
     }
     const found = new Set<string>();
     for (const calendar of listed.calendars) {
-      const print = calendarFingerprint(config, connectionId, calendar.calendarId);
+      const print = calendarFingerprint(config, connection, calendar.calendarId);
       if (!prints.has(print)) continue;
       found.add(print);
-      out.sources.push({ handle: handleFor(config, grant.id, connectionId, print), name: calendar.name, provider: connection.provider, primary: calendar.primary, connectionId, calendarId: calendar.calendarId });
+      out.sources.push({ handle: handleFor(config, grant.id, connectionId, print), name: calendar.name, provider: connection.provider, primary: calendar.primary, connectionId, accountKey: connection.accountKey, calendarId: calendar.calendarId });
     }
     out.removed += [...prints].filter((print) => !found.has(print)).length;
   });
@@ -145,9 +154,14 @@ export async function readEvents(
   let removed = 0;
   await inTurn(sources, 4, async (source) => {
     type Got = { failed: Reason | 'gone' } | { events: ExternalEvent[]; cut: boolean };
-    const result = await remembered<Got>(`${ctx.subject}:${source.connectionId}:${source.calendarId}:${span.timeMin}:${span.timeMax}`, async () => {
-      const read = await reading(ctx, source.connectionId, 1, (token, provider) =>
-        provider.readCalendar(token, { connectionId: source.connectionId, calendarId: source.calendarId, syncToken: null, span, fetchedAt: new Date().toISOString() }, deadline),
+    const result = await remembered<Got>(`${ctx.subject}:${source.connectionId}:${source.accountKey}:${source.calendarId}:${span.timeMin}:${span.timeMax}`, async () => {
+      // Read only if the connection is still for the account access was checked against.
+      const read = await reading(
+        ctx,
+        source.connectionId,
+        1,
+        (token, provider) => provider.readCalendar(token, { connectionId: source.connectionId, calendarId: source.calendarId, syncToken: null, span, fetchedAt: new Date().toISOString() }, deadline),
+        source.accountKey,
       );
       if ('error' in read) return { keep: false, value: { failed: reasonOf(read.error) } };
       const calendar: CalendarResult = read.data;

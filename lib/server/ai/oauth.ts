@@ -1,6 +1,6 @@
 import { hashOf, type AiConfig } from './config';
 import type { AiStore } from './store';
-import { REFRESH_SECONDS, issueAccess, pkceMatches, readAccess, secret } from './tokens';
+import { REFRESH_SECONDS, issueAccess, pkceMatches, readAccess, secret, successorOf } from './tokens';
 import { SCOPE } from './config';
 
 // The token endpoint's two grants and the revocation endpoint (docs/MCP.md), apart from HTTP so
@@ -13,9 +13,10 @@ const refuse = (error: string, description: string, status = 400): TokenAnswer =
 /** Said the same whether access was revoked or the person is not (or no longer) in the beta: nothing tells the client which. */
 const ENDED = 'Access has been revoked';
 
-async function issue(config: AiConfig, store: AiStore, grantId: string, clientId: string, now: number): Promise<TokenAnswer> {
-  const refresh = secret('kr');
-  // A request at the same moment may have ended the grant (a spent token coming back): then nothing is issued.
+/** A new access token, with `refresh`: a grant's first refresh token, or the successor of the one presented. */
+async function issue(config: AiConfig, store: AiStore, grantId: string, clientId: string, now: number, refresh: string): Promise<TokenAnswer> {
+  // Saving the successor again (a retry within the grace) keeps the one already saved. A request
+  // at the same moment may have ended the grant (a spent token coming back): then nothing is issued.
   if (!(await store.saveRefresh(hashOf(config, refresh), grantId, now + REFRESH_SECONDS * 1000))) return refuse('invalid_grant', ENDED);
   const access = issueAccess(config, grantId, clientId, now);
   return { status: 200, body: { access_token: access.token, token_type: 'Bearer', expires_in: access.expiresIn, refresh_token: refresh, scope: SCOPE } };
@@ -47,15 +48,16 @@ export async function redeemCode(config: AiConfig, store: AiStore, form: URLSear
   if (!pkceMatches(form.get('code_verifier'), record.codeChallenge)) return refuse('invalid_grant', 'PKCE verification failed');
   const grant = await store.getGrant(record.grantId);
   if (!grant || grant.clientId !== clientId || !config.allowed(grant.subject)) return refuse('invalid_grant', ENDED);
-  return issue(config, store, grant.id, clientId, now);
+  return issue(config, store, grant.id, clientId, now, secret('kr'));
 }
 
 /**
- * Trades a refresh token for a new pair. Each refresh token is replaced on first use. Within a
- * few seconds of that (REFRESH_GRACE_SECONDS, at most REFRESH_GRACE_REUSES more times) it is
- * answered again with a new pair, for a client that lost the first answer or asked twice at once;
- * the pair it was given first stays good too. After that, a spent one coming back ends the grant:
- * someone has a copy.
+ * Trades a refresh token for a new pair. Each refresh token is replaced on first use, by its one
+ * successor (successorOf). Within a few seconds of that (REFRESH_GRACE_SECONDS, at most
+ * REFRESH_GRACE_REUSES more times) it is answered again, for a client that lost the first answer
+ * or asked twice at once, with a new access token and the SAME successor: a copy replayed in the
+ * grace cannot start a line of refresh tokens of its own. After that, a spent one coming back
+ * ends the grant: someone has a copy.
  */
 export async function refresh(config: AiConfig, store: AiStore, form: URLSearchParams, now = Date.now()): Promise<TokenAnswer> {
   const token = form.get('refresh_token');
@@ -72,7 +74,7 @@ export async function refresh(config: AiConfig, store: AiStore, form: URLSearchP
   const grant = await store.getGrant(taken.record.grantId);
   if (!grant || !config.allowed(grant.subject)) return refuse('invalid_grant', ENDED);
   if (grant.clientId !== clientId) return refuse('invalid_grant', 'The refresh token was issued to another client');
-  return issue(config, store, grant.id, clientId, now);
+  return issue(config, store, grant.id, clientId, now, successorOf(config, token));
 }
 
 /** RFC 7009: ends the grant a token belongs to. Says nothing either way about whether there was one. */

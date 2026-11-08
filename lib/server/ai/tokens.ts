@@ -7,14 +7,20 @@ import { keyFor, type AiConfig } from './config';
 // - Access token: `ka1.<payload>.<mac>`, signed with a key of its own, for 15 minutes, for the
 //   MCP endpoint only. It says which grant and which client; every request also checks the grant
 //   in the database, so revoking a grant ends its tokens at once.
-// - Refresh token and authorization code: 256 random bits, given out once and kept only as a
-//   keyed hash.
+// - Authorization code, and the first refresh token of a grant: 256 random bits, given out once
+//   and kept only as a keyed hash.
+// - Every later refresh token: the one successor of the token it replaces (successorOf), 256 bits
+//   derived from that token with a key only the server holds; also kept only as a keyed hash.
 //
-// A refresh token is replaced every time it is used. For REFRESH_GRACE_SECONDS after that first
-// use, the same token may come back up to REFRESH_GRACE_REUSES more times and is answered with a
-// new pair each time: a client whose answer was lost on the way, or two of its servers refreshing
-// at once, is not mistaken for a thief. After that it is spent for good, and coming back again
-// ends the grant (someone holds a copy). Every token of the grant then stops working.
+// A refresh token is replaced every time it is used, always by the same successor. For
+// REFRESH_GRACE_SECONDS after that first use, the same token may come back up to
+// REFRESH_GRACE_REUSES more times: a client whose answer was lost on the way, or two of its servers
+// refreshing at once, is not mistaken for a thief, and gets that same successor again (with a new
+// access token). So a grant has one line of refresh tokens, never two: a copy replayed within the
+// grace joins the owner's line instead of starting its own, and as soon as the two holders part
+// (one uses a token the other already used, after its grace) the grant ends. After the grace a
+// token is spent for good, and coming back again ends the grant (someone holds a copy). Every
+// token of the grant then stops working.
 
 export const ACCESS_SECONDS = 15 * 60;
 export const REFRESH_SECONDS = 30 * 24 * 60 * 60;
@@ -61,8 +67,15 @@ export function readAccess(config: AiConfig, token: string, now = Date.now()): A
   return claims;
 }
 
-/** A secret to give out once: a code or a refresh token. */
+/** A secret to give out once: a code or a grant's first refresh token. */
 export const secret = (prefix: 'kc' | 'kr') => `${prefix}.${randomBytes(32).toString('base64url')}`;
+
+/**
+ * The one refresh token that replaces `token`. Derived from it with a key only the server holds:
+ * whoever presents the same token gets the same successor, never a second one of their own, and
+ * nobody can work it out without the key. Looks like any other refresh token.
+ */
+export const successorOf = (config: AiConfig, token: string) => `kr.${createHmac('sha256', keyFor(config, 'successor')).update(token).digest('base64url')}`;
 
 /** RFC 7636: the verifier's shape, and S256 only. */
 export function pkceMatches(verifier: unknown, challenge: string): boolean {

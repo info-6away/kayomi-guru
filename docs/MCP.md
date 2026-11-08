@@ -197,16 +197,24 @@ Koyomi becomes a small OAuth 2.1 authorization server, on `https://app.koyomi.gu
 - **Access tokens**: `ka1.<payload>.<HMAC>` — grant id, client id, audience (the MCP URL),
   expiry (15 minutes). Every request also loads the grant: revoked, missing, wrong client or
   wrong audience → 401. Revocation is immediate.
-- **Refresh tokens**: 256-bit random, stored hashed, 30 days, rotated on every use. A just-replaced
-  token gets a **grace of 30 seconds and at most 3 more uses** (`REFRESH_GRACE_SECONDS`,
-  `REFRESH_GRACE_REUSES`): each is answered with a new pair, and the pair given first stays good.
-  That covers an answer lost on the way (the client retries with the same token) and a client's
-  servers refreshing at once. After the grace, or beyond the count, the token is spent for good
-  and coming back revokes the grant and every token of it. Rotation is never skipped: every use,
-  grace or not, gets a new refresh token. The database decides which use is first (one
-  `update … where used_at is null`), so of any number of uses at once exactly one is first; if a
+- **Refresh tokens**: stored hashed, 30 days, rotated on every use. A grant's first is 256-bit
+  random; each later one is **the one successor** of the token it replaces (`successorOf`: an HMAC
+  of that token under a key of its own, 256 bits, indistinguishable from a random one). A
+  just-replaced token gets a **grace of 30 seconds and at most 3 more uses**
+  (`REFRESH_GRACE_SECONDS`, `REFRESH_GRACE_REUSES`): each is answered with a new access token and
+  **the same successor**. That covers an answer lost on the way (the client retries with the same
+  token) and a client's servers refreshing at once, and a grant still has one line of refresh
+  tokens, never two: a copy replayed within the grace joins the owner's line instead of starting
+  its own, and as soon as the two holders part (one uses a token the other already used, after
+  its grace) the grant ends. After the grace, or beyond the count, the token is spent for good
+  and coming back revokes the grant and every token of it. The database decides which use is
+  first (one `update … where used_at is null`), so of any number of uses at once exactly one is
+  first; the successor is saved once (`on conflict do nothing`, never made unused again); if a
   copy coming back ends the grant while another refresh is being answered, that one gets
-  `invalid_grant`, never a token of an ended grant.
+  `invalid_grant`, never a token of an ended grant. (Until 2026-11-08 each grace answer had a new
+  random successor, which let a copy replayed within the grace keep a line of its own: Vercel
+  Security Review finding 01M6VGQ6J, fixed.) What a replay within the grace still gets is one
+  15-minute access token: the price of any grace window.
 - **Keys**: derived from `TOKEN_ENCRYPTION_KEY` with their own labels (as `fingerprint()` does).
   No new secret.
 
@@ -218,7 +226,8 @@ ai_clients         client_id, redirect_uris, client_name (display only), created
 ai_grants          grant_id, auth_subject, client_id, client_label, redirect_host, time_zone,
                    created_at, last_used_at, window_started_at, window_spent
 ai_grant_calendars grant_id → ai_grants (on delete cascade), connection_id,
-                   calendar_fingerprint                (an HMAC of the calendar id; never the id)
+                   calendar_fingerprint                (an HMAC of the calendar id, keyed to the connection
+                                                        and the account it is for; never the id)
 ai_codes           code_hash, grant_id → ai_grants (cascade), client_id, redirect_uri, code_challenge, resource, expires_at, used_at
 ai_refresh_tokens  token_hash, grant_id → ai_grants (cascade), expires_at, used_at, reuse_count
 ```
@@ -229,8 +238,17 @@ Indexes: `ai_grants (auth_subject)`, `ai_grants (client_id)` (for tidying regist
 - No event, title, calendar name, account address or provider calendar id is stored.
 - Revoking a grant, or allowing the same client again, **deletes** the grant and, by cascade,
   its calendars, codes and refresh tokens. Nothing of ended access is kept.
-- A calendar is authorized by `(connection, fingerprint)`. Calendars that appear later are *not*
-  authorized. A calendar that disappears at the provider is counted in `removed_calendars`.
+- A calendar is authorized by `(connection, fingerprint)`, and the fingerprint is made with the
+  connection's account (`accountKey`) as well as its id: what the person allowed is that
+  account's calendar. A connection pointed at another account while keeping its id ("Update
+  link" on a calendar link, whose one calendar always has the same id) no longer matches: the
+  assistant sees it as removed and reads nothing of the new feed until the person allows it
+  again; every read also checks the connection is still for that account (`reading(…, account)`),
+  and what is kept in memory for a minute is kept per account. So updating a link, even to a
+  reset address of the same calendar, means allowing the assistant again. (Vercel Security Review
+  finding 01M6V1S28, fixed 2026-11-08; `ai.spec.ts` "a calendar link given a new address".)
+  Calendars that appear later are *not* authorized. A calendar that disappears at the provider is
+  counted in `removed_calendars`.
 - `connection_id` is deliberately not a foreign key: migration 003 rebuilds
   `calendar_connections`' primary key every time the migrations run, and a reference to it would
   make that fail. Instead every read joins on the connection *and* on its person, so a
@@ -344,8 +362,8 @@ There is no admin screen. The browser tests let their own stand-in people in by 
    disclosure position for this use is confirmed** (in the verification resubmission, or by asking
    Google's review team). The private beta is not that confirmation.
 2. Private tests in ChatGPT, Claude and Grok, and the cross-client comparison.
-3. Migration 004 rehearsed on a disposable Neon branch with `--only`, then applied to
-   Production with the same command (below).
+3. Migration 004 rehearsed on a disposable Neon branch with `--only` (done 2026-11-08, passed),
+   then applied to Production with the same command, on approval (below).
 4. Privacy and Terms dates set at merge.
 
 ### Migration 004 and the migration runner (evaluated 2026-11-07; `--only` added 2026-11-08; 004 not applied to Production)
@@ -403,7 +421,21 @@ machine; the branch is made in the Neon console.
 **Rollback:** `drop table ai_refresh_tokens, ai_codes, ai_grant_calendars, ai_grants, ai_clients;`
 (one statement; nothing outside these five refers to any of them, and no other table changes).
 
-**Rehearsal:** not run yet (needs the Neon console).
+**Rehearsal (2026-11-08), passed.** Disposable branch `rehearsal-004-2026-11-08` of Production's
+`main`, made in the Neon console with its data as of that moment (auto-delete after a day as a
+safety net), deleted after the run. The exact command, `npm run db:migrate -- --only
+004_ai_access.sql --yes`, run against the branch's own endpoint with Production's role (a branch
+is a whole copy, roles included; the address came from Vercel into that one process, was never
+printed or written down, and the script refused Production's endpoint and never connected to
+it). Results:
+
+| Check | Result |
+| --- | --- |
+| Before | `calendar_connections`: 9 rows; table oid 16748; primary key `(connection_id)`, index oid 24585, constraint oid 24586; 25 schema lines; no duplicate index or constraint |
+| First run | "Only 004_ai_access.sql. Not run: 001…, 002…, 003…", exit 0. Schema diff +76 −0, every line on the five `ai_*` tables (columns, 8 indexes, constraints), none on `calendar_connections`. `calendar_connections`: same table, key index and constraint oids, rows, row digest and row versions. AI tables empty |
+| Second run | the same output, exit 0; diff +0 −0; everything identical to the first run; no duplicate index or constraint |
+| Rollback | `drop table ai_refresh_tokens, ai_codes, ai_grant_calendars, ai_grants, ai_clients;` brought the schema back exactly (diff +0 −0, every check identical to "before") |
+| Production | not connected to, not changed |
 
 ### What stays local
 
@@ -437,8 +469,10 @@ stored on the server.
   characters, Unicode, empty), duplicate ids across accounts, all-day spans, recurrence, and
   that the tool code can only read. Since the corrections: the allowlist (exact subjects,
   nobody when empty, the test prefix dead on Vercel, codes and refreshes refused outside it);
-  the refresh grace to the second with a given clock (a lost answer retried, three at once, five
-  at once, the boundary at 30 s, a day later, expiry), on both stores; tidying registrations
+  the refresh grace to the second with a given clock (a lost answer retried and given the same
+  successor, three at once, five at once, a copy replayed within the grace joining the owner's
+  line and the grant ending when they part, two grace answers unable to keep two lines, the
+  boundary at 30 s, a day later, expiry), on both stores; tidying registrations
   (never used, used, touched within the hour, named by a grant, after revoking), on both stores;
   the 500 cap (over, exactly at, a crowded day, free time from every event, more than 500 free
   stretches) and `partly_read` told apart from `unavailable` and `truncated`.
@@ -462,13 +496,16 @@ stored on the server.
   MCP client, on 2026-07-28 and on the 2025 handshake; refreshing over the real token endpoint
   (two at once, retries, the copy that ends access); someone outside the allowlist (no AI access
   in Calendars, 404s, refused back to the assistant signed in and signed out, no calendar ever
-  listed). `tests/e2e/pwa.spec.ts`: with the worker in charge, `/ai/consent` comes from the
-  server, never the worker.
+  listed); a calendar link given a new address (the assistant's token reads nothing of the new
+  feed, over a range it never asked about, until the person allows it again; without the fix
+  this test fails). `tests/e2e/pwa.spec.ts`: with the worker in charge, `/ai/consent` comes from
+  the server, never the worker.
 
 ### MCP Inspector (2.14.0, CLI), against the production build with the stand-ins
 
-Run again on 2026-11-08 on the corrected build (the `--only` push), signed in as a stand-in
-person on the allowlist. The first run was at `5badfb0`, before the corrections, with the same
+Run again on 2026-11-08 on the corrected build, signed in as a stand-in person on the
+allowlist: after the log fix, and once more after the two Security Review fixes, with the same
+results. The first run was at `5badfb0`, before the corrections, with the same
 results for the rows they share.
 
 | Check | Result |
@@ -498,7 +535,8 @@ and access were never affected.
 
 ### Still to do (needs a public deployment; see the PR)
 
-The Neon rehearsal of migration 004, then 004 on Production with `--only` (above);
+Migration 004 on Production with `--only` (rehearsed; above), `KOYOMI_MCP=on` and the owner's
+subject in `KOYOMI_MCP_ALLOWLIST`, all on approval;
 ChatGPT, Claude and Grok private connectors (Grok stays a target: its documentation describes
 custom MCP connectors with required authentication; only if real testing shows it needs a
 manually pasted long-lived token is it dropped); the cross-client comparison; the real

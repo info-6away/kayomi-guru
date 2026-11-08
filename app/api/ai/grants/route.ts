@@ -21,14 +21,17 @@ export async function POST(request: Request) {
   if (!sameOrigin(request, ctx.config)) return respond(no('bad_request', 403));
   const body = (await request.json().catch(() => null)) as { calendars?: unknown } | null;
   const known = Array.isArray(body?.calendars) ? body.calendars.slice(0, 500) : [];
+  // In the memory store a grant can outlive a disconnected account; the database removes those.
+  const connections = new Map((await ctx.store.list(ctx.subject)).map((c) => [c.id, c]));
+  const own = new Set(connections.keys());
   const byPrint = new Map<string, { connectionId: string; calendarId: string }>();
   for (const each of known as { connectionId?: unknown; calendarId?: unknown }[]) {
     if (!isConnectionId(each?.connectionId) || typeof each.calendarId !== 'string' || each.calendarId.length > 256) continue;
-    byPrint.set(`${each.connectionId}\n${calendarFingerprint(config, each.connectionId, each.calendarId)}`, { connectionId: each.connectionId, calendarId: each.calendarId });
+    const connection = connections.get(each.connectionId);
+    if (!connection) continue;
+    byPrint.set(`${each.connectionId}\n${calendarFingerprint(config, connection, each.calendarId)}`, { connectionId: each.connectionId, calendarId: each.calendarId });
   }
   const grants = await aiStoreFor(config).listGrants(ctx.subject);
-  // In the memory store a grant can outlive a disconnected account; the database removes those.
-  const own = new Set((await ctx.store.list(ctx.subject)).map((c) => c.id));
   return respond({
     status: 200,
     body: {

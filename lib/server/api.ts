@@ -165,11 +165,14 @@ const pauseKey = (id: string, account?: string) => `${id}:${account}`;
  *
  * @param cost What this read counts for against the account's allowance.
  * @param reached Told which account this is, as soon as that is known.
+ * @param account If given, the account the connection must still be for: one pointed at another
+ *   account since (a calendar link given a new address) is "not connected" for this read.
  */
-async function accessFor(ctx: Ctx, id: string, cost: number, reached: { account?: string }): Promise<{ token: string; provider: CalendarProvider } | { error: ApiError; retryAfter?: number }> {
+async function accessFor(ctx: Ctx, id: string, cost: number, reached: { account?: string }, account?: string): Promise<{ token: string; provider: CalendarProvider } | { error: ApiError; retryAfter?: number }> {
   const spent = await ctx.store.spend(ctx.subject, id, cost, ALLOWANCE);
   if (!spent) return { error: 'not_connected' };
   const { connection } = spent;
+  if (account !== undefined && connection.accountKey !== account) return { error: 'not_connected' };
   reached.account = connection.accountKey;
   if (!spent.allowed) return { error: 'slow_down', retryAfter: spent.retryAfter };
   if (connection.status === 'reconnect') return { error: 'reconnect' };
@@ -211,13 +214,15 @@ async function accessFor(ctx: Ctx, id: string, cost: number, reached: { account?
  * Reads from a provider through one of this person's connections: checks that account's
  * allowance, gets a token, runs `work`, and turns anything that goes wrong into one quiet word.
  * What goes wrong for one connection is that connection's alone: nothing here touches another row.
+ * With `account`, nothing is read unless the connection is still for that account (AI access,
+ * lib/server/ai/read.ts); the app's own readings do not pass it.
  */
-export async function reading<T>(ctx: Ctx, id: string, cost: number, work: (token: string, provider: CalendarProvider) => Promise<T>): Promise<Read<T>> {
+export async function reading<T>(ctx: Ctx, id: string, cost: number, work: (token: string, provider: CalendarProvider) => Promise<T>, account?: string): Promise<Read<T>> {
   const reached: { account?: string } = {};
   for (let attempt = 0; ; attempt++) {
     try {
       // A second attempt is the same reading, and is not counted again.
-      const got = await accessFor(ctx, id, attempt ? 0 : cost, reached);
+      const got = await accessFor(ctx, id, attempt ? 0 : cost, reached, account);
       return 'token' in got ? { data: await work(got.token, got.provider) } : got;
     } catch (error) {
       if (!(error instanceof ProviderError)) {

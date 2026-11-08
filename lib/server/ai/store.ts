@@ -82,12 +82,23 @@ export interface AiStore {
   listGrants(subject: string): Promise<Grant[]>;
   /** Ends a grant, deleting it and everything under it. With `subject`, only that person's. True if there was one. */
   revokeGrant(grantId: string, subject?: string): Promise<boolean>;
+  /**
+   * Takes one of this person's connections out of every grant of theirs: it is now for another
+   * account (a calendar link given a new address). What was allowed was the old account's
+   * calendar; nothing of the new one is, until the person allows it. (The grant's fingerprints
+   * no longer match it anyway; this keeps Calendars from counting it as still allowed.)
+   */
+  forgetConnection(subject: string, connectionId: string): Promise<void>;
   /** Counts one tool call against the grant's allowance, and notes when it was last used. */
   spendGrant(grantId: string, cost: number, allowance: Allowance): Promise<{ allowed: boolean; retryAfter: number } | null>;
   saveCode(hash: string, code: CodeRecord): Promise<void>;
   /** Marks a code used. `replay` is true when it had been used before. */
   takeCode(hash: string): Promise<Taken<CodeRecord>>;
-  /** Keeps a new refresh token. False when its grant has ended meanwhile (revoked by a request at the same moment). */
+  /**
+   * Keeps a refresh token. Keeping one that is already kept (the same successor, asked for again
+   * within the grace) changes nothing and is true. False when its grant has ended meanwhile
+   * (revoked by a request at the same moment).
+   */
   saveRefresh(hash: string, grantId: string, expiresAt: number): Promise<boolean>;
   /**
    * Uses a refresh token: the first use marks it used at `now`; a use within REFRESH_GRACE_SECONDS
@@ -210,6 +221,12 @@ export function sqlAiStore(sql: Sql): AiStore {
         : await sql`delete from ai_grants where grant_id = ${grantId} and auth_subject = ${subject} returning grant_id`;
       return rows.length > 0;
     },
+    async forgetConnection(subject, connectionId) {
+      if (!UUID(connectionId)) return;
+      await sql`
+        delete from ai_grant_calendars gc using ai_grants g
+        where gc.grant_id = g.grant_id and g.auth_subject = ${subject} and gc.connection_id = ${connectionId}::uuid`;
+    },
     async spendGrant(grantId, cost, allowance) {
       if (!UUID(grantId)) return null;
       const [row] = await sql`
@@ -254,12 +271,19 @@ export function sqlAiStore(sql: Sql): AiStore {
     async saveRefresh(hash, grantId, expiresAt) {
       await sql`delete from ai_refresh_tokens where expires_at < now() - interval '1 day'`;
       try {
+        // A successor saved again (a retry within the grace) is kept as it is: never a second row,
+        // and never made unused again.
         const rows = await sql`
           insert into ai_refresh_tokens (token_hash, grant_id, expires_at)
           select ${hash}, ${grantId}::uuid, ${new Date(expiresAt).toISOString()}
           where exists (select 1 from ai_grants where grant_id = ${grantId}::uuid)
+          on conflict (token_hash) do nothing
           returning token_hash`;
-        return rows.length > 0;
+        if (rows.length > 0) return true;
+        const [kept] = await sql`
+          select 1 as kept from ai_refresh_tokens t join ai_grants g on g.grant_id = t.grant_id
+          where t.token_hash = ${hash} and t.grant_id = ${grantId}::uuid`;
+        return Boolean(kept);
       } catch (error) {
         // The grant was deleted between that check and this row: a foreign key violation.
         if ((error as { code?: unknown })?.code === '23503') return false;
@@ -348,6 +372,9 @@ export function memoryAiStore(): AiStore {
       for (const [hash, code] of codes) if (code.grantId === grantId) codes.delete(hash);
       return true;
     },
+    async forgetConnection(subject, connectionId) {
+      for (const grant of grants.values()) if (grant.subject === subject) grant.calendars = grant.calendars.filter((c) => c.connectionId !== connectionId);
+    },
     async spendGrant(grantId, cost, allowance) {
       const grant = grants.get(grantId);
       if (!grant || grant.revoked) return null;
@@ -372,6 +399,8 @@ export function memoryAiStore(): AiStore {
     },
     async saveRefresh(hash, grantId, expiresAt) {
       if (!grants.has(grantId)) return false;
+      const kept = refresh.get(hash);
+      if (kept) return kept.grantId === grantId;
       refresh.set(hash, { grantId, expiresAt, usedAt: null, reuses: 0 });
       return true;
     },

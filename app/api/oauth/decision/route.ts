@@ -56,11 +56,12 @@ export async function POST(request: Request) {
 
   const picked = form.getAll('calendar').slice(0, MAX_CALENDARS).map(chosen);
   if (!picked.length || picked.some((each) => each === null)) return NextResponse.redirect(new URL('/ai/consent', config.issuer), 303);
-  // Only the person's own connections; the store checks this again.
-  const own = new Set((await storeFor(config.connections).list(user.sub)).map((c) => c.id));
+  // Only the person's own connections; the store checks this again. Each calendar is tied to the
+  // account its connection is for now, the one the person was shown.
+  const own = new Map((await storeFor(config.connections).list(user.sub)).map((c) => [c.id, c]));
   const calendars = picked
     .filter((each): each is NonNullable<typeof each> => each !== null && own.has(each.connectionId))
-    .map((each) => ({ connectionId: each.connectionId, fingerprint: calendarFingerprint(config, each.connectionId, each.calendarId) }));
+    .map((each) => ({ connectionId: each.connectionId, fingerprint: calendarFingerprint(config, own.get(each.connectionId)!, each.calendarId) }));
   if (!calendars.length) return NextResponse.redirect(new URL('/ai/consent', config.issuer), 303);
 
   const zone = form.get('timezone');

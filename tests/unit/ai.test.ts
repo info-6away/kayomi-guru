@@ -12,7 +12,7 @@ import { redeemCode, refresh, revokeToken } from '../../lib/server/ai/oauth';
 import type { Authorized, Source, SourceEvent, Unavailable } from '../../lib/server/ai/read';
 import { memoryAiStore, sqlAiStore, type AiStore } from '../../lib/server/ai/store';
 import { localIso, parseMoment } from '../../lib/server/ai/time';
-import { issueAccess, pkceMatches, readAccess, secret } from '../../lib/server/ai/tokens';
+import { issueAccess, pkceMatches, readAccess, secret, successorOf } from '../../lib/server/ai/tokens';
 import { ToolInputError, cleanTitle, findFreeTimeTool, getEventsTool, getScheduleTool, listCalendarsTool, type ToolContext } from '../../lib/server/ai/tools';
 import { memoryStore, sqlStore, type Sql } from '../../lib/server/connections';
 
@@ -262,6 +262,22 @@ for (const kind of ['Postgres', 'memory'] as const) {
     const redeem = (store: AiStore, code: string, extra: Record<string, string> = {}) =>
       redeemCode(config, store, form({ grant_type: 'authorization_code', code, client_id: 'https://claude.ai/oauth/doc', redirect_uri: 'https://claude.ai/api/mcp/auth_callback', code_verifier: VERIFIER, resource: config.resource, ...extra }));
 
+    test('a connection now for another account leaves that person\'s grants, and nobody else\'s', async () => {
+      const { store, connections, mine, theirs } = await setup();
+      const second = await connections.save('person-a', 'google', 'acct-a2', 'sealed', 'scope');
+      const ofA = await store.createGrant({ subject: 'person-a', clientId: 'c1', clientLabel: 'Claude', redirectHost: 'claude.ai', timeZone: 'UTC', calendars: [{ connectionId: mine, fingerprint: 'fp-1' }, { connectionId: second, fingerprint: 'fp-2' }] });
+      const ofB = await store.createGrant({ subject: 'person-b', clientId: 'c1', clientLabel: 'Claude', redirectHost: 'claude.ai', timeZone: 'UTC', calendars: [{ connectionId: theirs, fingerprint: 'fp-3' }] });
+      const prints = async (grantId: string) => (await store.getGrant(grantId))!.calendars.map((c) => c.fingerprint).sort();
+      // Someone else naming it changes nothing of person A's.
+      await store.forgetConnection('person-b', second);
+      expect(await prints(ofA)).toEqual(['fp-1', 'fp-2']);
+      await store.forgetConnection('person-a', second);
+      expect(await prints(ofA)).toEqual(['fp-1']);
+      expect(await prints(ofB)).toEqual(['fp-3']);
+      await store.forgetConnection('person-a', 'not-a-connection-id');
+      expect(await prints(ofA)).toEqual(['fp-1']);
+    });
+
     test('a code is redeemed once, by its client, at its redirect address, with its verifier', async () => {
       const { store, mine } = await setup();
       for (const [change, description] of [
@@ -312,7 +328,7 @@ for (const kind of ['Postgres', 'memory'] as const) {
       expect((await turn(third.body.refresh_token, T0 + 120_000, 'https://chatgpt.com/oauth/client.json')).body).toMatchObject({ error: 'invalid_grant', error_description: 'The refresh token was issued to another client' });
     });
 
-    test('a lost answer: the just-replaced token works again within 30 seconds, and both new pairs work', async () => {
+    test('a lost answer: the just-replaced token works again within 30 seconds, and gets the same replacement', async () => {
       const { store, mine } = await setup();
       const turn = turnOf(store);
       const { code, grantId } = await grantAndCode(store, mine);
@@ -322,12 +338,60 @@ for (const kind of ['Postgres', 'memory'] as const) {
       const retried = await turn(first.refresh_token, T0 + 5_000);
       expect(lost.status).toBe(200);
       expect(retried.status).toBe(200);
-      expect(retried.body.refresh_token).not.toBe(lost.body.refresh_token);
+      // The same successor (one line of refresh tokens), with an access token of its own.
+      expect(retried.body.refresh_token).toBe(lost.body.refresh_token);
+      expect(retried.body.access_token).not.toBe(lost.body.access_token);
       expect(readAccess(config, String(retried.body.access_token), T0 + 5_000)).toMatchObject({ g: grantId });
-      // Whichever pair the client kept carries on, used once each.
-      expect((await turn(retried.body.refresh_token, T0 + 60_000)).status).toBe(200);
-      expect((await turn(lost.body.refresh_token, T0 + 60_000)).status).toBe(200);
+      // The client carries on with it, and its line goes on.
+      const next = await turn(retried.body.refresh_token, T0 + 60_000);
+      expect(next.status).toBe(200);
+      expect((await turn(next.body.refresh_token, T0 + 120_000)).status).toBe(200);
       expect(await store.getGrant(grantId)).not.toBeNull();
+    });
+
+    test('a copy replayed within the grace joins the owner\'s line instead of starting its own, and the grant ends when they part', async () => {
+      // Vercel Security Review finding 01M6VGQ6J: with a new successor for every grace answer, a
+      // copy replayed within 30 seconds got a refresh line of its own that reuse detection never saw.
+      const { store, mine } = await setup();
+      const turn = turnOf(store);
+      const { code, grantId } = await grantAndCode(store, mine);
+      const stolen = String((await redeem(store, code)).body.refresh_token);
+      const owner = await turn(stolen, T0);
+      const copy = await turn(stolen, T0 + 10_000);
+      expect([owner.status, copy.status]).toEqual([200, 200]);
+      // Both hold the same next token: there is one line, not two.
+      expect(copy.body.refresh_token).toBe(owner.body.refresh_token);
+      const shared = String(owner.body.refresh_token);
+      // Fifteen minutes on, one of them (either) refreshes with it; the other, later, finds it spent: the grant ends.
+      const moved = await turn(shared, T0 + 15 * 60_000);
+      expect(moved.status).toBe(200);
+      expect((await turn(shared, T0 + 20 * 60_000)).body).toMatchObject({ error: 'invalid_grant', error_description: 'The refresh token has already been used' });
+      expect(await store.getGrant(grantId)).toBeNull();
+      // And the one that moved first is cut off with it.
+      expect((await turn(moved.body.refresh_token, T0 + 21 * 60_000)).body).toMatchObject({ error: 'invalid_grant' });
+    });
+
+    test('a successor looks like any refresh token, is the same for the same token, and cannot be worked out without the key', () => {
+      const token = secret('kr');
+      const next = successorOf(config, token);
+      expect(next).toMatch(/^kr\.[A-Za-z0-9_-]{43}$/);
+      expect(next).not.toBe(token);
+      expect(successorOf(config, token)).toBe(next);
+      expect(successorOf(config, secret('kr'))).not.toBe(next);
+      const otherKey = { ...config, connections: { ...config.connections, tokenKey: 'f'.repeat(64) } };
+      expect(successorOf(otherKey, token)).not.toBe(next);
+    });
+
+    test('two answers in the grace, refreshed after it, cannot keep two lines alive', async () => {
+      const { store, mine } = await setup();
+      const turn = turnOf(store);
+      const { code, grantId } = await grantAndCode(store, mine);
+      const first = (await redeem(store, code)).body;
+      const a = await turn(first.refresh_token, T0);
+      const b = await turn(first.refresh_token, T0 + 1_000);
+      expect((await turn(a.body.refresh_token, T0 + 60_000)).status).toBe(200);
+      expect((await turn(b.body.refresh_token, T0 + 120_000)).body).toMatchObject({ error: 'invalid_grant', error_description: 'The refresh token has already been used' });
+      expect(await store.getGrant(grantId)).toBeNull();
     });
 
     test('refreshes at once: exactly one first use, the rest within the grace, all answered; never more than three extra', async () => {
@@ -337,7 +401,8 @@ for (const kind of ['Postgres', 'memory'] as const) {
       const first = (await redeem(store, code)).body;
       const parallel = await Promise.all([0, 1, 2].map(() => turn(first.refresh_token, T0)));
       expect(parallel.map((a) => a.status)).toEqual([200, 200, 200]);
-      expect(new Set(parallel.map((a) => a.body.refresh_token)).size).toBe(3);
+      // All three are given the one successor.
+      expect(new Set(parallel.map((a) => a.body.refresh_token)).size).toBe(1);
       // One more within the grace is the third extra use, and still answered.
       expect((await turn(first.refresh_token, T0 + 1_000)).status).toBe(200);
       // A fifth is more than any client retrying would send: the token is someone's copy, and the grant ends.
@@ -540,6 +605,7 @@ test.describe('tools', () => {
     provider,
     primary: false,
     connectionId,
+    accountKey: `account-${connectionId}`,
     calendarId,
   });
   const work = source('cal_work', 'Work', 'google');

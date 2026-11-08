@@ -287,10 +287,11 @@ test.describe('AI assistants', () => {
       return { status: response.status, body: await response.json() };
     };
     const works = async (accessToken: string) => (await fetch(MCP, { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: '{}' })).status !== 401;
-    // Two of the assistant's servers refresh with the same token at the same moment: both are answered.
+    // Two of the assistant's servers refresh with the same token at the same moment: both are
+    // answered, with the same next refresh token: one line of them, never two.
     const [a, b] = await Promise.all([turn(tokens.refresh_token), turn(tokens.refresh_token)]);
     expect([a.status, b.status]).toEqual([200, 200]);
-    expect(a.body.refresh_token).not.toBe(b.body.refresh_token);
+    expect(a.body.refresh_token).toBe(b.body.refresh_token);
     expect(await works(a.body.access_token)).toBe(true);
     expect(await works(b.body.access_token)).toBe(true);
     // The pair it keeps carries on, replaced on each use.
@@ -302,6 +303,52 @@ test.describe('AI assistants', () => {
     expect(await turn(tokens.refresh_token)).toMatchObject({ status: 400, body: { error: 'invalid_grant', error_description: 'The refresh token has already been used' } });
     expect(await works(next.body.access_token)).toBe(false);
     expect((await turn(next.body.refresh_token)).status).toBe(400);
+  });
+
+  test('a calendar link given a new address is a new calendar to the assistant: nothing of it is read until the person allows it', async ({ page, id }) => {
+    // Vercel Security Review finding 01M6V1S28: the grant named the connection and the link's
+    // calendar id, which every link shares, so "Update link" to another feed handed it the new one.
+    const FEEDS = 'http://localhost:4317';
+    const feed = (token: string, uid: string, title: string, day: string) =>
+      fetch(`${FEEDS}/__fake/feeds/${token}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ics: ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Stand-in//EN', 'X-WR-CALNAME:Team', 'BEGIN:VEVENT', `UID:${uid}`, `SUMMARY:${title}`, `DTSTART:${day.replaceAll('-', '')}T100000Z`, `DTEND:${day.replaceAll('-', '')}T110000Z`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') }),
+      });
+    await feed(`${id}a`, 'a1', 'Feed A meeting', dayFrom(1));
+    await feed(`${id}b`, 'b1', 'Feed B private', dayFrom(2));
+    await google.has(id, aiAccount());
+    await open(page);
+    await connect(page);
+    const subscribe = (link: string, extra: Record<string, string> = {}) => page.request.post(`${APP}/api/link/connect`, { headers: { origin: APP }, data: { link, ...extra } });
+    expect((await subscribe(`${FEEDS}/feeds/${id}a/calendar.ics`, { name: 'Team' })).status()).toBe(200);
+    const linkId = ((await (await page.request.get(`${APP}/api/calendars`)).json()).connections as { connectionId: string; provider: string }[]).find((c) => c.provider === 'link')!.connectionId;
+
+    const client = await registerClient();
+    const allowed = await authorize(page, client, ['Team']);
+    const assistant = await mcp((await tokensFor(client, allowed.code, allowed.verifier)).access_token);
+    const range = { start: dayFrom(0), end: dayFrom(4), timezone: 'UTC' };
+    expect((await call(assistant, 'list_calendars')).structuredContent.calendars.map((c: { name: string }) => c.name)).toEqual(['Team']);
+    expect((await call(assistant, 'get_events', range)).structuredContent.events.map((e: { title: string }) => e.title)).toEqual(['Feed A meeting']);
+
+    // The person gives the same calendar entry a link to another feed.
+    expect((await subscribe(`${FEEDS}/feeds/${id}b/calendar.ics`, { connectionId: linkId })).status()).toBe(200);
+    // The assistant's token still works, but the calendar it was allowed is gone, and nothing of the new feed is read,
+    // over a range it never asked about before (nothing remembered from earlier can stand in).
+    const listed = (await call(assistant, 'list_calendars')).structuredContent;
+    expect(listed.calendars).toEqual([]);
+    // And Calendars no longer counts it as allowed.
+    const shown = (await (await page.request.post(`${APP}/api/ai/grants`, { headers: { origin: APP }, data: { calendars: [] } })).json()).grants;
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toMatchObject({ calendars: [], unnamed: 0 });
+    const read = (await call(assistant, 'get_events', { ...range, end: dayFrom(5) })).structuredContent;
+    expect(JSON.stringify(read)).not.toContain('Feed B');
+    expect(read.events).toEqual([]);
+
+    // Once the person allows it, the assistant reads the new feed.
+    const again = await authorize(page, client, ['Team']);
+    const renewed = await mcp((await tokensFor(client, again.code, again.verifier)).access_token);
+    expect((await call(renewed, 'get_events', { ...range, end: dayFrom(5) })).structuredContent.events.map((e: { title: string }) => e.title)).toEqual(['Feed B private']);
+    await Promise.all([assistant.close(), renewed.close()]);
   });
 
   test('the private beta: someone not on the allowlist sees no AI access and never reaches a calendar choice, whatever address they open', async ({ page, id, browser }) => {
