@@ -5,7 +5,7 @@ import { A, H2, LegalPage, Mail, OPERATOR, P, legalMetadata } from '@/components
 
 export const metadata = legalMetadata('Terms', 'The terms on which Koyomi is offered.', '/terms');
 
-const UPDATED = '6 November 2026';
+const UPDATED = '8 November 2026';
 
 export default function Terms() {
   return (

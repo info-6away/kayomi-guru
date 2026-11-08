@@ -363,10 +363,10 @@ There is no admin screen. The browser tests let their own stand-in people in by 
    Google's review team). The private beta is not that confirmation.
 2. Private tests in ChatGPT, Claude and Grok, and the cross-client comparison.
 3. Migration 004 rehearsed on a disposable Neon branch with `--only` (done 2026-11-08, passed),
-   then applied to Production with the same command, on approval (below).
-4. Privacy and Terms dates set at merge.
+   then applied to Production with the same command (done 8 November 2026; below).
+4. Privacy and Terms dates set at merge (8 November 2026).
 
-### Migration 004 and the migration runner (evaluated 2026-11-07; `--only` added 2026-11-08; 004 not applied to Production)
+### Migration 004 and the migration runner (evaluated 2026-11-07; `--only` added 2026-11-08; 004 applied to Production 8 November 2026)
 
 `scripts/migrate.mjs` sends **every** file in `migrations/` on every run, in name order, one
 request (one transaction) per file. There is no record of what has been applied. Re-running
@@ -436,6 +436,19 @@ it). Results:
 | Second run | the same output, exit 0; diff +0 −0; everything identical to the first run; no duplicate index or constraint |
 | Rollback | `drop table ai_refresh_tokens, ai_codes, ai_grant_calendars, ai_grants, ai_clients;` brought the schema back exactly (diff +0 −0, every check identical to "before") |
 | Production | not connected to, not changed |
+
+**Applied to Production on 8 November 2026** (10:38:37 UTC), once, with exactly
+`npm run db:migrate -- --only 004_ai_access.sql --yes`, before PR #35 was merged and with
+`KOYOMI_MCP` unset. Target confirmed first: Production's `DATABASE_URL` names compute
+`ep-cold-river-b7hmnqw0`, which the Neon console lists under the `main` branch of
+`koyomi-production`, and a dry run without `--yes` named the same host. Results:
+
+| Check | Result |
+| --- | --- |
+| Runner output | "Only 004_ai_access.sql. Not run: 001…, 002…, 003…", `applying` / `applied 004_ai_access.sql`, exit 0 |
+| `calendar_connections` | 9 rows before and after; table, primary key index, primary key constraint and unique index oids unchanged (16748, 24585, 24586, 24587); whole-row and row-version digests identical; no row written meanwhile |
+| Schema | +76 −0, every line on the five `ai_*` tables, identical line for line to the rehearsal; no duplicate index or constraint; the five tables empty |
+| The live site | the same deployment; 17 routes (site, app, policies, manifest, worker, calendar API, every AI route) answered the same status and body before and after |
 
 ### What stays local
 
@@ -535,8 +548,8 @@ and access were never affected.
 
 ### Still to do (needs a public deployment; see the PR)
 
-Migration 004 on Production with `--only` (rehearsed; above), `KOYOMI_MCP=on` and the owner's
-subject in `KOYOMI_MCP_ALLOWLIST`, all on approval;
+`KOYOMI_MCP=on` and the owner's subject in `KOYOMI_MCP_ALLOWLIST` (Production only) and one
+redeploy, on approval (migration 004 is applied, and the code is merged with the feature off);
 ChatGPT, Claude and Grok private connectors (Grok stays a target: its documentation describes
 custom MCP connectors with required authentication; only if real testing shows it needs a
 manually pasted long-lived token is it dropped); the cross-client comparison; the real
