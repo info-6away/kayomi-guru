@@ -344,10 +344,11 @@ There is no admin screen. The browser tests let their own stand-in people in by 
    disclosure position for this use is confirmed** (in the verification resubmission, or by asking
    Google's review team). The private beta is not that confirmation.
 2. Private tests in ChatGPT, Claude and Grok, and the cross-client comparison.
-3. The migration runner question below, then migration 004 rehearsed and applied.
+3. Migration 004 rehearsed on a disposable Neon branch with `--only`, then applied to
+   Production with the same command (below).
 4. Privacy and Terms dates set at merge.
 
-### Migration 004 and the migration runner (evaluated 2026-11-07; not applied anywhere)
+### Migration 004 and the migration runner (evaluated 2026-11-07; `--only` added 2026-11-08; 004 not applied to Production)
 
 `scripts/migrate.mjs` sends **every** file in `migrations/` on every run, in name order, one
 request (one transaction) per file. There is no record of what has been applied. Re-running
@@ -364,23 +365,45 @@ Nothing is lost by it today: 003 runs as one transaction, so the key is never le
 with a handful of rows it takes milliseconds. But it is destructive DDL on the live table that
 004 does not need, run for no reason; and it is why no table may ever reference
 `calendar_connections` (the drop would fail and stop every later file). Applying 004 through it
-means doing that on Production. **So 004 is not rehearsed or applied until the runner is
-corrected.** Proposed, smallest first:
+means doing that on Production. So 004 was held until the runner was corrected.
 
-1. **`--only <file>` in `scripts/migrate.mjs`** (a few lines): apply exactly the named file(s),
-   refusing any name not in `migrations/`. Production path for 004:
-   `npm run db:migrate -- --only 004_ai_access.sql --yes`. Nothing historical is re-run.
-2. *Optional hardening:* make 003 a true no-op on a re-run, guarding its key swap with a check
-   that the primary key is not already `(connection_id)`. Then the plain command is safe too, and
-   a reference to `calendar_connections` becomes possible later.
-3. *Not proposed now:* a ledger table of applied migrations. Sounder in the long run, but larger,
-   and it needs a first write to Production to record 001–003.
+**Decided by the owner (2026-11-08):** `--only <file>` is added; migration 003 is **not**
+changed (it is a historical migration already applied, and is not rewritten as part of this
+release); a broader cleanup of the runner (a ledger of applied files, a re-runnable 003) is
+separate technical debt, not this release.
 
-Then, before Production: a disposable Neon branch of Production (made in the Neon console or
-with an API key; `neonctl` hangs on this machine), the exact command run on it twice, with
-`calendar_connections`' row count and a schema snapshot taken before, between and after.
+**`--only`** (`scripts/migrate.mjs`, logic in `scripts/migrate-core.mjs`, tests in
+`tests/unit/migrate.test.ts`):
+
+- takes exactly one file name that is in `migrations/`, compared exactly (no path, no
+  `..`, no absolute path, no other case, nothing missing or added); `--only` given twice, with
+  nothing after it, or as `--only=…` is refused;
+- refuses any argument it does not know, so a typo cannot fall back to sending every file;
+- refuses before reading `DATABASE_URL` or reaching a database, with exit code 2 and
+  "Nothing was sent to any database.";
+- says which database (host and database name, never the whole address), which file it sends,
+  and which it does not run, then `applying …` / `applied …`;
+- without `--only`, the command is what it was: every file in order with `--yes`, nothing
+  without it.
+
+**Production path for 004, and the only one for this release:**
+
+```sh
+DATABASE_URL="<Production>" npm run db:migrate -- --only 004_ai_access.sql          # check the host it names
+DATABASE_URL="<Production>" npm run db:migrate -- --only 004_ai_access.sql --yes
+```
+
+Never the plain `--yes` against Production: that sends 001–003 again.
+
+**Before Production:** the same command on a disposable Neon branch made from Production's
+current state, run twice, with `calendar_connections`' row count, its primary key's identity,
+a digest of its rows and a schema snapshot taken before, between and after; then the rollback
+on the branch, then the branch deleted. Results under "Rehearsal" below. `neonctl` hangs on this
+machine; the branch is made in the Neon console.
 **Rollback:** `drop table ai_refresh_tokens, ai_codes, ai_grant_calendars, ai_grants, ai_clients;`
 (one statement; nothing outside these five refers to any of them, and no other table changes).
+
+**Rehearsal:** not run yet (needs the Neon console).
 
 ### What stays local
 
@@ -419,10 +442,22 @@ stored on the server.
   (never used, used, touched within the hour, named by a grant, after revoking), on both stores;
   the 500 cap (over, exactly at, a crowded day, free time from every event, more than 500 free
   stretches) and `partly_read` told apart from `unavailable` and `truncated`.
+- `tests/unit/migrate.test.ts`: the migration runner. `--only 004_ai_access.sql` sends 004 and
+  nothing else; refusals (unknown names, other case, `../`, `migrations/…`, absolute Windows and
+  POSIX paths, a missing name, two names, `--only=…`, typos) reach no database and exit 2; the
+  plain command still sends every file in order. On Postgres (PGlite) from "Production today"
+  (001–003 and rows): five tables added, `calendar_connections`' table, primary key index and
+  constraint, rows and row versions unchanged, the second run identical, no duplicate index or
+  constraint, the rollback back to the starting schema; and, for contrast, the plain command
+  giving the primary key a new identity.
 - `tests/unit/sw.test.ts`: the real `public/sw.js` in a stand-in worker scope with no network:
   `/ai/…` pages and their data requests are left to the network, `/` still opens from the cache.
 - `tests/unit/server.test.ts`, `microsoft.test.ts`: a Google or Microsoft reading stopped at its
   page limit says `cut`.
+- `tests/unit/mcp-log.test.ts`: the `[mcp]` log line is written once the answer has been sent,
+  with the real SDK handler on the 2025 handshake (which hands back the response before a slow
+  tool has finished), and exactly once for an empty body, a whole one, a client that goes away
+  and a body that fails.
 - `tests/e2e/ai.spec.ts`: the whole flow in a browser against the stand-ins with the official
   MCP client, on 2026-07-28 and on the 2025 handshake; refreshing over the real token endpoint
   (two at once, retries, the copy that ends access); someone outside the allowlist (no AI access
@@ -432,7 +467,9 @@ stored on the server.
 
 ### MCP Inspector (2.14.0, CLI), against the production build with the stand-ins
 
-(Run at `5badfb0`, before the corrections; to be run again on the corrected build.)
+Run again on 2026-11-08 on the corrected build (the `--only` push), signed in as a stand-in
+person on the allowlist. The first run was at `5badfb0`, before the corrections, with the same
+results for the rows they share.
 
 | Check | Result |
 | --- | --- |
@@ -440,18 +477,28 @@ stored on the server.
 | Authentication | bearer token from the real consent flow accepted; no token gives the 401 challenge, and the Inspector starts OAuth from it |
 | `list_calendars` | the 2 chosen calendars only, `complete: true`, default zone Asia/Dubai |
 | `get_schedule` in Asia/Dubai, Europe/London, America/New_York | the same 4 events, each in that zone's offset; all-day apart |
+| `get_events`, one day | 5 events, `complete: true`, `truncated: false`, nothing `unavailable` or `partly_read` |
 | `find_free_time` 60 min, 09:00–18:00 | 10:30–13:00, 14:00–15:00, 16:00–18:00; the all-day event listed |
 | Invalid arguments (bad date, 3-minute duration) | refused by the schema |
 | 80-day range, `Mars/Olympus`, unknown calendar handle | `range_too_long`, `invalid_timezone`, `unknown_calendar` |
-| Provider failing | `complete: false`, the warning, the calendars named |
+| Provider failing | `complete: false`, the warning ("Not every calendar could be fully checked…"), free time only "in what was read" |
 | Malicious title | returned as plain text in its place; nothing else changed |
+| 600 events in 7 days (one calendar) | `get_events`: 500 listed (Slot 1 to Slot 500, in time order), `truncated: true`, `total_events: 600`, `complete: true`, the note; `get_schedule` for its first day: 96 events, not truncated |
+| Free time over those 600 | `free: []` for 30 minutes across the 6 days the events fill. Worked out from the 500 listed alone, the last ~19 hours would have looked free |
 | 40 calls in a row | 29 answered, 11 `rate_limited` (30 a minute for the grant) |
-| Revoked by the client (RFC 7009) | the next request is 401 |
-| Server log | 113 `[mcp]` lines: no title, address or token in any |
+| Revoked by the client (RFC 7009) | the next request is 401 `invalid_token`; its refresh token `invalid_grant`; another grant's token still answers |
+| Server log | 110 `[mcp]` lines; every tool call's outcome in its line (`get_events:ok:e500:t`, `find_free_time:incomplete:e1`, `get_events:refused:unknown_calendar`, `list_calendars:rate_limited`); no token, title, calendar name, calendar id or account in any line of the log |
+
+**Found by this run, and fixed:** on the 2025 handshake (which the Inspector uses) the SDK
+answers with an event stream that is still being written when it hands the response back,
+whatever `responseMode` says; `/mcp` wrote its log line then, so every call that had to read
+calendars first was logged with no outcome. The line is now written when the answer has been
+sent (`lib/server/ai/sent.ts`; `tests/unit/mcp-log.test.ts` drives the real SDK handler). Answers
+and access were never affected.
 
 ### Still to do (needs a public deployment; see the PR)
 
-The runner correction and migration 004 (above); the MCP Inspector again on the corrected build;
+The Neon rehearsal of migration 004, then 004 on Production with `--only` (above);
 ChatGPT, Claude and Grok private connectors (Grok stays a target: its documentation describes
 custom MCP connectors with required authentication; only if real testing shows it needs a
 manually pasted long-lived token is it dropped); the cross-client comparison; the real

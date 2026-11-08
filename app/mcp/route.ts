@@ -2,6 +2,7 @@ import { createMcpHandler } from '@modelcontextprotocol/server';
 import { SCOPE, aiConfig, ownHost } from '@/lib/server/ai/config';
 import { grantFor, originAllowed, unauthorized } from '@/lib/server/ai/context';
 import { requestId, serverFor, type ToolLog } from '@/lib/server/ai/mcp';
+import { whenSent } from '@/lib/server/ai/sent';
 import type { Grant } from '@/lib/server/ai/store';
 
 export const dynamic = 'force-dynamic';
@@ -50,8 +51,10 @@ export async function POST(request: Request): Promise<Response> {
       extra: { config, grant: found.grant, log: (entry: ToolLog) => entries.push(entry) },
     },
   });
-  logLine(id, found.grant, started, entries, String(response.status));
-  return new Response(response.body, { status: response.status, headers: new Headers({ ...Object.fromEntries(response.headers), 'cache-control': 'no-store' }) });
+  // The line is written once the answer has been sent: it may still be an event stream being
+  // written here, and what each tool call came to is known only at its end.
+  const headers = new Headers({ ...Object.fromEntries(response.headers), 'cache-control': 'no-store' });
+  return whenSent(response, () => logLine(id, found.grant, started, entries, String(response.status)), headers);
 }
 
 /** No sessions and no server-sent stream to open: the modern protocol posts every message. */
