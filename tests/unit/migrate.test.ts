@@ -264,11 +264,16 @@ test('on Postgres, the plain command still sends every file, and that is what re
 
 // ---- The command itself ----
 
-/** Runs `node scripts/migrate.mjs` with an address nothing answers on. */
+/**
+ * Runs `node scripts/migrate.mjs` with an address nothing answers on. NO_COLOR and FORCE_COLOR are
+ * left out: with both set (as some shells do), Node writes a warning about them to stderr, which is
+ * not the command speaking.
+ */
 function command(args: string[]) {
+  const { NO_COLOR: _noColor, FORCE_COLOR: _forceColor, ...env } = process.env;
   const result = spawnSync(process.execPath, ['scripts/migrate.mjs', ...args], {
     encoding: 'utf8',
-    env: { ...process.env, DATABASE_URL: NOWHERE },
+    env: { ...env, DATABASE_URL: NOWHERE },
     timeout: 30_000,
   });
   return { code: result.status, out: result.stdout, err: result.stderr };

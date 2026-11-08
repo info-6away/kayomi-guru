@@ -183,6 +183,21 @@ test.describe('AI assistants', () => {
     await client.close();
   });
 
+  test('a client that subscribes to tool changes, as Claude does, is answered at once: the tools never change, so no stream is held open', async ({ page, id }) => {
+    // Found in Claude's private acceptance: the SDK advertised tools.listChanged, Claude opened a
+    // subscriptions/listen stream for it, and the stream stayed open until Vercel ended the function
+    // at 300 seconds, once per session.
+    const { tokens } = await connectedAssistant(page, id);
+    const client = await mcp(tokens.access_token, 'modern');
+    expect(client.getServerCapabilities()?.tools?.listChanged).not.toBe(true);
+    const subscription = await client.listen({ toolsListChanged: true });
+    const ended = await Promise.race([subscription.closed, new Promise((resolve) => setTimeout(() => resolve('still open after 5 s'), 5000))]);
+    expect(ended).toBe('graceful');
+    // And the connection still answers.
+    expect((await call(client, 'list_calendars')).structuredContent.calendars).toHaveLength(2);
+    await client.close();
+  });
+
   test('revoking in Koyomi ends the assistant’s access at once, and every calendar stays connected', async ({ page, id }) => {
     const { client: clientId, tokens } = await connectedAssistant(page, id);
     const client = await mcp(tokens.access_token);

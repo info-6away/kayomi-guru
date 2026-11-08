@@ -50,7 +50,12 @@ export interface ToolLog {
 
 /** The server for one request of one grant. `log` is told the outcome of each tool call, without its content. */
 export function serverFor(config: AiConfig, grant: Grant, log: (entry: ToolLog) => void): McpServer {
-  const server = new McpServer({ name: 'Koyomi', version: '1.0.0' }, { instructions: INSTRUCTIONS });
+  // The four tools never change while the server runs, so it says so: listChanged false. Otherwise
+  // the SDK advertises listChanged true, a 2026-07-28 client (Claude) opens a subscriptions/listen
+  // stream for tool changes, and the SDK holds that stream open with keep-alives until the
+  // platform kills the function (300 s on Vercel), once per session. With nothing to honour, the
+  // SDK answers the subscription at once and closes it.
+  const server = new McpServer({ name: 'Koyomi', version: '1.0.0' }, { instructions: INSTRUCTIONS, capabilities: { tools: { listChanged: false } } });
   const ctx = { config: config.connections, store: storeFor(config.connections), subject: grant.subject };
 
   const run = <I,>(tool: string, work: (tc: ToolContext, input: I) => Promise<Record<string, unknown>>) => async (input: I) => {
