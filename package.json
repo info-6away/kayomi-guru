@@ -20,15 +20,18 @@
   },
   "dependencies": {
     "@6away/auth-connect": "github:info-6away/auth-connect#v1.0.6",
+    "@modelcontextprotocol/server": "^2.4.0",
     "@neondatabase/serverless": "^1.2.0",
     "@xmldom/xmldom": "0.9.12",
     "ical.js": "2.2.1",
     "next": "^16.4.5",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@modelcontextprotocol/client": "^2.4.0",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^24.19.1",

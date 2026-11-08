@@ -408,6 +408,46 @@ test.describe('privacy and terms', () => {
     expect(said).toContain('Koyomi does not ask Google for descriptions, locations, guest lists or meeting links');
   });
 
+  test('the privacy page says what an AI assistant can read, what it never gets, and how its access ends', async ({ page }) => {
+    await page.goto('/privacy');
+    const said = await text(page);
+    await expect(page.getByRole('main').getByRole('heading', { level: 2 })).toContainText(['What Koyomi reads from a calendar link', 'Connecting an AI assistant', 'Where it is kept']);
+    for (const part of [
+      // Optional, chosen calendar by calendar, read-only.
+      'Connecting an AI assistant, such as Claude, ChatGPT or Grok, to Koyomi is optional.',
+      'none is chosen for you, and a calendar you connect later is not included until you choose it. The access is read-only.',
+      'It cannot create, change or delete anything.',
+      // No provider credential ever reaches it.
+      'The assistant never receives your Google, Microsoft or Yahoo credentials, your Yahoo app password or a calendar link.',
+      'stops working the moment you revoke its access',
+      // What it receives, read when it asks, and not kept.
+      'only its title, its start and end, whether it lasts all day or is tentative, and the name of its calendar. Koyomi sends no descriptions, locations or guests.',
+      'The events pass through our server on their way and are not stored there: Koyomi keeps no database of your events.',
+      'records which kind of request it was and how many events were returned, never what they say',
+      // What the assistant does with it is its own company's affair, and said no more strongly than that.
+      'What the assistant receives is then held by the company that runs it, under that company’s own privacy policy and terms.',
+      'Revoking its access stops it reading more; it cannot take back what it has already received.',
+      // Not open to everyone yet, and not claimed to be.
+      'It is in a private beta, and not yet open to every Koyomi account.',
+      // Google's data: the one way it reaches another company, at the person's request, and what then governs it.
+      'unless you connect an AI assistant yourself.',
+      'Connecting an AI assistant is the one way Koyomi sends Google Calendar data to another company, and it does so only because you ask it to',
+      'including whether it uses them to train its models, is governed by its own privacy policy and terms, not by Koyomi.',
+      // Local events never.
+      'Your Koyomi calendar, the events you write in Koyomi, stays on your device and is never available to an assistant.',
+      // What the server keeps, and revoking.
+      'a keyed hash of its identifier, never its name',
+      'it ends at once, and its record is deleted. Revoking an assistant does not disconnect any of your calendar accounts',
+      'An AI assistant’s access is kept until you revoke it, or allow the same assistant again, which replaces it.',
+      'It also stores the records of the AI assistants you connect, described above, which hold no events and no calendar names either.',
+    ]) {
+      expect(said, part).toContain(part);
+    }
+    // What is said of Google is as it was.
+    expect(said).toContain(LIMITED_USE);
+    expect(said).toContain('Neon hosts the database, in the United States. It stores only the connection records described above. It receives no events and no calendar names.');
+  });
+
   test('the terms are short, and say on what terms Koyomi is offered', async ({ page }) => {
     await page.goto('/terms');
     const said = await text(page);
@@ -444,7 +484,10 @@ test.describe('privacy and terms', () => {
     await expect(page.getByRole('main').locator('a[href^="mailto:"]')).toHaveAttribute('href', `mailto:${CONTACT}`);
     expect(said).not.toMatch(/\bPlan\b/);
     // Short: a page or two, not a contract.
-    expect(said.split(' ').length).toBeLessThan(475);
+    // AI assistants took it past 475 words (raised from 450 for Yahoo): still a page, not a contract.
+    expect(said.split(' ').length).toBeLessThan(500);
+    // An AI assistant is a third party, sent data only by the person's choice.
+    expect(said).toContain('You may also let an AI assistant read calendars you choose, through Koyomi. It is a third party: you choose to send it that data, and its own terms and policies then apply.');
   });
 
   for (const path of ['/privacy', '/terms']) {

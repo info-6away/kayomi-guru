@@ -234,7 +234,7 @@ export async function listEvents(
   span: { timeMin: string; timeMax: string },
   syncToken: string | null,
   deadline?: AbortSignal,
-): Promise<{ items: GoogleEvent[]; nextSyncToken: string | null }> {
+): Promise<{ items: GoogleEvent[]; nextSyncToken: string | null; cut: boolean }> {
   const items: GoogleEvent[] = [];
   let pageToken: string | undefined;
   for (let page = 0; page < MAX_EVENT_PAGES; page++) {
@@ -254,7 +254,7 @@ export async function listEvents(
     );
     items.push(...(result.items ?? []));
     pageToken = result.nextPageToken;
-    if (!pageToken) return { items, nextSyncToken: result.nextSyncToken ?? null };
+    if (!pageToken) return { items, nextSyncToken: result.nextSyncToken ?? null, cut: false };
   }
-  return { items, nextSyncToken: null };
+  return { items, nextSyncToken: null, cut: true };
 }

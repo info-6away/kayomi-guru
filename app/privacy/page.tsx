@@ -6,7 +6,7 @@ import { A, H2, LegalPage, List, Mail, OPERATOR, P, legalMetadata } from '@/comp
 
 export const metadata = legalMetadata('Privacy', 'What Koyomi keeps, where it keeps it, and what it is used for.', '/privacy');
 
-const UPDATED = '6 November 2026';
+const UPDATED = '8 November 2026';
 
 export default function Privacy() {
   return (
@@ -172,6 +172,40 @@ export default function Privacy() {
         single event, so Koyomi links to none.
       </P>
 
+      <H2>Connecting an AI assistant</H2>
+      <P>
+        Connecting an AI assistant, such as Claude, ChatGPT or Grok, to Koyomi is optional. You choose which of your connected calendars it may
+        read, one by one: none is chosen for you, and a calendar you connect later is not included until you choose it. The access is read-only.
+        The assistant can list those calendars, read their events and look for free time in them. It cannot create, change or delete anything.
+        It is in a private beta, and not yet open to every Koyomi account.
+      </P>
+      <P>
+        The assistant never receives your Google, Microsoft or Yahoo credentials, your Yahoo app password or a calendar link. It receives a token
+        from Koyomi that works only for reading the calendars you chose, expires within minutes, is renewed only while you allow it, and stops
+        working the moment you revoke its access.
+      </P>
+      <P>
+        When the assistant asks, Koyomi reads those calendars from Google, Microsoft, Yahoo or the calendar link at that moment, and sends it, for
+        each event, only its title, its start and end, whether it lasts all day or is tentative, and the name of its calendar. Koyomi sends no
+        descriptions, locations or guests. The events pass through our server on their way and are not stored there: Koyomi keeps no database of
+        your events. Our server’s log of these requests records which kind of request it was and how many events were returned, never what they
+        say.
+      </P>
+      <P>
+        What the assistant receives is then held by the company that runs it, under that company’s own privacy policy and terms. Revoking its
+        access stops it reading more; it cannot take back what it has already received.
+      </P>
+      <P>
+        Your Koyomi calendar, the events you write in Koyomi, stays on your device and is never available to an assistant.
+      </P>
+      <P>
+        For each assistant you connect, our server keeps a record of which assistant it is (told by the address its sign-in returns to), when you
+        connected it and last used it, the time zone of the browser in which you allowed it, and for each calendar you chose, which connected
+        account it is in and a keyed hash of its identifier, never its name. The assistant’s tokens are kept only as keyed hashes. You can revoke
+        an assistant’s access at any time in Koyomi, under Calendars, AI access: it ends at once, and its record is deleted. Revoking an assistant
+        does not disconnect any of your calendar accounts, and disconnecting an account removes its calendars from every assistant’s access.
+      </P>
+
       <H2>Where it is kept</H2>
       <P>
         On your device. The calendar names and identifiers and the event details above are kept in your browser, apart from your Koyomi calendar, so
@@ -262,7 +296,14 @@ export default function Privacy() {
       <P>
         Your Google Calendar data is not sold. It is not used for advertising, not used for analytics or to build a profile of you, and not used
         to train artificial-intelligence or machine-learning models. It is not given to anyone for purposes of their own. The only companies
-        that handle any of it are the three named below, and each handles only what is said there.
+        that handle any of it are the three named below, and each handles only what is said there, unless you connect an AI assistant yourself.
+      </P>
+      <P>
+        Connecting an AI assistant is the one way Koyomi sends Google Calendar data to another company, and it does so only because you ask it
+        to: if you choose a Google calendar for an assistant, Koyomi sends that calendar’s events to the assistant when it asks, as described
+        under Connecting an AI assistant, for that and nothing else. What the assistant’s company then does with them, including whether it uses
+        them to train its models, is governed by its own privacy policy and terms, not by Koyomi. You can revoke the assistant’s access at any
+        time.
       </P>
       <P>
         Koyomi’s use of information received from Google APIs adheres to the{' '}
@@ -287,7 +328,8 @@ export default function Privacy() {
         </li>
         <li>
           Neon hosts the database, in the United States. It stores only the connection records described above. It receives no events and no
-          calendar names.
+          calendar names. It also stores the records of the AI assistants you connect, described above, which hold no events and no calendar
+          names either.
         </li>
         <li>
           6Away provides sign-in. It learns that you signed in to Koyomi. It does not receive your Google Calendar events, your calendar names
@@ -349,6 +391,10 @@ export default function Privacy() {
         copy of that calendar. It does not stop the link working: Koyomi cannot withdraw a published link, and does not claim to. To stop the
         link itself working, turn off or reset that calendar’s publishing where it lives (for Outlook, in its calendar sharing settings). If a
         link stops giving a calendar, Koyomi marks it as needing an update and keeps what it read until you update or remove it.
+      </P>
+      <P>
+        An AI assistant’s access is kept until you revoke it, or allow the same assistant again, which replaces it. Either way its record is
+        deleted from our server. It is not removed when an account it could read is disconnected: only that account’s calendars are.
       </P>
       <P>
         You can also ask us to delete the record by writing to <Mail />.

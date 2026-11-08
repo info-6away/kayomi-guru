@@ -21,6 +21,13 @@ const APP_HOST = 'app\\.koyomi\\.guru';
 const SITE_URL = 'https://koyomi.guru';
 const APP_URL = 'https://app.koyomi.guru';
 
+/** The OAuth discovery documents (RFC 8414, RFC 9728), at their well-known addresses. */
+export const AI_METADATA = [
+  { source: '/.well-known/oauth-authorization-server', destination: '/api/oauth/metadata' },
+  { source: '/.well-known/oauth-protected-resource', destination: '/api/oauth/resource' },
+  { source: '/.well-known/oauth-protected-resource/mcp', destination: '/api/oauth/resource' },
+];
+
 /** Where a Preview build serves the calendar, since its "/" is the landing page. */
 export const PREVIEW_APP_PATH = '/app';
 
@@ -33,6 +40,9 @@ export function routing(vercelEnv: string | undefined) {
         { source: '/', has: [{ type: 'host' as const, value: SITE_HOST }], destination: '/home' },
         // In this order: "/app" becomes "/" only after the rule for "/" has been passed, so it is the calendar.
         ...(preview ? [{ source: '/', destination: '/home' }, { source: PREVIEW_APP_PATH, destination: '/' }] : []),
+        // Where AI clients look for how to get access to the MCP endpoint (docs/MCP.md). They answer
+        // only while KOYOMI_MCP is on, and only on the calendar's own host.
+        ...AI_METADATA,
       ],
       afterFiles: [],
       fallback: [],

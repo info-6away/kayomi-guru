@@ -251,6 +251,45 @@ async function bodyOf(response: http.IncomingMessage): Promise<string> {
   return new TextDecoder('utf-8').decode(Buffer.concat(chunks)).replace(/^﻿/, '');
 }
 
+/**
+ * Fetches a small public document, such as an AI client's OAuth metadata document (docs/MCP.md),
+ * by the same rules as a calendar link: https on the usual port, never a private name or address,
+ * every address checked at the moment of connecting. Stricter on the rest: no redirect is followed,
+ * only a 200 is an answer, and at most `maxBytes` are read.
+ *
+ * @returns the text, or null for anything else (never why: that is for whoever runs the server).
+ */
+export async function fetchPublic(url: URL, options: { maxBytes: number; timeoutMs: number; accept: string; own?: string; resolve?: Resolve; test?: string | null }): Promise<string | null> {
+  const testing = !!options.test && url.origin === options.test;
+  if (!testing && !followable(url, options.own)) return null;
+  const signal = AbortSignal.timeout(options.timeoutMs);
+  let response: http.IncomingMessage;
+  try {
+    response = await ask(url, { accept: options.accept, 'user-agent': 'Koyomi (+https://koyomi.guru)' }, testing ? undefined : checkedLookup(options.resolve ?? resolveName, { forbidden: false }), signal);
+  } catch {
+    return null;
+  }
+  if (response.statusCode !== 200 || (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity') || Number(response.headers['content-length']) > options.maxBytes) {
+    response.destroy();
+    return null;
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  try {
+    for await (const chunk of response as AsyncIterable<Buffer>) {
+      size += chunk.length;
+      if (size > options.maxBytes) {
+        response.destroy();
+        return null;
+      }
+      chunks.push(chunk);
+    }
+  } catch {
+    return null;
+  }
+  return new TextDecoder('utf-8').decode(Buffer.concat(chunks));
+}
+
 /** Whether a text is iCalendar: one calendar, begun and ended. Nothing else is read as one. */
 export const isCalendar = (text: string) => /^\s*BEGIN:VCALENDAR\r?\n/i.test(text) && /\r?\nEND:VCALENDAR\s*$/i.test(text);
 

@@ -342,7 +342,15 @@ export async function listCalendars(m: MicrosoftClient, accessToken: string, dea
  * that can be limited to these fields, so each reading is a whole one. Only the fields Koyomi
  * shows are asked for.
  */
-export async function listEvents(m: MicrosoftClient, accessToken: string, calendarId: string, span: { timeMin: string; timeMax: string }, deadline?: AbortSignal): Promise<MicrosoftEvent[]> {
+export async function listEvents(
+  m: MicrosoftClient,
+  accessToken: string,
+  calendarId: string,
+  span: { timeMin: string; timeMax: string },
+  deadline?: AbortSignal,
+  /** Told whether the reading stopped at MAX_EVENT_PAGES with more still to come. */
+  report?: { cut: boolean },
+): Promise<MicrosoftEvent[]> {
   const items: MicrosoftEvent[] = [];
   const query = `startDateTime=${encodeURIComponent(span.timeMin)}&endDateTime=${encodeURIComponent(span.timeMax)}&$select=${MICROSOFT_EVENT_FIELDS}&$top=${EVENT_PAGE}`;
   let url: string | null = `${m.endpoints.graph}/me/calendars/${encodeURIComponent(calendarId)}/calendarView?${query}`;
@@ -351,6 +359,7 @@ export async function listEvents(m: MicrosoftClient, accessToken: string, calend
     items.push(...(result.value ?? []));
     url = nextPage(m, result);
   }
+  if (report) report.cut = url !== null;
   return items;
 }
 
@@ -362,9 +371,10 @@ export async function readCalendar(
   deadline?: AbortSignal,
 ): Promise<CalendarResult> {
   try {
-    const items = await listEvents(m, accessToken, asked.calendarId, asked.span, deadline);
+    const report = { cut: false };
+    const items = await listEvents(m, accessToken, asked.calendarId, asked.span, deadline, report);
     const events = items.map((item) => normalizeMicrosoftEvent(item, asked.connectionId, asked.calendarId, asked.fetchedAt)).filter((event): event is ExternalEvent => event !== null);
-    return { calendarId: asked.calendarId, full: true, events, removed: [], syncToken: null };
+    return { calendarId: asked.calendarId, full: true, events, removed: [], syncToken: null, ...(report.cut ? { cut: true as const } : {}) };
   } catch (error) {
     if (error instanceof MicrosoftError && error.kind === 'not_found') return { calendarId: asked.calendarId, gone: true };
     // This one calendar may not be read. The account's other calendars are read all the same.

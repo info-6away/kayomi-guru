@@ -211,10 +211,11 @@ test('the table’s rule is one row for each account a person connects, and the 
 test('moving to several accounts is applied whole, can be run again, and lets go of rows that cannot say which account they were', async () => {
   // The table as production has it: the first two files, and a connection made under them.
   const { db, migrate, store } = await postgres(MIGRATIONS.slice(0, 2));
-  expect(MIGRATIONS.slice(2)).toEqual(['003_many_accounts.sql']);
+  expect(MIGRATIONS[2]).toBe('003_many_accounts.sql');
   await db.query(`insert into calendar_connections (auth_subject, provider, refresh_token_sealed, scope) values ('user-old', 'google', 'sealed-old', 'scope')`);
   await db.query(`update calendar_connections set window_started_at = now(), window_spent = 7`);
 
+  // 003 and everything after it (004, AI access, adds tables of its own and must not block 003 from running again).
   await migrate(MIGRATIONS.slice(2));
   // It had no account to its name and nothing here could ask Google which, so it is gone, and
   // the table is ready: the person connects again, and may connect a second account as well.
@@ -488,6 +489,8 @@ test('a calendar that never ends is not read for ever', async () => {
     expect(read.items).toHaveLength(MAX_EVENT_PAGES);
     // Cut short, so not to be trusted as complete: no cursor, and the next reading starts again.
     expect(read.nextSyncToken).toBeNull();
+    // And said to be cut short, so that free time is never worked out as though it were all.
+    expect(read.cut).toBe(true);
     for (const url of asked) expect(url.searchParams.get('maxResults')).toBe('2500');
   });
   await withGoogle(() => Response.json({ items: [{ id: 'c' }], nextPageToken: 'more' }), async (asked) => {

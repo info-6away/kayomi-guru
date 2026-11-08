@@ -5,7 +5,7 @@ import { A, H2, LegalPage, Mail, OPERATOR, P, legalMetadata } from '@/components
 
 export const metadata = legalMetadata('Terms', 'The terms on which Koyomi is offered.', '/terms');
 
-const UPDATED = '6 November 2026';
+const UPDATED = '8 November 2026';
 
 export default function Terms() {
   return (
@@ -34,6 +34,10 @@ export default function Terms() {
       <P>
         Connecting uses 6Away for sign-in, and Google, Microsoft, Yahoo or the service that publishes a calendar link for your calendar. Those are
         services of their own, and your use of them is subject to their own terms.
+      </P>
+      <P>
+        You may also let an AI assistant read calendars you choose, through Koyomi. It is a third party: you choose to send it that data, and
+        its own terms and policies then apply.
       </P>
 
       <H2>As it is</H2>

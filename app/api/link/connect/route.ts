@@ -1,5 +1,7 @@
 import type { ApiError } from '@/lib/calendars/types';
 import { JOB_TIMEOUT_MS, forgetAccess, isAnswer, no, respond, sameOrigin, signedIn, type Answer } from '@/lib/server/api';
+import { aiConfig } from '@/lib/server/ai/config';
+import { aiStoreFor } from '@/lib/server/ai/context';
 import { accountKey, isConnectionId, sealContext, type Connection } from '@/lib/server/connections';
 import { LinkError, canonicalLink, fetchLink, linkOf, type LinkFailure } from '@/lib/server/fetchlink';
 import { MAX_LINKS, feedName, forgetPace, linkSecretOf, nameOf } from '@/lib/server/link';
@@ -112,6 +114,11 @@ export async function POST(request: Request) {
     else {
       forgetAccess(updating.id);
       forgetPace(updating.id);
+      // Another address is another calendar to an AI assistant that was allowed the old one: it
+      // reads nothing of this one until the person allows it (docs/MCP.md). The grant no longer
+      // matches it anyway; this takes it out of the grant, so Calendars does not count it.
+      const ai = updating.accountKey !== key ? aiConfig() : null;
+      if (ai) await aiStoreFor(ai).forgetConnection(ctx.subject, updating.id).catch((error) => report('ai access', error));
     }
   } else {
     forgetAccess(await ctx.store.save(ctx.subject, 'link', key, sealed, 'link'));
