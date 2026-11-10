@@ -24,7 +24,7 @@ Severity in the tables:
 | Allowlist | Exact 6Away subjects in `KOYOMI_MCP_ALLOWLIST`, Production only; unset or empty means nobody; checked at every step | The only ways to open it are listing every subject, or unsetting it, which closes it | Keep "unset = nobody". Add an explicit, separate setting for "everyone" in a reviewed PR, so opening and closing stay one setting each. Until then, add people (reviewers first) by subject | Blocker |
 | Onboarding, new person | Assistant → Koyomi sign-in (6Away, sign-up open) → consent page | A person with no calendars sees "Connect one in Koyomi first, then connect the assistant again", with no link. The consent request lasts 10 minutes | Link to Calendars from that message, and say plainly that they come back to the assistant afterwards. Optionally keep the request, so connecting a calendar returns them to consent | Blocker |
 | Authentication | 6Away sign-in, then Koyomi's session cookie on `app.koyomi.guru` | The consent page does not say which 6Away account is signed in. During acceptance, a browser signed in to another 6Away account was refused, and nothing said why | Show "Signed in as …" with a way to switch account on the consent page, shown only to that person | Blocker |
-| First calendar | Google, Microsoft, Yahoo and calendar links are live | **Google:** Koyomi's Google app is in "Testing", so only listed test users (100 at most) can connect, and Google ends their grants after 7 days. **Microsoft:** work and school accounts need their admin's approval (no publisher verification). **Yahoo:** an app password. **Links:** none | Google needs verification and "In production" (section 2). State Microsoft's admin approval in the help page. Calendar links are the one provider with no outside gate | Blocker (Google) |
+| First calendar | Google, Microsoft, Yahoo and calendar links are live | **Google:** none for connecting; the app is verified and in production (section 2). **Microsoft:** work and school accounts need their admin's approval (no publisher verification). **Yahoo:** an app password. **Links:** none | State Microsoft's admin approval and Yahoo's app password in the help page | Before listing |
 | AI authorization | Consent lists the person's calendars, none ticked, Allow disabled until one is ticked; read-only; revocable | No mention of AI training; Google's Workspace policy wants a plain statement next to the consent (section 2) | Add a training notice and a link to the updated Privacy section to the consent page; make Allow the affirmative consent to it | Blocker |
 | Calendar selection | Per grant, on the consent page | No editing in place; changing calendars means connecting again | A "Change calendars" action in AI access, reusing the consent page | Later |
 | Revocation | Revoke in Koyomi (Calendars → AI access) ends the grant at its next request | Disconnecting inside Claude or Grok does not revoke at Koyomi. AI access shows only where the device has the person's calendars, so a signed-in phone with no copy cannot revoke | Show AI access to any signed-in person, from the server's list. Say in the help page and on consent that revoking happens in Koyomi | Blocker |
@@ -56,30 +56,35 @@ What is already ready:
 
 ## 2. Google compliance
 
-### Where verification stands (from the project's own records)
+### Where verification stands (Google Cloud console, read on 10 November 2026)
 
-These records were last updated in October 2026. The live Google Cloud console was not read for
-this document: it needs the owner's sign-in.
+| | Status |
+| --- | --- |
+| Verification Center: branding | **Verified**, "being shown to users" |
+| Verification Center: data access | **Verified** |
+| Audience | **In production**, External. The 100-user cap counter is shown, but it does not apply while only approved scopes are requested |
+| Scopes | `calendar.calendarlist.readonly` (non-sensitive), `calendar.events.readonly` (sensitive). No restricted scope |
+| Branding | App name Koyomi; home `https://koyomi.guru`; privacy `https://koyomi.guru/privacy`; terms `https://koyomi.guru/terms`; authorized domain `koyomi.guru` |
 
-- Project `koyomi-511111`, audience External, publishing status **Testing**, 100 test users at
-  most.
-- Scopes: `calendar.calendarlist.readonly` (non-sensitive) and `calendar.events.readonly`
-  (**sensitive**). One web client, whose only redirect is
-  `https://app.koyomi.guru/api/google/callback`.
-- Verification has been submitted. On 14 October 2026 Google's review asked Privacy to explain
-  how sensitive data is protected. "How your Google data is protected" was added and went live
-  the same day.
-- Still with the owner: resubmission, and a new demo video. The submitted video shows the old
-  interface.
-- AI access did not exist when the scopes were justified and the demo was recorded.
+So anyone can connect a Google account to Koyomi, with no "unverified app" screen and no 7-day
+expiry.
 
-**Read the console before acting:** Google Auth Platform → Verification Center and Audience.
-They show whether the project is still in Testing, whether the review is open, and any new
-message from Google.
+The history, from the project's records:
+
+- Google's review asked on 14 October 2026 for Privacy to explain how sensitive data is
+  protected, and that section went live the same day.
+- Verification was granted after that.
+- **AI access did not exist when the scopes were justified and the demo was recorded.** What
+  Google verified is Koyomi showing a person their own calendars.
+
+The Data Access page still shows its edit form, with an empty justification box and "Approval
+required" beside the sensitive scope. That is the form for requesting a *change*. Saving
+anything there, or changing the logo, name or links on Branding, sends the app back into review.
+Leave both pages alone.
 
 ### The existing approval versus what AI access adds
 
-| | Calendar in Koyomi (submitted) | AI access (new) |
+| | Calendar in Koyomi (verified) | AI access (new) |
 | --- | --- | --- |
 | Scopes | the two above | **the same two: no new scope, no new redirect, no consent-screen change** |
 | Where data goes | Google → Koyomi's server → the person's own device | Google → Koyomi's server → **an AI company the person chose** |
@@ -88,10 +93,15 @@ message from Google.
 | Disclosure | Privacy | Privacy **and** an in-product disclosure placed with, and immediately before, the consent, which takes an affirmative action |
 | New use | n/a | before data is used in a new way, people are told and asked to consent to an updated privacy policy (User Data Policy) |
 
-No new scope means Google's listed re-verification triggers are not met. But AI access is a new
-purpose for data covered by a pending verification. No Google page says whether a person's own
-assistant pulling data over MCP counts as Koyomi's transfer. Nor does any page say whether Koyomi
-must make sure the assistant does not train on it. Read literally, that risk is Koyomi's.
+AI access needs no new scope, redirect or branding change, so none of Google's listed
+re-verification triggers is met, and the verified status stays as it is. But AI access is a new
+purpose for data whose use Google verified on a different description. The User Data Policy's
+rule for new uses applies whether or not Google re-reviews.
+
+No Google page says whether a person's own assistant pulling data over MCP counts as Koyomi's
+transfer. Nor does any page say whether Koyomi must make sure the assistant does not train on it.
+Read literally, that risk is Koyomi's. A policy finding would put the verified status at risk,
+and with it every Google connection, not only AI access.
 
 ### Limited Use check of Koyomi today
 
@@ -118,20 +128,27 @@ must make sure the assistant does not train on it. Read literally, that risk is 
    models". Add the Workspace Limited Use sentence next to the existing one.
 2. **Consent page.** One plain line on training and a link to Privacy. Say that the assistant
    reads whenever it calls Koyomi, until access is revoked.
-3. **Verification.** Fold AI access into the pending resubmission. Add a sentence to the scope
-   justification for `calendar.events.readonly`, and a segment to the demo video: the AI consent
-   page, the chosen calendars, an answer, then Revoke. Then ask the review thread to confirm.
-   This is the release gate in MCP.md.
-4. **Before Google confirms**, open AI access publicly only with Google calendars left out of the
-   consent page for people not on the allowlist (a small code change), or do not open at all.
-   Microsoft, Yahoo and calendar links are under no Google rule.
-5. **Publishing status.** After verification, switch to "In production". In Testing, every
-   Google grant ends after 7 days, and that applies to a reviewer account too.
-6. **Change nothing on the Google OAuth client** for this: no scope, redirect or origin.
+3. **Google's view.** There is no pending review to fold this into, and Google does not require a
+   new submission. Two ways forward; both come after 1 and 2 are live:
+   - **(recommended) ask first.** Write to Google's OAuth or API policy contact for the project.
+     Describe AI access, send the updated Privacy and consent wording and a short screen
+     recording (the AI consent page, the chosen calendars, an answer, Revoke), and ask them to
+     confirm it fits Limited Use. This costs time. It protects the verified status, which every
+     Google connection depends on.
+   - **Open on the policy's text.** Publish the wording and open without asking. This is faster,
+     and the risk is the one stated above.
+
+   The choice is the owner's. MCP.md's release gate 1 is this step.
+4. **Until that choice is made,** AI access can open with Google calendars left off the consent
+   page for people not on the allowlist (a small code change). Microsoft, Yahoo and calendar
+   links are under no Google rule.
+5. **Publishing status:** already In production. Nothing to change.
+6. **Change nothing on the Google OAuth client** for this: no scope, redirect, origin, logo or
+   name. Any of those reopens review.
 7. Keep the tools narrow and per person. Koyomi is not a general Calendar API proxy (Google APIs
    Terms §4a).
 
-None of this is legal advice. Google's answer in the review thread is the confirmation.
+None of this is legal advice. Only Google's answer is a confirmation.
 
 ---
 
@@ -224,10 +241,14 @@ Google or Microsoft account at all.**
 | The existing read-only model | No change: same consent page, same grants, same four tools |
 | No bypass of 6Away Auth | The reviewer signs in through 6Away like anyone else. No test hook, no token pasted into a platform, no allowlist pattern |
 
-Why not Google: Koyomi's Google app is in Testing (7-day grants, test users only). A reviewer's
-Google connection would lapse mid-review, and it would put Google data into reviews before
-Google has confirmed AI access. Why not the "Koyomi Test" Google calendar used for acceptance:
-it is reached through the owner's own accounts.
+Why not Google: since Koyomi's Google app is verified and in production, a dedicated synthetic
+Google account would now work and would not lapse. But it would send Google user data into
+other companies' reviews before section 2's step 3 is settled. It also needs a Google account
+kept just for this. Calendar links avoid both. A Google account can be added to the reviewer
+later, if a platform wants to see Google specifically.
+
+Why not the "Koyomi Test" Google calendar used for acceptance: it is reached through the owner's
+own accounts.
 
 Where the `.ics` files live: a fixed public URL that serves only synthetic data. A small static
 file on `koyomi.guru` (for example `/demo/work.ics`) is the simplest, and it passes Koyomi's
@@ -372,7 +393,7 @@ screenshot of the consent page and one of an answer. It links to the help page. 
   - revoking in the assistant versus in Koyomi;
   - being signed in to the wrong 6Away account;
   - Microsoft admin approval;
-  - Google while in Testing.
+  - Yahoo app passwords.
 
   The help page should answer these four before launch.
 - **Policy upkeep:**
@@ -393,9 +414,10 @@ screenshot of the consent page and one of an answer. It links to the help page. 
    - Privacy and Terms text per section 2;
    - public help page;
    - an explicit "everyone" setting for AI access, unused.
-3. **Google:** resubmit verification with AI access in the justification and the demo. Wait for
-   Google's confirmation, then switch to "In production". Meanwhile, if opening sooner is
-   wanted, leave Google calendars out of AI access for people not on the list.
+3. **Google:** once the new wording is live, the owner chooses section 2's step 3. Either ask
+   Google to confirm (recommended), or open on the policy's text. Until then, Google calendars
+   can be left out of AI access for people not on the list. The app is already verified and in
+   production: nothing on Google's side is changed.
 4. **Reviewer account:** created by the owner as in section 4. Its subject goes on the allowlist
    with the owner's approval.
 5. **ChatGPT:**

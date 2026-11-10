@@ -358,11 +358,20 @@ There is no admin screen. The browser tests let their own stand-in people in by 
    user-facing features that are prominent in the app's interface and only with the user's
    consent. Sending a person's chosen Google calendars to the AI client they chose, at their
    request, is meant to be exactly that, and Privacy and the consent page say so. But it is a new
-   use of Google data while Koyomi's verification is still being reviewed, and Google requires the
-   privacy policy and in-product disclosures to cover it before data is used that way. **AI access
-   is not opened beyond the private beta until Koyomi's Google verification and Limited Use
-   disclosure position for this use is confirmed** (in the verification resubmission, or by asking
-   Google's review team). The private beta is not that confirmation.
+   use of Google data, and Google requires the privacy policy and in-product disclosures to cover
+   it before data is used that way. **AI access is not opened beyond the private beta until
+   Koyomi's Limited Use disclosure position for this use is settled.** The private beta is not
+   that confirmation.
+
+   Update, 10 November 2026: the Google Cloud console shows Koyomi's branding and data access
+   verified and the app in production. That verification covers the calendar as submitted,
+   before AI access existed.
+
+   What remains:
+   - the Privacy and consent wording on AI training;
+   - the owner's choice between asking Google to confirm and opening on the policy's text.
+
+   See [MCP_PUBLIC_READINESS.md](MCP_PUBLIC_READINESS.md), section 2.
 2. Private tests in ChatGPT, Claude and Grok, and the cross-client comparison (done
    8–10 November 2026, passed: Part 4).
 3. Migration 004 rehearsed on a disposable Neon branch with `--only` (done 2026-11-08, passed),
@@ -729,6 +738,11 @@ or token.
 
 Public release is not started. The allowlist stays at one person, and no listing has been
 submitted. What a public release needs is in
-[MCP_PUBLIC_READINESS.md](MCP_PUBLIC_READINESS.md): the onboarding gaps above, the per-client
-limit, Google's confirmation for this use of Google data (release gate 1), a reviewer account,
-and each platform's submission.
+[MCP_PUBLIC_READINESS.md](MCP_PUBLIC_READINESS.md). It covers:
+
+- the onboarding gaps above;
+- the per-client limit;
+- the Limited Use wording for this use of Google data (release gate 1; Koyomi's Google app itself
+  is verified and in production);
+- a reviewer account;
+- each platform's submission.
