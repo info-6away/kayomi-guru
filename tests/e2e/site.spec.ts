@@ -430,11 +430,14 @@ test.describe('privacy and terms', () => {
       'While its access is in place, the assistant can ask Koyomi for those calendars at any time.',
       'the assistant decides when to ask, and it may ask again later, in the same conversation or another.',
       'and no identifier of the event',
-      // Koyomi's part, and the company's: what the assistant does with it is said no more strongly than is so.
-      'Koyomi’s part ends there: it reads the events and passes them on, and keeps none of them.',
-      'What the assistant receives is then held by the company that runs it, under that company’s own privacy policy and terms, which Koyomi does not control.',
+      // What Koyomi keeps (nothing), what the assistant's company does under its own terms (said no more
+      // strongly than is so), what Koyomi still controls, and that Google's rules go on applying.
+      'Koyomi does not keep the events it sends to an assistant: they are read from your calendars when the assistant asks, passed on, and not stored on our server.',
+      'What the assistant receives is then processed by the company that runs it, under that company’s own privacy policy and terms and your settings there, which Koyomi does not control.',
       'whether it uses conversations to improve its models depends on its terms and on your settings there',
+      'What Koyomi does control is access from then on. The assistant can read only the calendars you chose, only with the access you gave it, which Koyomi checks on every request, and only until you revoke it.',
       'Revoking its access stops it reading more; it cannot take back what it has already received.',
+      'Throughout, Koyomi’s handling of your Google data, including what it sends to an assistant, remains bound by Google’s Limited Use requirements, described below.',
       // Not open to everyone yet, and not claimed to be.
       'It is in a private beta, and not yet open to every Koyomi account.',
       // Google's data: the one way it reaches another company, at the person's request, and bound by Limited Use when it does.
@@ -460,6 +463,8 @@ test.describe('privacy and terms', () => {
     }
     // Nothing that sets Koyomi apart from what becomes of Google data it sent, and no promise made for another company.
     expect(said).not.toContain('not by Koyomi');
+    // Nor anything saying Koyomi's responsibility ends when the events have been handed over.
+    expect(said).not.toMatch(/Koyomi’s part ends|responsibility ends|no longer responsible/);
     expect(said).not.toMatch(/(ChatGPT|Claude|Grok|OpenAI|Anthropic|xAI)[^.]*(does not|do not|never|will not|won’t) (train|use)/);
     // The Workspace sentence names Google's Workspace policy, by a link inside it.
     await expect(page.locator('p', { hasText: 'Google Workspace scopes' }).getByRole('link', { name: 'Google User Data Policy', exact: true })).toHaveAttribute(

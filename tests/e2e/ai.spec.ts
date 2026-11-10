@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { expect, type Page } from '@playwright/test';
 import { FAKE, actAs, connect, disconnectAccount, google, openCalendars, signInOnly, test, toggle, view } from './connected';
+import { read } from './contrast';
 import { addEvent, open, today } from './helpers';
 
 // AI assistants (docs/MCP.md), end to end against the stand-ins: a person connects Google, an
@@ -428,6 +429,8 @@ test.describe('AI assistants', () => {
   const askFor = (clientId: string, state = 's') => `${APP}/api/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, state, code_challenge: pkce().challenge, code_challenge_method: 'S256', resource: MCP })}`;
 
   test('the consent page says who asks, who is signed in, what is shared and when, and what of Google; nothing is chosen for the person', async ({ page, id }) => {
+    // It is also read on a phone in both themes, a screen at a time.
+    test.slow();
     await google.has(id, aiAccount());
     await open(page);
     await connect(page);
@@ -469,6 +472,33 @@ test.describe('AI assistants', () => {
     await page.getByRole('checkbox', { name: 'Work' }).uncheck();
     await page.getByRole('checkbox', { name: 'Personal' }).uncheck();
     await expect(notice).toHaveCount(0);
+
+    // On a phone, in both themes: nothing runs off the side, every part is there, and all of it is easy to read.
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const scheme of ['light', 'dark'] as const) {
+      // The theme is taken as the page loads: load it again in each.
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.reload();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', scheme);
+      await page.getByRole('checkbox', { name: 'Work' }).check();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), `${scheme}: sideways scroll`).toBe(false);
+      for (const part of ['[data-requester]', '[data-signed-in]', '[data-chosen]', '[data-google-notice]']) await expect(page.locator(part), `${scheme} ${part}`).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Not you? Sign out' })).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath(`consent-phone-${scheme}.png`), fullPage: true });
+      for (let screen = 0; screen < 12; screen++) {
+        const hard = (await read(page)).filter((r) => r.ratio < (r.large ? 3 : 4.5) || r.faded).map((r) => `"${r.text}" ${r.ratio}:1`);
+        expect(hard, `${scheme}, screen ${screen + 1}: text that is hard to read`).toEqual([]);
+        const more = await page.evaluate(() => {
+          const before = scrollY;
+          scrollBy(0, Math.floor(innerHeight * 0.85));
+          return scrollY > before;
+        });
+        if (!more) break;
+      }
+      await page.evaluate(() => scrollTo(0, 0));
+      await page.getByRole('checkbox', { name: 'Work' }).uncheck();
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
 
     // Cancel: the assistant is told no, and nothing was granted.
     await page.route(`${CALLBACK}**`, (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'back at the assistant' }));

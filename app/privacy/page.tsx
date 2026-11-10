@@ -193,11 +193,17 @@ export default function Privacy() {
         events. Our server’s log of these requests records which kind of request it was and how many events were returned, never what they say.
       </P>
       <P>
-        Koyomi’s part ends there: it reads the events and passes them on, and keeps none of them. What the assistant receives is then held by the
-        company that runs it, under that company’s own privacy policy and terms, which Koyomi does not control. That company may keep it with your
-        conversation, and whether it uses conversations to improve its models depends on its terms and on your settings there. For your Google
-        calendars, see What your Google data is never used for, below. Revoking its access stops it reading more; it cannot take back what it has
-        already received.
+        Koyomi does not keep the events it sends to an assistant: they are read from your calendars when the assistant asks, passed on, and not
+        stored on our server. What the assistant receives is then processed by the company that runs it, under that company’s own privacy policy
+        and terms and your settings there, which Koyomi does not control. That company may keep it with your conversation, and whether it uses
+        conversations to improve its models depends on its terms and on your settings there. For your Google calendars, see What your Google data
+        is never used for, below.
+      </P>
+      <P>
+        What Koyomi does control is access from then on. The assistant can read only the calendars you chose, only with the access you gave it,
+        which Koyomi checks on every request, and only until you revoke it. Revoking its access stops it reading more; it cannot take back what it
+        has already received. Throughout, Koyomi’s handling of your Google data, including what it sends to an assistant, remains bound by
+        Google’s Limited Use requirements, described below.
       </P>
       <P>
         Your Koyomi calendar, the events you write in Koyomi, stays on your device and is never available to an assistant.

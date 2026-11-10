@@ -299,7 +299,12 @@ their plans.
   - calendars are chosen per assistant;
   - an assistant may ask whenever it chooses while access lasts;
   - no event identifier is sent;
-  - Koyomi's part ends when it has passed the events on, and it keeps none;
+  - Koyomi keeps none of the events it sends;
+  - the assistant's company processes them under its own policies;
+  - Koyomi controls access from then on: only the chosen calendars, checked on every request,
+    until revoked;
+  - revoking cannot retrieve what was sent;
+  - Google's Limited Use requirements keep applying;
   - the assistant's company may keep them with the conversation.
 
 **Consent page:** see `docs/MCP.md`, Part 2, "Consent".
@@ -327,18 +332,28 @@ that holds that thread:
 > consent-screen change.
 >
 > **The feature.** A person may explicitly authorize an AI assistant they already use (ChatGPT,
-> Claude or Grok) to read selected calendars through Koyomi, using the Model Context Protocol.
-> - **Explicit, per calendar.** On Koyomi's own consent page, the person ticks each calendar
->   that assistant may read. None is pre-selected. The page says what will be shared, that the
->   assistant is a third party, and, for Google calendars, that Koyomi sends them only so the
->   assistant can answer the person and does not use them to train AI models.
-> - **Read-only and revocable.** The assistant can only list those calendars, read their events
->   and look for free time. It cannot create, change or delete anything. The person can revoke
->   the assistant's access in Koyomi at any time, and it ends at once.
-> - **On demand, minimal.** Koyomi reads the chosen calendars from Google only when the assistant
->   asks, and returns each event's title, start and end, whether it is all-day or tentative, and
->   its calendar's name. It returns no descriptions, locations, attendees or identifiers. Koyomi
->   stores no event data.
+> Claude or Grok) to read calendars through Koyomi, using the Model Context Protocol.
+> - **The user authorizes the assistant explicitly.** The person adds Koyomi to their assistant,
+>   signs in to Koyomi, and approves that assistant on Koyomi's own consent page. Each assistant
+>   is authorized separately. The page names the assistant, says what will be shared and that
+>   the assistant is a third party. For Google calendars, it adds that Koyomi sends them only so
+>   the assistant can answer the person, and does not use them to train AI models.
+> - **Only the calendars the user selects.** The person ticks each calendar the assistant may
+>   read; none is pre-selected. The permission covers those calendars and no others: a calendar
+>   connected later is not included unless the person authorizes it.
+> - **Reads the assistant initiates.** While the authorization is active, the assistant may
+>   start a read on its own, usually when the person asks about their schedule, but not only
+>   then.
+> - **Every read authenticated and checked.** Each read carries a short-lived token issued to
+>   that assistant for Koyomi alone. On every request Koyomi checks that the authorization still
+>   exists and covers the calendars asked about. It then reads only those calendars from Google
+>   at that moment. It returns each event's title, start and end, whether it is all-day or
+>   tentative, and its calendar's name: no descriptions, locations, attendees or identifiers.
+>   Koyomi stores no event data.
+> - **Read-only, and revocable at any time.** The assistant can only list those calendars, read
+>   their events and look for free time. It cannot create, change or delete anything. The person
+>   can revoke the authorization in Koyomi at any time. The next request is refused, and so is
+>   any attempt to renew the token.
 > - **No training by Koyomi.** Koyomi does not use Google user data to develop, improve or train
 >   AI or ML models, and says so in its privacy policy.
 >
@@ -772,7 +787,7 @@ There is no change to OAuth, grants, tokens, limits or anything at Google.
 
 | Change | Why | Where |
 | --- | --- | --- |
-| Privacy: per assistant; "whenever it chooses"; Koyomi's part and the assistant's company's part; Limited Use for the sending; Google's AI/ML sentence; the Workspace Limited Use sentence; nothing promised for another company; the date | Google, mandatory | `app/privacy/page.tsx`; `tests/e2e/site.spec.ts` |
+| Privacy: per assistant; "whenever it chooses"; Koyomi keeps nothing it sends, the assistant's company processes it under its own policies, Koyomi controls access until revoked, revoking cannot retrieve what was sent; Limited Use for the sending; Google's AI/ML sentence; the Workspace Limited Use sentence; nothing promised for another company; the date | Google, mandatory | `app/privacy/page.tsx`; `tests/e2e/site.spec.ts` |
 | Consent page: the asker and its host; the signed-in account, with "Not you? Sign out"; "whenever it chooses, not only when you ask it"; the calendars chosen, by name; a Google notice when a Google calendar is ticked (no box to tick); a way on for someone with nothing connected | Google: accuracy (mandatory); the rest recommended | `components/AiConsent.tsx`, `app/ai/consent/page.tsx`, `app/api/oauth/decision/route.ts`; `tests/e2e/ai.spec.ts` |
 | A public help page, `koyomi.guru/help`, linked from the site's footer, Privacy and the consent page | Google (help documentation), OpenAI (support URL), Claude (public docs) | `app/help/page.tsx`; site tests |
 | `/.well-known/openai-apps-challenge`: plain text from the setting `OPENAI_APPS_CHALLENGE`, 404 when unset | OpenAI domain verification | `lib/server/openai-challenge.ts`, `app/api/openai-apps-challenge/route.ts`, `next.config.ts`; unit and site tests |
