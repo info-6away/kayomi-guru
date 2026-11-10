@@ -193,7 +193,23 @@ Koyomi becomes a small OAuth 2.1 authorization server, on `https://app.koyomi.gu
 - **Consent** (`/ai/consent`): lists the person's connected calendars, read live, *all unticked*,
   and only explicit choices are granted. The request is held in a sealed, single-use, 10-minute
   cookie bound to the subject; the form posts back with an anti-forgery value derived from it,
-  same-origin only.
+  same-origin only. Since Phase 8A the page also says:
+  - who asked, and the host the answer goes to;
+  - which 6Away account is signed in, with **"Not you? Sign out"**. That is a third answer
+    beside Allow and Cancel, with a form of its own so that Enter never submits it. It ends the
+    request (the cookie is cleared, nothing is granted, and the assistant is sent nothing), then
+    signs out of Koyomi and of 6Away (RP-initiated logout, back to the app). The person then
+    connects again from the assistant. 6Away cannot send someone back to the consent page after
+    logout: its post-logout addresses are fixed per client.
+  - that an assistant may ask whenever it chooses while access lasts, not only when the person
+    asks it something;
+  - exactly which calendars are chosen, by name, as they are ticked;
+  - when a Google calendar is ticked, a note on Google data: Koyomi sends it only to answer the
+    person, as Limited Use allows, and never trains on it; the assistant's company's own terms
+    and settings govern what happens next. It is a notice, never a box to tick.
+  
+  A person with nothing connected gets a link that opens Calendars in a new tab
+  (`/?calendars=open`), and can reload the same request within its ten minutes.
 - **Codes**: 256-bit random, stored as an HMAC hash, single use, 5 minutes, bound to client,
   redirect URI, PKCE challenge, resource and grant. A second use revokes the grant.
 - **Access tokens**: `ka1.<payload>.<HMAC>` — grant id, client id, audience (the MCP URL),
@@ -288,9 +304,12 @@ list (all-day events first), then splits it. `find_free_time` works out free tim
 that was read, never from the 500 listed; when anything was not fully read it says so in so many
 words. A provider reader that stops early now says so (`cut` on its reading), where before it
 returned what it had as though that were all; the app's own reading is unchanged.
-Event fields: `event_id` (opaque, per grant), `title`, `start`, `end` (in the zone asked for,
-with offset; days for all-day), `all_day`, `calendar` (handle), `calendar_name`, `provider`,
-`tentative`. Nothing else: no description, location, attendees, links or account addresses.
+Event fields: `title`, `start`, `end` (in the zone asked for, with offset; days for all-day),
+`all_day`, `calendar` (handle), `calendar_name`, `provider`, `tentative`. Nothing else: no
+description, location, attendees, links, account addresses or identifier. (Until Phase 8A each
+event also carried `event_id`, an opaque per-grant handle. No tool takes an event as input, so it
+served the person nothing, and OpenAI's plugin rules ask that answers carry no internal ids: it
+was removed. Calendar handles stay, because the tools' `calendars` input takes them.)
 
 - **Free time**: timed events (confirmed and tentative) block; overlaps merge; gaps shorter than
   the duration are dropped; optional working hours per local day. All-day events: see "Decisions".
@@ -720,11 +739,14 @@ or token.
 4. **The AI access section appears only where Koyomi has the person's calendars on that
    device.** On a device that is only signed in, it is not shown, so there is nowhere there to
    revoke from.
-5. **The consent page does not say which 6Away account is signed in.** During acceptance a
+5. **The consent page did not say which 6Away account is signed in.** During acceptance a
    browser signed in to a different 6Away account was refused, as the allowlist intends. Nothing
-   on the page explained why.
-6. **A person with no calendars reaches a dead end** on the consent page. It tells them to
-   connect one first, but gives no link.
+   on the page explained why. *Addressed in Phase 8A:* the page names the signed-in account and
+   offers "Not you? Sign out". An account outside the allowlist is still refused before the
+   page, with the same words for everyone.
+6. **A person with no calendars reached a dead end** on the consent page. It told them to
+   connect one first, but gave no link. *Addressed in Phase 8A:* a link opens Calendars in a
+   new tab, and the same request can be reloaded within its ten minutes.
 7. **Microsoft and Yahoo were not exercised through an assistant on Production:** the owner's
    account has no such connection. Google and calendar links were. All four providers are
    covered by the automated tests with stand-ins. A provider failing mid-answer (`complete:
@@ -749,3 +771,31 @@ submitted. What a public release needs is in
   is verified and in production);
 - a reviewer account;
 - each platform's submission.
+
+---
+
+## Part 5: public plugin preparation, Phase 8A (feature branch, not merged)
+
+This prepares Koyomi for a directory submission. **It does not open AI access**: the allowlist,
+OAuth, grants, tokens, limits and Google's settings are unchanged.
+
+| Change | Where |
+| --- | --- |
+| **Privacy:** the assistant chosen per calendar *and per assistant*; that it may ask whenever it chooses while access lasts; no event identifier; Koyomi's part and the assistant's company's part; Google's sending bound by Limited Use; Google's AI/ML statement in its words; the Workspace Limited Use sentence; what Koyomi cannot promise for another company; Grok's new registration on every connection. The sentence leaving training to the assistant's company "not by Koyomi" is gone. Dated 10 November 2026 (to be set again at merge) | `app/privacy/page.tsx` |
+| **Consent page:** see "Consent" in Part 2 | `components/AiConsent.tsx`, `app/ai/consent/page.tsx`, `app/api/oauth/decision/route.ts` |
+| **Help page** `koyomi.guru/help`, a page of the site. `app.koyomi.guru/help` redirects there (308), and the site's footer links it: connecting calendars and assistants, choosing, revoking, removing in the assistant, removing calendars, data and deleting it, Microsoft work accounts, contact | `app/help/page.tsx`, `next.config.ts`, `components/SiteFooter.tsx` |
+| **`/?calendars=open`** opens Calendars and nothing else (for the help page and the consent page) | `components/Kayomi.tsx` |
+| **OpenAI domain verification:** `/.well-known/openai-apps-challenge` (rewritten to `/api/openai-apps-challenge`). It serves the value of the server setting `OPENAI_APPS_CHALLENGE`, as plain text, exactly. Unset, empty, or not a plain token: 404 with nothing in it. Any host (the MCP host `app.koyomi.guru` is the one OpenAI checks); `no-store`. **No token is set anywhere yet** | `lib/server/openai-challenge.ts`, `app/api/openai-apps-challenge/route.ts` |
+| **Reviewer calendars:** "Koyomi Demo — Work" and "Koyomi Demo — Personal", synthetic weekly events from January 2026 with no end. They are published as calendar links at `https://koyomi.guru/demo/koyomi-demo-work.ics` and `…/koyomi-demo-personal.ics`. Koyomi refuses only its own app host for links, so the site's host is the one to use. They cover recurrence, a tentative event, overlaps within and across calendars, all-day events, and events written in London, New York and Tokyo (across both countries' clock changes). One event has notes and a place that are never sent | `public/demo/` |
+| **MCP output:** `event_id` removed (Part 2, "Tools"); `eventIdFor` and its key gone | `lib/server/ai/tools.ts`, `mcp.ts`, `read.ts`, `config.ts` |
+
+Tests:
+
+- `tests/unit/openai-challenge.test.ts`
+- `tests/unit/demo-calendars.test.ts` (the files read as Koyomi reads a link, and answered by the
+  tools)
+- `tests/unit/routing.test.ts`
+- `tests/unit/ai.test.ts` (events carry no identifier)
+- `tests/e2e/ai.spec.ts`: the consent page, "Not you? Sign out", the no-calendar path, and the demo
+  calendars subscribed by link and read through MCP
+- `tests/e2e/site.spec.ts`: Privacy, Help, hosts, the challenge address, the demo files

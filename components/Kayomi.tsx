@@ -158,6 +158,9 @@ function Calendar({ data, w, h, ai }: { data: Data; w: number; h: number; ai: bo
     // Signed in to 6Away again: nothing to show, the calendars simply carry on.
     if (outcome === 'resume') return void resume();
     openCalendars();
+    // A link to Calendars itself (from the help page, or the consent page of a person with nothing
+    // connected yet): the pane, and nothing more.
+    if (outcome === 'open') return;
     // Back from signing in on the way to Yahoo's form: the form, and nothing more.
     if (outcome === 'yahoo') return void resumeYahoo();
     // Signed in on the way to the form for a calendar link: the form is shown again, empty.

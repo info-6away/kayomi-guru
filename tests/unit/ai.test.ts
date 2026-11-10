@@ -625,7 +625,6 @@ test.describe('tools', () => {
       asked,
       defaultZone: 'Asia/Dubai',
       now: NOW,
-      eventId: (key) => `ev_${createHash('sha256').update(key).digest('base64url').slice(0, 10)}`,
       access: {
         calendars: async () => authorized,
         events: async (chosen, span) => {
@@ -838,8 +837,25 @@ test.describe('tools', () => {
     const twice = timed(work, 'same', 'Standup', '2026-11-10T05:00:00Z', '2026-11-10T05:15:00Z');
     const ctx = context([twice, twice, timed(otherWork, 'same', 'Standup', '2026-11-10T05:00:00Z', '2026-11-10T05:15:00Z')], { sources: [work, otherWork] });
     const events = (await getEventsTool(ctx, { start: '2026-11-10', end: '2026-11-10' })).events;
+    // Told apart by their calendars' handles, the one identifier an answer carries.
     expect(events.map((e) => e.calendar)).toEqual(['cal_work', 'cal_work2']);
-    expect(events[0].event_id).not.toBe(events[1].event_id);
+  });
+
+  test('an event carries what the person would want said of it, and no identifier: no event id, no provider id, no link', async () => {
+    const ctx = context(DAY);
+    const answers = [
+      ...(await getEventsTool(ctx, { start: '2026-11-10', end: '2026-11-10' })).events,
+      ...(await getScheduleTool(ctx, { date: '2026-11-10' })).events,
+      ...(await findFreeTimeTool(ctx, { start: '2026-11-09', end: '2026-11-11', duration_minutes: 30 })).all_day_events,
+    ];
+    expect(answers.length).toBeGreaterThan(3);
+    for (const event of answers) expect(Object.keys(event).sort()).toEqual(['all_day', 'calendar', 'calendar_name', 'end', 'provider', 'start', 'tentative', 'title']);
+    const said = JSON.stringify(answers);
+    for (const never of ['event_id', 'ev_', 'w1', 'p1', 'o1', 'conn-', 'secret-link', 'calendar.google.com']) expect(said, never).not.toContain(never);
+    // The calendar handle stays: it is what a tool's `calendars` input takes.
+    const one = await getEventsTool(ctx, { start: '2026-11-10', end: '2026-11-10', calendars: [answers[0].calendar] });
+    expect(one.events.length).toBeGreaterThan(0);
+    expect(new Set(one.events.map((e) => e.calendar))).toEqual(new Set([answers[0].calendar]));
   });
 
   test('an all-day event that spans days, and recurring occurrences, are taken as the readers give them', async () => {

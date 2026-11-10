@@ -60,10 +60,6 @@ export const calendarFingerprint = (config: AiConfig, connection: Pick<Connectio
 export const handleFor = (config: AiConfig, grantId: string, connectionId: string, print: string) =>
   `cal_${createHmac('sha256', keyFor(config, 'handle')).update(`${grantId}\n${connectionId}\n${print}`).digest('base64url').slice(0, 16)}`;
 
-/** An event's id for the assistant: opaque, the same across calls of one grant, never a provider's id. */
-export const eventIdFor = (config: AiConfig, grantId: string, eventKey: string) =>
-  `ev_${createHmac('sha256', keyFor(config, 'event')).update(`${grantId}\n${eventKey}`).digest('base64url').slice(0, 22)}`;
-
 const KEEP_MS = 60_000;
 const shared = globalThis as typeof globalThis & { koyomiAiKept?: Map<string, { until: number; value: unknown }> };
 const kept = () => (shared.koyomiAiKept ??= new Map());

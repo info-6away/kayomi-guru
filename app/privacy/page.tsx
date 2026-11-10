@@ -6,7 +6,7 @@ import { A, H2, LegalPage, List, Mail, OPERATOR, P, legalMetadata } from '@/comp
 
 export const metadata = legalMetadata('Privacy', 'What Koyomi keeps, where it keeps it, and what it is used for.', '/privacy');
 
-const UPDATED = '8 November 2026';
+const UPDATED = '10 November 2026';
 
 export default function Privacy() {
   return (
@@ -175,9 +175,9 @@ export default function Privacy() {
       <H2>Connecting an AI assistant</H2>
       <P>
         Connecting an AI assistant, such as Claude, ChatGPT or Grok, to Koyomi is optional. You choose which of your connected calendars it may
-        read, one by one: none is chosen for you, and a calendar you connect later is not included until you choose it. The access is read-only.
-        The assistant can list those calendars, read their events and look for free time in them. It cannot create, change or delete anything.
-        It is in a private beta, and not yet open to every Koyomi account.
+        read, one by one and for each assistant separately: none is chosen for you, and a calendar you connect later is not included until you
+        choose it. The access is read-only. The assistant can list those calendars, read their events and look for free time in them. It cannot
+        create, change or delete anything. It is in a private beta, and not yet open to every Koyomi account.
       </P>
       <P>
         The assistant never receives your Google, Microsoft or Yahoo credentials, your Yahoo app password or a calendar link. It receives a token
@@ -185,15 +185,19 @@ export default function Privacy() {
         working the moment you revoke its access.
       </P>
       <P>
-        When the assistant asks, Koyomi reads those calendars from Google, Microsoft, Yahoo or the calendar link at that moment, and sends it, for
-        each event, only its title, its start and end, whether it lasts all day or is tentative, and the name of its calendar. Koyomi sends no
-        descriptions, locations or guests. The events pass through our server on their way and are not stored there: Koyomi keeps no database of
-        your events. Our server’s log of these requests records which kind of request it was and how many events were returned, never what they
-        say.
+        While its access is in place, the assistant can ask Koyomi for those calendars at any time. It usually asks when you ask it about your
+        time, but the assistant decides when to ask, and it may ask again later, in the same conversation or another. Each time, Koyomi reads
+        those calendars from Google, Microsoft, Yahoo or the calendar link at that moment, and sends it, for each event, only its title, its start
+        and end, whether it lasts all day or is tentative, and the name of its calendar. Koyomi sends no descriptions, locations or guests, and no
+        identifier of the event. The events pass through our server on their way and are not stored there: Koyomi keeps no database of your
+        events. Our server’s log of these requests records which kind of request it was and how many events were returned, never what they say.
       </P>
       <P>
-        What the assistant receives is then held by the company that runs it, under that company’s own privacy policy and terms. Revoking its
-        access stops it reading more; it cannot take back what it has already received.
+        Koyomi’s part ends there: it reads the events and passes them on, and keeps none of them. What the assistant receives is then held by the
+        company that runs it, under that company’s own privacy policy and terms, which Koyomi does not control. That company may keep it with your
+        conversation, and whether it uses conversations to improve its models depends on its terms and on your settings there. For your Google
+        calendars, see What your Google data is never used for, below. Revoking its access stops it reading more; it cannot take back what it has
+        already received.
       </P>
       <P>
         Your Koyomi calendar, the events you write in Koyomi, stays on your device and is never available to an assistant.
@@ -301,13 +305,25 @@ export default function Privacy() {
       <P>
         Connecting an AI assistant is the one way Koyomi sends Google Calendar data to another company, and it does so only because you ask it
         to: if you choose a Google calendar for an assistant, Koyomi sends that calendar’s events to the assistant when it asks, as described
-        under Connecting an AI assistant, for that and nothing else. What the assistant’s company then does with them, including whether it uses
-        them to train its models, is governed by its own privacy policy and terms, not by Koyomi. You can revoke the assistant’s access at any
-        time.
+        under Connecting an AI assistant, so that the assistant can answer you, and for nothing else. Sending them is itself bound by Google’s
+        Limited Use requirements below: only the calendars you chose, only the details listed above, only for the feature you chose, and only
+        while you allow it. You can revoke the assistant’s access at any time.
+      </P>
+      <P>
+        Koyomi does not use your Google Calendar data to develop, improve or train AI or machine-learning models, and does not send it to anyone
+        for that purpose. Google Workspace APIs are not used to develop, improve, or train non-personalized AI and/or ML models. Koyomi cannot control what
+        an assistant’s company does with what it has received: some assistants’ personal plans use conversations, including what apps send them,
+        to improve their models unless you turn that off in the assistant’s settings. Check your assistant’s data settings before you choose a
+        Google calendar for it.
       </P>
       <P>
         Koyomi’s use of information received from Google APIs adheres to the{' '}
         <A href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</A>, including the
+        Limited Use requirements.
+      </P>
+      <P>
+        The use of information received from Google Workspace scopes will adhere to the{' '}
+        <A href="https://developers.google.com/workspace/workspace-api-user-data-developer-policy">Google User Data Policy</A>, including the
         Limited Use requirements.
       </P>
       <P>
@@ -394,7 +410,9 @@ export default function Privacy() {
       </P>
       <P>
         An AI assistant’s access is kept until you revoke it, or allow the same assistant again, which replaces it. Either way its record is
-        deleted from our server. It is not removed when an account it could read is disconnected: only that account’s calendars are.
+        deleted from our server. (An assistant that registers itself anew each time it connects, as Grok does, is a new one each time: its
+        earlier access stays until you revoke it.) It is not removed when an account it could read is disconnected: only that account’s
+        calendars are.
       </P>
       <P>
         You can also ask us to delete the record by writing to <Mail />.
@@ -403,7 +421,8 @@ export default function Privacy() {
 
       <H2>Questions and requests</H2>
       <P>
-        Write to <Mail /> to ask what we hold about you, to have it deleted, or with any question about this page.
+        Write to <Mail /> to ask what we hold about you, to have it deleted, or with any question about this page. How to connect, revoke and
+        remove things yourself is on the <A href="/help">Help</A> page.
       </P>
 
       <H2>Changes to this page</H2>

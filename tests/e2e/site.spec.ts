@@ -4,6 +4,7 @@ import { AHEAD_DAYS, BACK_DAYS } from '../../lib/calendars/window';
 import { SCOPES } from '../../lib/server/google';
 import { MICROSOFT_SCOPES } from '../../lib/server/microsoft';
 import { read } from './contrast';
+import { calendars as view } from './helpers';
 
 // The landing page (koyomi.guru) and the calendar (app.koyomi.guru) come from one build.
 // On any other host, such as this test server, the landing page is at /home and the calendar at /.
@@ -421,18 +422,32 @@ test.describe('privacy and terms', () => {
       'The assistant never receives your Google, Microsoft or Yahoo credentials, your Yahoo app password or a calendar link.',
       'stops working the moment you revoke its access',
       // What it receives, read when it asks, and not kept.
-      'only its title, its start and end, whether it lasts all day or is tentative, and the name of its calendar. Koyomi sends no descriptions, locations or guests.',
+      'only its title, its start and end, whether it lasts all day or is tentative, and the name of its calendar. Koyomi sends no descriptions, locations or guests, and no identifier of the event.',
       'The events pass through our server on their way and are not stored there: Koyomi keeps no database of your events.',
       'records which kind of request it was and how many events were returned, never what they say',
-      // What the assistant does with it is its own company's affair, and said no more strongly than that.
-      'What the assistant receives is then held by the company that runs it, under that company’s own privacy policy and terms.',
+      // Chosen for each assistant on its own; asked for whenever the assistant chooses, not only when the person asks it.
+      'one by one and for each assistant separately',
+      'While its access is in place, the assistant can ask Koyomi for those calendars at any time.',
+      'the assistant decides when to ask, and it may ask again later, in the same conversation or another.',
+      'and no identifier of the event',
+      // Koyomi's part, and the company's: what the assistant does with it is said no more strongly than is so.
+      'Koyomi’s part ends there: it reads the events and passes them on, and keeps none of them.',
+      'What the assistant receives is then held by the company that runs it, under that company’s own privacy policy and terms, which Koyomi does not control.',
+      'whether it uses conversations to improve its models depends on its terms and on your settings there',
       'Revoking its access stops it reading more; it cannot take back what it has already received.',
       // Not open to everyone yet, and not claimed to be.
       'It is in a private beta, and not yet open to every Koyomi account.',
-      // Google's data: the one way it reaches another company, at the person's request, and what then governs it.
+      // Google's data: the one way it reaches another company, at the person's request, and bound by Limited Use when it does.
       'unless you connect an AI assistant yourself.',
       'Connecting an AI assistant is the one way Koyomi sends Google Calendar data to another company, and it does so only because you ask it to',
-      'including whether it uses them to train its models, is governed by its own privacy policy and terms, not by Koyomi.',
+      'so that the assistant can answer you, and for nothing else. Sending them is itself bound by Google’s Limited Use requirements below',
+      // Google's restriction on AI training, in Google's words, and what Koyomi cannot promise for another company.
+      'Koyomi does not use your Google Calendar data to develop, improve or train AI or machine-learning models, and does not send it to anyone for that purpose.',
+      'Google Workspace APIs are not used to develop, improve, or train non-personalized AI and/or ML models.',
+      'Koyomi cannot control what an assistant’s company does with what it has received',
+      'Check your assistant’s data settings before you choose a Google calendar for it.',
+      'The use of information received from Google Workspace scopes will adhere to the Google User Data Policy, including the Limited Use requirements.',
+      'is a new one each time: its earlier access stays until you revoke it',
       // Local events never.
       'Your Koyomi calendar, the events you write in Koyomi, stays on your device and is never available to an assistant.',
       // What the server keeps, and revoking.
@@ -443,9 +458,68 @@ test.describe('privacy and terms', () => {
     ]) {
       expect(said, part).toContain(part);
     }
+    // Nothing that sets Koyomi apart from what becomes of Google data it sent, and no promise made for another company.
+    expect(said).not.toContain('not by Koyomi');
+    expect(said).not.toMatch(/(ChatGPT|Claude|Grok|OpenAI|Anthropic|xAI)[^.]*(does not|do not|never|will not|won’t) (train|use)/);
+    // The Workspace sentence names Google's Workspace policy, by a link inside it.
+    await expect(page.locator('p', { hasText: 'Google Workspace scopes' }).getByRole('link', { name: 'Google User Data Policy', exact: true })).toHaveAttribute(
+      'href',
+      'https://developers.google.com/workspace/workspace-api-user-data-developer-policy',
+    );
     // What is said of Google is as it was.
     expect(said).toContain(LIMITED_USE);
     expect(said).toContain('Neon hosts the database, in the United States. It stores only the connection records described above. It receives no events and no calendar names.');
+    // And where to do these things oneself.
+    await expect(page.getByRole('main').getByRole('link', { name: 'Help', exact: true })).toHaveAttribute('href', '/help');
+  });
+
+  test('the help page says how to do each thing there is to do, as the app does it', async ({ page }) => {
+    await page.goto('/help');
+    await expect(page).toHaveTitle('Help — Koyomi');
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://koyomi.guru/help');
+    await expect(page.getByRole('main').getByRole('heading', { level: 2 })).toHaveText([
+      'Connecting your calendars',
+      'Connecting Koyomi to an AI assistant',
+      'Choosing what an assistant can read',
+      'Revoking an assistant’s access',
+      'Removing Koyomi inside the assistant',
+      'Removing connected calendars',
+      'Your data, and deleting it',
+      'Microsoft work and school accounts',
+      'Contact',
+    ]);
+    const said = await text(page);
+    for (const part of [
+      'choose Add calendar account, and pick Google, Microsoft, Yahoo or Calendar link. You sign in with 6Away first.',
+      'an app password you create in your Yahoo account’s security settings, never your Yahoo password itself',
+      'AI access is in a private beta, and not yet open to every Koyomi account.',
+      'https://app.koyomi.guru/mcp',
+      'none of them ticked',
+      'Each assistant has its own choice.',
+      'as Grok does, is listed twice instead: revoke the older one',
+      'choose Not you? Sign out, then connect again from the assistant',
+      'the assistant can ask Koyomi for those calendars whenever it chooses',
+      'It never receives descriptions, places or guests, your passwords or calendar links, or the events you write in Koyomi.',
+      'In Koyomi, open Calendars, then AI access, and choose Revoke beside the assistant. Its access ends at once, and your calendars stay connected.',
+      'Removing or turning off Koyomi in ChatGPT, Claude or Grok may only stop that assistant using it: it does not always tell Koyomi.',
+      'permission stays in place until you revoke it in Koyomi',
+      'each account has Disconnect, and each calendar link has Remove calendar',
+      'Our server keeps only a record of each account you connect and of each assistant you allow, never your events.',
+      'Many organisations let their people use only apps an administrator has approved.',
+      'Personal Microsoft accounts need no approval.',
+      `Koyomi is run by ${OPERATOR}.`,
+    ]) {
+      expect(said, part).toContain(part);
+    }
+    await expect(page.getByRole('main').locator('a[href^="mailto:"]')).toHaveAttribute('href', `mailto:${CONTACT}`);
+    await expect(page.getByRole('main').getByRole('link', { name: 'Privacy', exact: true })).toHaveAttribute('href', '/privacy');
+    // The footer of the site's pages leads to all three.
+    await expect(page.getByRole('contentinfo').getByRole('link')).toHaveText(['Help', 'Privacy', 'Terms']);
+    // "Open Calendars" opens the calendar with its Calendars pane, wherever the help page is read.
+    await page.getByRole('main').getByRole('link', { name: 'Open Calendars' }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.locator('[data-day]')).toHaveCount(7);
+    await expect(view(page)).toBeVisible();
   });
 
   test('the terms are short, and say on what terms Koyomi is offered', async ({ page }) => {
@@ -490,7 +564,7 @@ test.describe('privacy and terms', () => {
     expect(said).toContain('You may also let an AI assistant read calendars you choose, through Koyomi. It is a third party: you choose to send it that data, and its own terms and policies then apply.');
   });
 
-  for (const path of ['/privacy', '/terms']) {
+  for (const path of ['/privacy', '/terms', '/help']) {
     test(`${path} is built like a page: one title, sections in order, links that say where they go`, async ({ page }) => {
       await page.goto(path);
       await expect(page.locator('html')).toHaveAttribute('lang', 'en');
@@ -541,9 +615,11 @@ for (const theme of ['light', 'dark'] as const) {
       [1440, 900],
       [390, 844],
     ]) {
-      test(`privacy, terms and the landing page are easy to read from top to bottom on a ${width}×${height} screen`, async ({ page }) => {
+      test(`privacy, terms, help and the landing page are easy to read from top to bottom on a ${width}×${height} screen`, async ({ page }) => {
+        // Four long pages, read a screen at a time: more than the default 30 seconds on a busy machine.
+        test.slow();
         await page.setViewportSize({ width, height });
-        for (const path of ['/privacy', '/terms', '/home']) {
+        for (const path of ['/privacy', '/terms', '/help', '/home']) {
           await page.goto(path);
           await readable(page, `${path} at ${width}`);
           // Nothing runs off the side.
@@ -615,10 +691,11 @@ test.describe('host names', () => {
     expect([elsewhere.status(), elsewhere.headers().location]).toEqual([307, '/']);
   });
 
-  test('privacy and terms are pages of koyomi.guru, and the calendar’s host sends them there', async ({ request }) => {
+  test('privacy, terms and help are pages of koyomi.guru, and the calendar’s host sends them there', async ({ request }) => {
     for (const [path, title] of [
       ['/privacy', 'Privacy'],
       ['/terms', 'Terms'],
+      ['/help', 'Help'],
     ]) {
       for (const host of ['koyomi.guru', 'www.koyomi.guru']) {
         const onSite = await get(request, host, path);
@@ -636,6 +713,34 @@ test.describe('host names', () => {
         const elsewhere = await get(request, host, path);
         expect([elsewhere.status(), elsewhere.headers().location], `${host}${path}`).toEqual([200, undefined]);
         expect(await elsewhere.text(), `${host}${path}`).toContain(`<title>${title} — Koyomi</title>`);
+      }
+    }
+  });
+
+  test('OpenAI’s domain verification address answers only once its token is set: with none, nothing is there, on any host', async ({ request }) => {
+    // The browser tests set no token (tests/fakes/env.mjs); what a set token gives is in tests/unit/openai-challenge.test.ts.
+    for (const host of ['app.koyomi.guru', 'koyomi.guru', 'kayomi-guru.vercel.app']) {
+      for (const path of ['/.well-known/openai-apps-challenge', '/api/openai-apps-challenge']) {
+        const response = await get(request, host, path);
+        expect([response.status(), await response.text()], `${host}${path}`).toEqual([404, '']);
+      }
+    }
+    // It is its own address: the AI discovery document (on this server's own host) and the calendar are as they were.
+    expect((await request.get('/.well-known/oauth-protected-resource')).status()).toBe(200);
+    expect((await get(request, 'app.koyomi.guru', '/')).status()).toBe(200);
+  });
+
+  test('the reviewer’s two synthetic calendars are published files, read as calendars on every host', async ({ request }) => {
+    for (const [file, name] of [
+      ['koyomi-demo-work.ics', 'Koyomi Demo — Work'],
+      ['koyomi-demo-personal.ics', 'Koyomi Demo — Personal'],
+    ]) {
+      for (const host of ['koyomi.guru', 'app.koyomi.guru']) {
+        const response = await get(request, host, `/demo/${file}`);
+        expect(response.status(), `${host} ${file}`).toBe(200);
+        const body = await response.text();
+        expect(body.startsWith('BEGIN:VCALENDAR'), file).toBe(true);
+        expect(body).toContain(`X-WR-CALNAME:${name}`);
       }
     }
   });

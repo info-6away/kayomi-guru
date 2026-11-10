@@ -28,6 +28,12 @@ export const AI_METADATA = [
   { source: '/.well-known/oauth-protected-resource/mcp', destination: '/api/oauth/resource' },
 ];
 
+/**
+ * OpenAI's domain verification for a public ChatGPT plugin: the token from one server setting, or a
+ * 404 while there is none (lib/server/openai-challenge.ts). Its host is the MCP endpoint's.
+ */
+export const OPENAI_CHALLENGE = { source: '/.well-known/openai-apps-challenge', destination: '/api/openai-apps-challenge' };
+
 /** Where a Preview build serves the calendar, since its "/" is the landing page. */
 export const PREVIEW_APP_PATH = '/app';
 
@@ -43,6 +49,7 @@ export function routing(vercelEnv: string | undefined) {
         // Where AI clients look for how to get access to the MCP endpoint (docs/MCP.md). They answer
         // only while KOYOMI_MCP is on, and only on the calendar's own host.
         ...AI_METADATA,
+        OPENAI_CHALLENGE,
       ],
       afterFiles: [],
       fallback: [],
@@ -54,9 +61,10 @@ export function routing(vercelEnv: string | undefined) {
       // Each site stays on its own host.
       { source: '/home', has: [{ type: 'host' as const, value: SITE_HOST }], destination: '/', permanent: true },
       { source: '/home', has: [{ type: 'host' as const, value: APP_HOST }], destination: `${SITE_URL}/`, permanent: true },
-      // Privacy and Terms are pages of the site. Asked of the calendar's host, they are over there.
+      // Privacy, Terms and Help are pages of the site. Asked of the calendar's host, they are over there.
       { source: '/privacy', has: [{ type: 'host' as const, value: APP_HOST }], destination: `${SITE_URL}/privacy`, permanent: true },
       { source: '/terms', has: [{ type: 'host' as const, value: APP_HOST }], destination: `${SITE_URL}/terms`, permanent: true },
+      { source: '/help', has: [{ type: 'host' as const, value: APP_HOST }], destination: `${SITE_URL}/help`, permanent: true },
     ],
     // Read by the page (lib/sw-register.ts): a Preview build installs no service worker, because its
     // calendar is not at "/", the one place the worker keeps and serves as the app.

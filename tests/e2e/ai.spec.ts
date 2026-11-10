@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { expect, type Page } from '@playwright/test';
 import { FAKE, actAs, connect, disconnectAccount, google, openCalendars, signInOnly, test, toggle, view } from './connected';
@@ -144,9 +145,11 @@ test.describe('AI assistants', () => {
       ['Dentist', '15:00'],
     ]);
     expect(day.all_day_events.map((e: { title: string }) => e.title)).toEqual(['Holiday']);
+    // Each event as the person would want it said, and no identifier: no event id, no provider id, no link.
+    for (const event of [...day.events, ...day.all_day_events]) expect(Object.keys(event).sort()).toEqual(['all_day', 'calendar', 'calendar_name', 'end', 'provider', 'start', 'tentative', 'title']);
     // Nothing that was not chosen, nothing Koyomi does not send, nothing of the person's own device.
     const everything = JSON.stringify(day);
-    for (const never of ['Never shared', 'PRIVATE NOTES', 'PRIVATE PLACE', 'someone@private.test', 'me@example.test', 'work@example.test', '"dentist"', 'Local only']) expect(everything, never).not.toContain(never);
+    for (const never of ['Never shared', 'PRIVATE NOTES', 'PRIVATE PLACE', 'someone@private.test', 'me@example.test', 'work@example.test', '"dentist"', 'Local only', 'event_id', '"ev_']) expect(everything, never).not.toContain(never);
     const todays = JSON.stringify((await call(client, 'get_schedule', { date: today(), timezone: ZONE })).structuredContent);
     expect(todays).not.toContain('Local only');
 
@@ -229,11 +232,16 @@ test.describe('AI assistants', () => {
     const { tokens } = await connectedAssistant(page, id);
     await page.goto(`${APP}/`);
     await openCalendars(page);
+    // The assistant asks once the disconnect has finished on the server. (Asked while it is under
+    // way, between Google's revoking and the record's going, the calendar is rightly "unavailable"
+    // for that moment: this test used to race it.)
+    const disconnected = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/calendars/disconnect' && response.request().method() === 'POST');
     await disconnectAccount(page);
+    expect((await disconnected).status()).toBe(200);
     const client = await mcp(tokens.access_token);
     const listed = (await call(client, 'list_calendars')).structuredContent;
     expect(listed.calendars).toEqual([]);
-    expect(listed.complete).toBe(true);
+    expect(listed.complete, JSON.stringify(listed)).toBe(true);
     await client.close();
   });
 
@@ -414,6 +422,155 @@ test.describe('AI assistants', () => {
     await signInOnly(signedOut);
     refusedTo(await signedOut.request.get(`${APP}/ai/consent`, { maxRedirects: 0 }), 'signed-out');
     await fresh.close();
+  });
+
+  /** The assistant's link, to the consent page and no further. */
+  const askFor = (clientId: string, state = 's') => `${APP}/api/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: CALLBACK, state, code_challenge: pkce().challenge, code_challenge_method: 'S256', resource: MCP })}`;
+
+  test('the consent page says who asks, who is signed in, what is shared and when, and what of Google; nothing is chosen for the person', async ({ page, id }) => {
+    await google.has(id, aiAccount());
+    await open(page);
+    await connect(page);
+    const clientId = await registerClient();
+    await page.goto(askFor(clientId));
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Allow an app on this computer to read these calendars?');
+    // Who asks, and where the answer goes.
+    await expect(page.locator('[data-requester]')).toHaveText('Asked by An app on this computer, which will receive the answer at 127.0.0.1:4398.');
+    // Who is signed in (as 6Away said: the stand-in's address for this person), and a way to be someone else.
+    await expect(page.locator('[data-signed-in]')).toContainText(`Signed in to Koyomi as user-${id}@example.test`);
+    await expect(page.getByRole('button', { name: 'Not you? Sign out' })).toBeVisible();
+    const said = (await page.getByRole('main').innerText()).replace(/\s+/g, ' ');
+    for (const part of [
+      'will receive the titles and times of events in the calendars you select, whether each lasts all day or is tentative, and the calendars’ names. No descriptions, places or guests.',
+      'While this access is in place, an app on this computer can ask Koyomi for these calendars whenever it chooses, not only when you ask it a question, until you revoke it.',
+      'Revoking access later stops it reading more; it cannot take back what it already received.',
+      'local Koyomi events stay on this device and are not included.',
+      'You can revoke this at any time in Koyomi, under Calendars, AI access.',
+    ]) {
+      expect(said, part).toContain(part);
+    }
+    await expect(page.getByRole('main').getByRole('link', { name: 'How Koyomi handles this' })).toHaveAttribute('href', '/privacy');
+    await expect(page.getByRole('main').getByRole('link', { name: 'Help', exact: true })).toHaveAttribute('href', '/help');
+
+    // Nothing chosen, and nothing said of Google until a Google calendar is.
+    for (const box of await page.getByRole('checkbox').all()) await expect(box).not.toBeChecked();
+    await expect(page.locator('[data-chosen]')).toHaveText('Choose at least one calendar.');
+    await expect(page.locator('[data-google-notice]')).toHaveCount(0);
+    await page.getByRole('checkbox', { name: 'Work' }).check();
+    await expect(page.locator('[data-chosen]')).toHaveText('To be shared with an app on this computer: Work.');
+    const notice = page.locator('[data-google-notice]');
+    await expect(notice).toContainText('Koyomi sends their events to an app on this computer only so that it can answer you');
+    await expect(notice).toContainText('never uses them to train AI models');
+    await expect(notice).toContainText('some assistants’ personal plans may use conversations to improve their models unless you turn that off');
+    // A notice, never a box to tick: nothing here asks the person to vouch for another company.
+    await expect(notice.getByRole('checkbox')).toHaveCount(0);
+    await page.getByRole('checkbox', { name: 'Personal' }).check();
+    await expect(page.locator('[data-chosen]')).toHaveText('To be shared with an app on this computer: Personal, Work.');
+    await page.getByRole('checkbox', { name: 'Work' }).uncheck();
+    await page.getByRole('checkbox', { name: 'Personal' }).uncheck();
+    await expect(notice).toHaveCount(0);
+
+    // Cancel: the assistant is told no, and nothing was granted.
+    await page.route(`${CALLBACK}**`, (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'back at the assistant' }));
+    const back = page.waitForRequest((request) => request.url().startsWith(CALLBACK));
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    expect(new URL((await back).url()).searchParams.get('error')).toBe('access_denied');
+    expect((await (await page.request.post(`${APP}/api/ai/grants`, { headers: { origin: APP }, data: { calendars: [] } })).json()).grants).toEqual([]);
+  });
+
+  test('“Not you? Sign out” ends the request, the Koyomi session and 6Away’s, grants nothing, and sends the assistant nothing', async ({ page, id }) => {
+    await google.has(id, aiAccount());
+    await open(page);
+    await connect(page);
+    const clientId = await registerClient();
+    let toAssistant = 0;
+    await page.route(`${CALLBACK}**`, (route) => {
+      toAssistant++;
+      return route.fulfill({ status: 200, contentType: 'text/plain', body: 'back at the assistant' });
+    });
+    await page.goto(askFor(clientId));
+    // Through 6Away's sign-out (the stand-in's), and back to Koyomi.
+    const signedOutAt6Away = page.waitForRequest((request) => request.url().startsWith(`${FAKE}/idp/oauth/logout`));
+    await page.getByRole('button', { name: 'Not you? Sign out' }).click();
+    const logout = new URL((await signedOutAt6Away).url());
+    expect(logout.searchParams.get('post_logout_redirect_uri')).toBe(APP);
+    expect(logout.searchParams.get('id_token_hint')).toBeTruthy();
+    await expect(page).toHaveURL(`${APP}/`);
+    expect(toAssistant).toBe(0);
+    // Signed out of Koyomi, and the request is over.
+    expect((await page.request.get(`${APP}/api/calendars`)).status()).toBe(401);
+    await page.goto(`${APP}/ai/consent`);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('This request has ended');
+    // Signed in again: nothing was granted, and the calendars are still connected.
+    await signInOnly(page);
+    expect((await (await page.request.post(`${APP}/api/ai/grants`, { headers: { origin: APP }, data: { calendars: [] } })).json()).grants).toEqual([]);
+    expect(((await (await page.request.get(`${APP}/api/calendars`)).json()).connections as unknown[]).length).toBe(1);
+  });
+
+  test('someone with nothing connected yet is shown the way to connect a calendar, and comes back to the same request', async ({ page, id }) => {
+    await signInOnly(page);
+    const clientId = await registerClient();
+    await page.goto(askFor(clientId));
+    await expect(page.locator('[data-no-calendars]')).toContainText('You have no connected calendars to share yet.');
+    await expect(page.getByRole('checkbox')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Allow read-only access' })).toBeDisabled();
+    const link = page.getByRole('link', { name: 'Connect a calendar in Koyomi' });
+    await expect(link).toHaveAttribute('href', '/?calendars=open');
+    await expect(link).toHaveAttribute('target', '_blank');
+    // In a tab of its own, Calendars is open and ready to connect.
+    await google.has(id, aiAccount());
+    const [tab] = await Promise.all([page.context().waitForEvent('page'), link.click()]);
+    await expect(view(tab)).toBeVisible();
+    await expect(tab).toHaveURL(`${APP}/`);
+    await connect(tab);
+    await tab.close();
+    // Back on the consent page: the same request, now with calendars to choose, none of them chosen.
+    await page.reload();
+    await expect(page.getByRole('checkbox', { name: 'Personal' })).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Work' })).not.toBeChecked();
+    await expect(page.locator('[data-no-calendars]')).toHaveCount(0);
+  });
+
+  test('the reviewer’s demo calendars, subscribed by link: with Work alone shared, the answers are the ones the review expects', async ({ page, id }) => {
+    const FEEDS = 'http://localhost:4317';
+    for (const [token, file] of [
+      [`${id}work`, 'koyomi-demo-work.ics'],
+      [`${id}personal`, 'koyomi-demo-personal.ics'],
+    ]) {
+      await fetch(`${FEEDS}/__fake/feeds/${token}`, { method: 'PUT', body: JSON.stringify({ ics: readFileSync(`public/demo/${file}`, 'utf8') }) });
+    }
+    await signInOnly(page);
+    // Subscribed as a reviewer does it: the link alone, named by the calendar itself.
+    for (const token of [`${id}work`, `${id}personal`]) {
+      expect((await page.request.post(`${APP}/api/link/connect`, { headers: { origin: APP }, data: { link: `${FEEDS}/feeds/${token}/calendar.ics` } })).status()).toBe(200);
+    }
+    const clientId = await registerClient();
+    const allowed = await authorize(page, clientId, ['Koyomi Demo — Work']);
+    const assistant = await mcp((await tokensFor(clientId, allowed.code, allowed.verifier)).access_token);
+    expect((await call(assistant, 'list_calendars')).structuredContent.calendars.map((c: { name: string }) => c.name)).toEqual(['Koyomi Demo — Work']);
+
+    // The coming Wednesday and Thursday, in London.
+    const london = (offset: number) => new Date(Date.now() + offset * 864e5).toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+    const next = (weekday: number) => london([1, 2, 3, 4, 5, 6, 7].find((o) => new Date(`${london(o)}T12:00:00Z`).getUTCDay() === weekday)!);
+    const wednesday = (await call(assistant, 'get_schedule', { date: next(3), timezone: 'Europe/London' })).structuredContent;
+    expect(wednesday.complete).toBe(true);
+    const day = wednesday.events.map((e: { title: string; start: string }) => [e.start.slice(11, 16), e.title]);
+    expect(day.slice(0, 2)).toEqual([
+      ['09:30', 'Daily standup'],
+      ['12:00', 'Team lunch'],
+    ]);
+    // 10:00 in New York: 15:00 in London, or 14:00 in the weeks when the two change their clocks on different dates.
+    expect(day[2][1]).toBe('Call with the New York office');
+    expect(['14:00', '15:00']).toContain(day[2][0]);
+    const thursday = (await call(assistant, 'find_free_time', { start: `${next(4)}T09:00`, end: `${next(4)}T17:00`, duration_minutes: 60, timezone: 'Europe/London' })).structuredContent;
+    expect(thursday.free.map((f: { start: string; end: string }) => `${f.start.slice(11, 16)}–${f.end.slice(11, 16)}`)).toEqual(['11:30–17:00']);
+    const friday = (await call(assistant, 'get_schedule', { date: next(5), timezone: 'Europe/London' })).structuredContent;
+    expect(friday.all_day_events.map((e: { title: string }) => e.title)).toEqual(['Demo day']);
+
+    // Nothing of the calendar that was not shared, and nothing Koyomi does not send.
+    const said = JSON.stringify([wednesday, thursday, friday]);
+    for (const never of ['Koyomi Demo — Personal', 'Gym', 'School pickup', 'Piano lesson', 'Family day', 'Synthetic Cafe', 'Synthetic notes']) expect(said, never).not.toContain(never);
+    await assistant.close();
   });
 
   test('an assistant in a loop is stopped, and the same question does not reach Google again and again', async ({ page, id }) => {
