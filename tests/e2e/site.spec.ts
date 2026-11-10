@@ -451,6 +451,9 @@ test.describe('privacy and terms', () => {
       'Check your assistant’s data settings before you choose a Google calendar for it.',
       'The use of information received from Google Workspace scopes will adhere to the Google User Data Policy, including the Limited Use requirements.',
       'is a new one each time: its earlier access stays until you revoke it',
+      // Revoking from any device, and the limits' counts: what they hold, and for how long.
+      'The same can be done from any device, even one with no calendars on it, at app.koyomi.guru/ai/access.',
+      'Each count is kept under a keyed hash of what it counts, which cannot be turned back into it, holds nothing else, and is deleted within a day.',
       // Local events never.
       'Your Koyomi calendar, the events you write in Koyomi, stays on your device and is never available to an assistant.',
       // What the server keeps, and revoking.
@@ -506,6 +509,7 @@ test.describe('privacy and terms', () => {
       'the assistant can ask Koyomi for those calendars whenever it chooses',
       'It never receives descriptions, places or guests, your passwords or calendar links, or the events you write in Koyomi.',
       'In Koyomi, open Calendars, then AI access, and choose Revoke beside the assistant. Its access ends at once, and your calendars stay connected.',
+      'From any device, even one with no calendars on it, open app.koyomi.guru/ai/access and sign in',
       'Removing or turning off Koyomi in ChatGPT, Claude or Grok may only stop that assistant using it: it does not always tell Koyomi.',
       'permission stays in place until you revoke it in Koyomi',
       'each account has Disconnect, and each calendar link has Remove calendar',

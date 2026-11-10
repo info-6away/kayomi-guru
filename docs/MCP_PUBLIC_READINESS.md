@@ -752,29 +752,83 @@ screenshot of the consent page and one of an answer. It links to the help page. 
 
 ---
 
-## 7. Operational implications
+## 7. Operational capacity and cost (Phase 8B review)
 
-- **Load:** every assistant question is one or more `/mcp` invocations, each spending the grant
-  allowance (a database write). Each also reads providers, through the same per-connection
-  allowance the app uses. Token refreshes add `/api/oauth/token` calls every 15 minutes of use.
-- **Database:** the AI tables grow with grants (one per person per assistant), clients (Grok:
-  one per connection) and refresh tokens. Pruning covers clients; revoked grants cascade. Neon's
-  free plan is the first limit to hit.
-- **Provider quotas:** AI reads share Google's per-project quota and Microsoft's per-app
-  throttling with the app. Watch `failed:` and `incomplete` outcomes in the `[mcp]` log.
-- **Logs:** outcome-only lines per call. Vercel keeps runtime logs briefly; a log drain is needed
-  for any audit window longer than that.
-- **Support load:**
-  - revoking in the assistant versus in Koyomi;
-  - being signed in to the wrong 6Away account;
-  - Microsoft admin approval;
-  - Yahoo app passwords.
+**Estimates, not quotes.** The usage figures below are Koyomi's own estimates from assumptions
+stated here. The prices are the providers' published prices, read on 10 November 2026; check
+them again before acting.
 
-  The help page should answer these four before launch.
-- **Policy upkeep:**
-  - report material changes to Anthropic;
-  - re-verify with Google on any scope or consent-screen change;
-  - keep Privacy's list of AI recipients current.
+### What one tool call costs Koyomi
+
+| Resource | Per tool call |
+| --- | --- |
+| Vercel | one function invocation, a few ms of CPU; it waits on Neon and the provider |
+| Neon queries, about 8 | grant lookup (2), grant allowance (1), person limit (1), client limit (0–1, registered clients only), connections (1), each connection's provider allowance (1 each, unless remembered for the minute) |
+| Provider requests, about 3 when nothing is remembered | the calendar list for each connection, and each calendar's events. Identical reads within a minute come from memory on that server instance |
+| Rate-limit storage | one upsert to an existing row; rows are about 150 bytes, one per active person, registered client and registration source |
+
+### Assumptions for each active AI user
+
+- 10 tool calls a day (three or four questions, two or three calls each).
+- About 5 token refreshes a day (one per 15 minutes of use).
+- About 2 other requests a day (discovery, consent).
+- So about **17 function invocations a day, roughly 500 a month**.
+- The busiest hour carries 10% of a day's calls.
+
+### Scenarios (30 days)
+
+| | 100 users | 1,000 users | 10,000 users |
+| --- | --- | --- | --- |
+| Function invocations | ~51,000 | ~510,000 | ~5.1 million |
+| Tool calls | ~30,000 | ~300,000 | ~3 million |
+| Neon queries | ~240,000 | ~2.4 million | ~24 million (about 9 a second on average) |
+| Provider requests | ~90,000 (~3,000 a day) | ~900,000 (~30,000 a day) | ~9 million (~300,000 a day; ~500 a minute at peak) |
+| `ai_limits` rows | ~150 | ~1,500 | ~15,000 (a few MB) |
+| `[mcp]` log lines | ~50,000 | ~500,000 | ~5 million (~1 GB) |
+
+### What that comes to, at published prices
+
+| Item | Published price | 100 users | 1,000 users | 10,000 users |
+| --- | --- | --- | --- | --- |
+| Vercel Functions (Pro, iad1: $0.60 per 1M invocations, $0.128 per Active CPU hour, $0.0106 per GB-hour provisioned memory) | about $4–5 per million tool calls, all in (research estimate) | < $1 | ~$2–3 | ~$20–30 |
+| Vercel Pro platform fee | $20 a month, which includes $20 of usage credit | covered | covered | about the credit |
+| Neon compute: **Free** | 100 CU-hours a month; **beyond it the compute is suspended until the next month, which stops the whole app** | likely to run out: any steady traffic keeps the compute awake (it sleeps after 5 idle minutes) | not viable | not viable |
+| Neon compute: **Launch** | $0.106 per CU-hour, no minimum; storage $0.35 per GB-month | ~$19 a month (0.25 CU always on) | ~$19–39 | ~$39–77 (0.5–1 CU) |
+| Google Calendar API | free; 10,000 requests a minute per project, 600 per user, a 1,000,000-a-day threshold (charging above it is announced for later in 2026) | free | free | free, at about 30% of the daily threshold |
+| Microsoft Graph | free for calendar; 10,000 requests per 10 minutes and 4 at once per app and mailbox | free | free | free; reads past 4 at once on one mailbox are throttled and retried |
+| Yahoo CalDAV | no published limit, no charge | — | — | an unpublished limit is a risk; the per-connection allowance bounds it |
+| Calendar links | Koyomi fetches them; each link is read at most every 10 s, and remembered for a minute | negligible | negligible | small outbound traffic |
+| Vercel Firewall rate-limit rules | $0.50 per million allowed requests | < $0.10 | ~$0.25 | ~$2.50 |
+| Logs | runtime logs kept 1 day on Pro; a drain is $0.50 per GB; Observability Plus (30 days) is $1.20 per million events | — | optional | ~$0.50 (drain) or ~$6 (Observability Plus) |
+
+**Upstash (not used).** Distributed limits do not need a new service: Neon already holds every
+grant, and the limits add one upsert per call. Upstash Redis would cost about $0 to a few dollars
+a month at these volumes ($0.20 per 100,000 commands), but would be a second store and a second
+vendor. Reconsider only if Neon's write load from limits ever matters, which is unlikely below
+10,000 users.
+
+### Minimum infrastructure before the first public user
+
+1. **Neon on the Launch plan.** This is required: on Free, running out of compute stops the whole
+   app, the calendar included. Neon bought through the Vercel Marketplace is billed on the Vercel
+   invoice, but Vercel's spend management does not cap it, so watch it in Neon.
+2. **Migration 005 in Production** (MCP.md, Part 6), before Phase 8B is deployed.
+3. **Vercel spend management:** an on-demand budget with notifications (free on Pro). The hard
+   pause is optional, and checks only every few minutes.
+4. **Vercel Firewall rate-limit rules** on `/api/oauth/register`, `/api/oauth/token`, `/mcp` and
+   `/api/oauth/authorize` (MCP.md, Part 6), at the owner's word.
+5. **Optional:** a log drain, or Observability Plus, for a record longer than a day.
+6. **Watch:**
+   - Google's quota page for project `koyomi-511111` (older projects may keep earlier quotas);
+   - `rate_limited:*` and `failed:*` outcomes in the `[mcp]` log.
+
+Support load and policy upkeep are as before:
+
+- **Support:** revoking in the assistant versus in Koyomi (now also at `/ai/access` from any
+  device), being signed in to the wrong 6Away account, Microsoft admin approval, and Yahoo app
+  passwords.
+- **Policy upkeep:** report material changes to Anthropic; re-verify with Google on any scope or
+  consent-screen change; keep Privacy's list of AI recipients current.
 
 ---
 
@@ -797,17 +851,31 @@ There is no change to OAuth, grants, tokens, limits or anything at Google.
 Merging PR A deploys it, and that is the only Production change it makes. The challenge route
 answers 404 until the token is set.
 
-### PR B: before opening to the public
+### PR B: before opening to the public (built in Phase 8B; not merged)
 
-- **Limits:** the per-client cap made per grant (or removed); DCR per-address limit and a cap on
-  live registrations.
-- **Revoke anywhere:** AI access shown to any signed-in person, from the server's list.
-- **New settings, both inert until the owner sets them:**
-  - "everyone" for AI access;
-  - a separate gate for Google calendars, allowlist-only until Google answers.
+Branch `feature/mcp-public-readiness-b`. Details are in MCP.md, Part 6.
 
-Outside the code: Vercel Firewall rules on `/mcp` and `/api/oauth/register`, and Neon on a paid
-plan.
+- **Limits counted in the database (migration 005):**
+  - per grant, 30 a minute;
+  - per person, 60;
+  - per self-registered client, 300;
+  - no limit shared by a platform's users.
+- **Registrations:**
+  - per source address, 10 an hour (Vercel's own address header, never a client's);
+  - in total, 300 an hour;
+  - none while 2,000 or more are unused.
+- **Revoke anywhere:** `app.koyomi.guru/ai/access`, by the sign-in alone.
+- **New settings, both off until the owner sets them:**
+  - `KOYOMI_MCP_PUBLIC` for everyone;
+  - `KOYOMI_MCP_GOOGLE_PUBLIC` for Google calendars. Until it is on, Google is left out on the
+    consent page, at the decision and at every read.
+
+Outside the code, still to do at the owner's word:
+
+1. Migration 005 in Production before merging.
+2. Vercel Firewall rules.
+3. Neon on the Launch plan.
+4. A spend budget.
 
 ### Sequence
 

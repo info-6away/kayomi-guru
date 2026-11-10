@@ -4,7 +4,7 @@ import { notFound, redirect } from 'next/navigation';
 import { AiConsent, type ConsentGroup } from '@/components/AiConsent';
 import { JOB_TIMEOUT_MS, inTurn, storeFor } from '@/lib/server/api';
 import { auth } from '@/lib/server/auth';
-import { aiConfig } from '@/lib/server/ai/config';
+import { aiConfig, mayShare } from '@/lib/server/ai/config';
 import { CONSENT_COOKIE, formToken, notGranted, openPending } from '@/lib/server/ai/consent';
 import { listing } from '@/lib/server/listing';
 
@@ -58,10 +58,19 @@ export default async function ConsentPage() {
   const ctx = { config: config.connections, store: storeFor(config.connections), subject: user.sub };
   const deadline = AbortSignal.timeout(JOB_TIMEOUT_MS);
   const connections = await ctx.store.list(user.sub);
-  const listed = await inTurn(connections, 5, (connection) => listing(ctx, connection, deadline).catch(() => null));
-  const groups: ConsentGroup[] = listed
-    .filter((each) => each !== null)
-    .map((each) => ({ connectionId: each.connectionId, provider: each.provider, account: each.account, readable: each.state === 'ok', calendars: each.calendars.map((c) => ({ calendarId: c.calendarId, name: c.name })) }));
+  // Google calendars only where this person may share them with an assistant (accessPolicy). Where
+  // not, their accounts are shown as not offered, and Google is not asked for their lists.
+  const access = config.access(user.sub);
+  const offered = connections.filter((connection) => mayShare(access, connection.provider));
+  const listed = await inTurn(offered, 5, (connection) => listing(ctx, connection, deadline).catch(() => null));
+  const groups: ConsentGroup[] = [
+    ...listed
+      .filter((each) => each !== null)
+      .map((each) => ({ connectionId: each.connectionId, provider: each.provider, account: each.account, readable: each.state === 'ok', offered: true, calendars: each.calendars.map((c) => ({ calendarId: c.calendarId, name: c.name })) })),
+    ...connections
+      .filter((connection) => !offered.includes(connection))
+      .map((connection) => ({ connectionId: connection.id, provider: connection.provider, account: null, readable: false, offered: false, calendars: [] })),
+  ];
 
   return (
     <Frame>

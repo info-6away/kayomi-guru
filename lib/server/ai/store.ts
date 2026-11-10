@@ -91,6 +91,16 @@ export interface AiStore {
   forgetConnection(subject: string, connectionId: string): Promise<void>;
   /** Counts one tool call against the grant's allowance, and notes when it was last used. */
   spendGrant(grantId: string, cost: number, allowance: Allowance): Promise<{ allowed: boolean; retryAfter: number } | null>;
+  /**
+   * Counts `cost` against the limit kept under `key` (a keyed hash: limits.ts), in a window every
+   * server shares (migration 005). One statement: of any number of spends at once, on any number
+   * of servers, exactly as many as the allowance are allowed.
+   */
+  spendLimit(key: string, cost: number, allowance: Allowance): Promise<{ allowed: boolean; retryAfter: number }>;
+  /** Removes limits whose window ended more than a day ago. Returns how many. */
+  pruneLimits(): Promise<number>;
+  /** How many self-registered clients have never started an authorization. */
+  unusedClients(): Promise<number>;
   saveCode(hash: string, code: CodeRecord): Promise<void>;
   /** Marks a code used. `replay` is true when it had been used before. */
   takeCode(hash: string): Promise<Taken<CodeRecord>>;
@@ -243,6 +253,31 @@ export function sqlAiStore(sql: Sql): AiStore {
       if (!row) return null;
       return { allowed: Number(row.window_spent) <= allowance.units, retryAfter: Math.max(1, Number(row.retry_after) || 1) };
     },
+    async spendLimit(key, cost, allowance) {
+      // Insert or count, in one statement: the row is locked while it is counted, so concurrent
+      // spends are counted one after another whichever server sends them. Every expression in SET
+      // reads the row as it was; RETURNING reads it as it is now.
+      const [row] = await sql`
+        insert into ai_limits (limit_key, window_started_at, spent)
+        values (${key}, now(), ${cost}::int)
+        on conflict (limit_key) do update set
+          window_started_at = case
+            when ai_limits.window_started_at <= now() - make_interval(secs => ${allowance.seconds}::int) then now()
+            else ai_limits.window_started_at end,
+          spent = case
+            when ai_limits.window_started_at <= now() - make_interval(secs => ${allowance.seconds}::int) then ${cost}::int
+            else least(ai_limits.spent + ${cost}::int, ${CEILING}::int) end
+        returning spent, ceil(extract(epoch from (window_started_at + make_interval(secs => ${allowance.seconds}::int) - now()))) as retry_after`;
+      return { allowed: Number(row.spent) <= allowance.units, retryAfter: Math.max(1, Number(row.retry_after) || 1) };
+    },
+    async pruneLimits() {
+      const rows = await sql`delete from ai_limits where window_started_at < now() - interval '1 day' returning limit_key`;
+      return rows.length;
+    },
+    async unusedClients() {
+      const [row] = await sql`select count(*)::int as n from ai_clients where last_used_at is null`;
+      return Number(row?.n ?? 0);
+    },
     async saveCode(hash, code) {
       // Codes live for minutes; whatever is days old is cleared on the way.
       await sql`delete from ai_codes where expires_at < now() - interval '1 day'`;
@@ -325,6 +360,7 @@ export function memoryAiStore(): AiStore {
   const grants = new Map<string, Grant & { revoked: boolean; windowStart: number; spent: number }>();
   const codes = new Map<string, CodeRecord & { used: boolean }>();
   const refresh = new Map<string, { grantId: string; expiresAt: number; usedAt: number | null; reuses: number }>();
+  const limits = new Map<string, { windowStart: number; spent: number }>();
   const plain = ({ revoked: _r, windowStart: _w, spent: _s, ...grant }: Grant & { revoked: boolean; windowStart: number; spent: number }): Grant => ({ ...grant, calendars: [...grant.calendars] });
   return {
     async saveClient(client, now = Date.now()) {
@@ -385,6 +421,28 @@ export function memoryAiStore(): AiStore {
         grant.spent = cost;
       } else grant.spent = Math.min(grant.spent + cost, CEILING);
       return { allowed: grant.spent <= allowance.units, retryAfter: Math.max(1, Math.ceil((grant.windowStart + allowance.seconds * 1000 - now) / 1000)) };
+    },
+    async spendLimit(key, cost, allowance) {
+      // No await between reading and writing: in one process this is as atomic as the database's.
+      const now = Date.now();
+      const held = limits.get(key);
+      if (!held || held.windowStart <= now - allowance.seconds * 1000) limits.set(key, { windowStart: now, spent: cost });
+      else held.spent = Math.min(held.spent + cost, CEILING);
+      const row = limits.get(key)!;
+      return { allowed: row.spent <= allowance.units, retryAfter: Math.max(1, Math.ceil((row.windowStart + allowance.seconds * 1000 - now) / 1000)) };
+    },
+    async pruneLimits() {
+      let removed = 0;
+      for (const [key, row] of limits) {
+        if (row.windowStart < Date.now() - 864e5) {
+          limits.delete(key);
+          removed++;
+        }
+      }
+      return removed;
+    },
+    async unusedClients() {
+      return [...clients.values()].filter((client) => client.lastUsedAt === null).length;
     },
     async saveCode(hash, code) {
       codes.set(hash, { ...code, used: false });

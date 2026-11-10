@@ -1,6 +1,6 @@
 import { isAnswer, no, respond, sameOrigin, signedIn } from '@/lib/server/api';
 import { aiConfig } from '@/lib/server/ai/config';
-import { aiStoreFor } from '@/lib/server/ai/context';
+import { grantsToManage } from '@/lib/server/ai/manage';
 import { calendarFingerprint } from '@/lib/server/ai/read';
 import { isConnectionId } from '@/lib/server/connections';
 
@@ -16,8 +16,10 @@ export async function POST(request: Request) {
   if (!config) return new Response(null, { status: 404 });
   const ctx = await signedIn();
   if (isAnswer(ctx)) return respond(ctx);
-  // Outside the private beta's allowlist this is not here at all, and Calendars shows nothing of it.
-  if (!config.allowed(ctx.subject)) return new Response(null, { status: 404 });
+  // For someone AI access does not let in, and who holds no grant from before, this is not here
+  // at all, and Calendars shows nothing of it.
+  const grants = await grantsToManage(config, ctx.subject);
+  if (!grants) return new Response(null, { status: 404 });
   if (!sameOrigin(request, ctx.config)) return respond(no('bad_request', 403));
   const body = (await request.json().catch(() => null)) as { calendars?: unknown } | null;
   const known = Array.isArray(body?.calendars) ? body.calendars.slice(0, 500) : [];
@@ -31,7 +33,6 @@ export async function POST(request: Request) {
     if (!connection) continue;
     byPrint.set(`${each.connectionId}\n${calendarFingerprint(config, connection, each.calendarId)}`, { connectionId: each.connectionId, calendarId: each.calendarId });
   }
-  const grants = await aiStoreFor(config).listGrants(ctx.subject);
   return respond({
     status: 200,
     body: {

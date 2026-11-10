@@ -16,8 +16,40 @@ const KNOWN = migrationFiles();
 const ONLY = '004_ai_access.sql';
 const NOWHERE = 'postgres://nobody:nothing@127.0.0.1:9/none';
 
-test('the migrations are the four this release expects, in order', () => {
-  expect(KNOWN).toEqual(['001_calendar_connections.sql', '002_read_allowance.sql', '003_many_accounts.sql', ONLY]);
+test('the migrations are the five this release expects, in order', () => {
+  expect(KNOWN).toEqual(['001_calendar_connections.sql', '002_read_allowance.sql', '003_many_accounts.sql', ONLY, '005_ai_limits.sql']);
+});
+
+test('--only 005_ai_limits.sql, the one Production command for Phase 8B, sends 005 and nothing else', async () => {
+  const run = await recorded(['--only', '005_ai_limits.sql', '--yes']);
+  expect(run.code).toBe(DONE);
+  expect(run.sent).toEqual([fileText('005_ai_limits.sql')]);
+  expect(run.out).toEqual([
+    'Database: 127.0.0.1/none',
+    'Only 005_ai_limits.sql. Not run: 001_calendar_connections.sql, 002_read_allowance.sql, 003_many_accounts.sql, 004_ai_access.sql.',
+    'applying 005_ai_limits.sql',
+    'applied 005_ai_limits.sql',
+  ]);
+});
+
+test('on Postgres, 005 after 001–004 adds ai_limits and nothing else, twice, and leaves every row as it was', async () => {
+  const db = new PGlite();
+  for (const name of KNOWN.filter((n) => n !== '005_ai_limits.sql')) await db.exec(fileText(name));
+  await db.exec(`insert into calendar_connections (auth_subject, provider, provider_account_id, refresh_token_sealed, scope) values ('s', 'google', 'a', 'sealed', 'scope')`);
+  await db.exec(`insert into ai_grants (auth_subject, client_id, client_label, redirect_host, time_zone) values ('s', 'c', 'Claude', 'claude.ai', 'UTC')`);
+  const snapshot = async () => ({
+    tables: (await db.query<{ t: string }>(`select table_name as t from information_schema.tables where table_schema = 'public' order by 1`)).rows.map((r) => r.t),
+    rows: (await db.query<{ n: number }>(`select (select count(*) from calendar_connections)::int + (select count(*) from ai_grants)::int as n`)).rows[0].n,
+    keyIndex: (await db.query<{ oid: number }>(`select indexrelid::int as oid from pg_index where indrelid = 'calendar_connections'::regclass and indisprimary`)).rows[0].oid,
+  });
+  const before = await snapshot();
+  await db.exec(fileText('005_ai_limits.sql'));
+  const once = await snapshot();
+  await db.exec(fileText('005_ai_limits.sql'));
+  const twice = await snapshot();
+  expect(once.tables).toEqual([...before.tables, 'ai_limits'].sort());
+  expect(twice).toEqual(once);
+  expect([once.rows, once.keyIndex]).toEqual([before.rows, before.keyIndex]);
 });
 
 /** Runs the runner against a stand-in database that records each request. */
@@ -50,7 +82,7 @@ test('--only 004_ai_access.sql sends 004 and nothing else, and says so', async (
     expect(run.err).toEqual([]);
     expect(run.out).toEqual([
       'Database: 127.0.0.1/none',
-      `Only ${ONLY}. Not run: 001_calendar_connections.sql, 002_read_allowance.sql, 003_many_accounts.sql.`,
+      `Only ${ONLY}. Not run: 001_calendar_connections.sql, 002_read_allowance.sql, 003_many_accounts.sql, 005_ai_limits.sql.`,
       `applying ${ONLY}`,
       `applied ${ONLY}`,
     ]);
@@ -66,7 +98,7 @@ test('without --yes, --only shows what it would send and sends nothing', async (
   expect(run.sent).toEqual([]);
   expect(run.out).toEqual([
     'Database: 127.0.0.1/none',
-    `Only ${ONLY}. Not run: 001_calendar_connections.sql, 002_read_allowance.sql, 003_many_accounts.sql.`,
+    `Only ${ONLY}. Not run: 001_calendar_connections.sql, 002_read_allowance.sql, 003_many_accounts.sql, 005_ai_limits.sql.`,
     `Nothing was changed. If that is the Koyomi database, run again with: npm run db:migrate -- --only ${ONLY} --yes`,
   ]);
 });
@@ -254,7 +286,8 @@ test('on Postgres, the plain command still sends every file, and that is what re
   const before = await snapshot(db);
   expect(await runMigrations({ args: ['--yes'], env: { DATABASE_URL: NOWHERE }, connect: pglite(db), log: () => {}, error: () => {} })).toBe(DONE);
   const after = await snapshot(db);
-  expect(after.tables).toEqual([...AI_TABLES, 'calendar_connections']);
+  // Every file, 005 (ai_limits) included.
+  expect(after.tables).toEqual([...AI_TABLES.slice(0, 4), 'ai_limits', AI_TABLES[4], 'calendar_connections']);
   expect(after.rows).toBe(before.rows);
   expect(after.content).toBe(before.content);
   expect(after.keyIndex).not.toBe(before.keyIndex);
@@ -299,7 +332,7 @@ test('the command exits non-zero on anything it refuses, and never says it is ap
   expect(shown.out).toBe(
     [
       'Database: 127.0.0.1/none',
-      `Only ${ONLY}. Not run: 001_calendar_connections.sql, 002_read_allowance.sql, 003_many_accounts.sql.`,
+      `Only ${ONLY}. Not run: 001_calendar_connections.sql, 002_read_allowance.sql, 003_many_accounts.sql, 005_ai_limits.sql.`,
       `Nothing was changed. If that is the Koyomi database, run again with: npm run db:migrate -- --only ${ONLY} --yes`,
       '',
     ].join('\n'),

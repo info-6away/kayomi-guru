@@ -42,6 +42,13 @@ export const TEST_ENV = {
   // the one named exactly, for trying it by hand. Anyone else is outside the beta.
   KOYOMI_MCP_ALLOWLIST: 'someone',
   KOYOMI_TEST_AI_ALLOW_PREFIX: 'user-',
+  // Public access stays off here, as in Production (KOYOMI_MCP_PUBLIC unset), and so does Google's
+  // (KOYOMI_MCP_GOOGLE_PUBLIC unset). The tests' stand-in people whose subject starts with this are
+  // treated as let in by public access, so that both kinds of person can be tried on one server.
+  // Ignored on Vercel.
+  KOYOMI_TEST_AI_PUBLIC_PREFIX: 'public-',
+  // The tests name the source of a registration with a header of their own (limits.ts); never on Vercel.
+  KOYOMI_TEST_TRUST_SOURCE: 'on',
 };
 
 const local = (day, time) => new Date(`${day}T${time}:00`).toISOString();
