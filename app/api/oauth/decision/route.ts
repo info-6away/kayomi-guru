@@ -30,7 +30,7 @@ function chosen(value: FormDataEntryValue): { connectionId: string; calendarId: 
  * The person's answer to the consent page. Accepted only from this site, from the person who was
  * shown the question, for the request it was about, once. Allowing creates the grant (ending any
  * earlier one of the same assistant) and sends a one-time code back to the assistant; cancelling
- * sends it nothing but the refusal.
+ * sends it nothing but the refusal; signing out ends the request and the session, and grants nothing.
  */
 export async function POST(request: Request) {
   const config = aiConfig();
@@ -52,6 +52,13 @@ export async function POST(request: Request) {
     response.headers.set('cache-control', 'no-store');
     return response;
   };
+  // "Not you? Sign out": the request ends here, unanswered, and the person is signed out of Koyomi
+  // and then of 6Away (as /api/auth/signout does), so that the next sign-in can be another account.
+  // Nothing is granted and nothing is sent to the assistant: the person connects again from it.
+  if (form.get('action') === 'switch') {
+    jar.set(consentCookie('', 0));
+    return auth.routes.signout();
+  }
   if (form.get('action') !== 'allow') return done(back(config, pending.redirectUri, { error: 'access_denied', error_description: 'The person did not allow access', state: pending.state }));
 
   const picked = form.getAll('calendar').slice(0, MAX_CALENDARS).map(chosen);

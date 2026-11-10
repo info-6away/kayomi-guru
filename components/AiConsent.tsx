@@ -12,13 +12,21 @@ export interface ConsentGroup {
   calendars: { calendarId: string; name: string }[];
 }
 
+/** Who is signed in to Koyomi, as 6Away said at sign-in: shown to that person only. */
+export interface ConsentAccount {
+  name: string | null;
+  email: string | null;
+}
+
 const PROVIDER: Record<Provider, string> = { google: 'Google', microsoft: 'Microsoft', yahoo: 'Yahoo', link: 'Calendar link' };
+const LINK = 'underline decoration-line underline-offset-4 hover:text-ink';
+const SWITCH_FORM = 'koyomi-ai-switch';
 
 /**
  * The question an AI assistant's request puts to the person (docs/MCP.md): which calendars it may
  * read, none of them chosen until the person chooses, and what that does and does not give it.
  */
-export function AiConsent({ label, host, groups, form }: { label: string; host: string; groups: ConsentGroup[]; form: string }) {
+export function AiConsent({ label, host, groups, form, account }: { label: string; host: string; groups: ConsentGroup[]; form: string; account: ConsentAccount }) {
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [zone, setZone] = useState('UTC');
   useEffect(() => {
@@ -35,25 +43,58 @@ export function AiConsent({ label, host, groups, form }: { label: string; host: 
       else next.add(value);
       return next;
     });
-  const any = groups.some((g) => g.readable && g.calendars.length);
+
+  // Every calendar that can be chosen, by the value its box sends: its name, and its provider.
+  const choices = new Map(
+    groups.flatMap((group) => (group.readable ? group.calendars.map((c) => [JSON.stringify([group.connectionId, c.calendarId]), { name: c.name, provider: group.provider }] as const) : [])),
+  );
+  const picked = [...choices].filter(([value]) => chosen.has(value)).map(([, c]) => c);
+  const googlePicked = picked.some((c) => c.provider === 'google');
+  const who = account.email ?? account.name ?? 'your 6Away account';
 
   return (
+    <>
+    {/* Signing out has a form of its own, so that it can never be what Enter submits. */}
+    <form id={SWITCH_FORM} method="post" action="/api/oauth/decision" hidden>
+      <input type="hidden" name="form" value={form} />
+      <input type="hidden" name="action" value="switch" />
+    </form>
     <form method="post" action="/api/oauth/decision" className="flex flex-col">
       <input type="hidden" name="form" value={form} />
       <input type="hidden" name="timezone" value={zone} />
       <h1 className="font-mincho text-[clamp(26px,4vw,34px)] leading-[1.3] font-normal text-balance">Allow {name} to read these calendars?</h1>
-      <p className="mt-4 text-[15px] leading-[1.8] text-pretty text-ink2">
-        {Name} will receive event titles and times from the calendars you select, and their names, when you ask it calendar-related questions.
+      <p className="mt-3 text-[13px] text-muted" data-requester>
+        Asked by {Name}, which will receive the answer at {host}.
+      </p>
+
+      {/* Who this is being decided for: the signed-in person, with a safe way to be someone else. */}
+      <div className="mt-6 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-y border-line py-3 text-[13.5px] text-ink2" data-signed-in>
+        <p className="min-w-0">
+          Signed in to Koyomi as <span className="break-all text-ink">{who}</span>
+        </p>
+        <button type="submit" form={SWITCH_FORM} className={`text-ink2 ${LINK}`}>
+          Not you? Sign out
+        </button>
+        <p className="w-full text-[12.5px] text-muted">Signing out ends this request. Then connect Koyomi again from {name} and sign in with the account you want.</p>
+      </div>
+
+      <p className="mt-6 text-[15px] leading-[1.8] text-pretty text-ink2">
+        {Name} will receive the titles and times of events in the calendars you select, whether each lasts all day or is tentative, and the
+        calendars’ names. No descriptions, places or guests.
+      </p>
+      <p className="mt-3 text-[15px] leading-[1.8] text-pretty text-ink2">
+        While this access is in place, {name} can ask Koyomi for these calendars whenever it chooses, not only when you ask it a question, until
+        you revoke it.
       </p>
       <p className="mt-3 text-[15px] leading-[1.8] text-pretty text-ink2">
         <span className="text-ink">{Name} is not part of Koyomi.</span> What it receives is kept by the company that runs it, under that company’s own
         privacy policy and terms. Revoking access later stops it reading more; it cannot take back what it already received.{' '}
-        <a href="/privacy" className="underline decoration-line underline-offset-4 hover:text-ink">
+        <a href="/privacy" className={LINK}>
           How Koyomi handles this
         </a>
       </p>
 
-      {any ? (
+      {groups.length ? (
         <fieldset className="mt-8 flex flex-col gap-6">
           <legend className="sr-only">Calendars {name} may read</legend>
           {groups.map((group) => (
@@ -79,7 +120,25 @@ export function AiConsent({ label, host, groups, form }: { label: string; host: 
           ))}
         </fieldset>
       ) : (
-        <p className="mt-8 text-[15px] leading-[1.8] text-ink2">You have no connected calendars to share. Connect one in Koyomi first, then connect the assistant again.</p>
+        <div className="mt-8 flex flex-col gap-3 text-[15px] leading-[1.8] text-ink2" data-no-calendars>
+          <p>You have no connected calendars to share yet.</p>
+          <p>
+            <a href="/?calendars=open" target="_blank" rel="noopener" className={LINK}>
+              Connect a calendar in Koyomi
+            </a>
+            , then come back to this page and reload it within ten minutes, or connect Koyomi again from {name}.
+          </p>
+        </div>
+      )}
+
+      {/* Google's calendars: what Koyomi does with them, and what it cannot answer for. Said, not ticked. */}
+      {googlePicked && (
+        <p className="mt-6 border-l-2 border-line pl-4 text-[14px] leading-[1.7] text-pretty text-ink2" data-google-notice>
+          <span className="text-ink">Google calendars.</span> Koyomi sends their events to {name} only so that it can answer you, as Google’s Limited Use
+          requirements allow, and never uses them to train AI models. What {name}’s company then does with them is set by its own terms and your
+          settings there: some assistants’ personal plans may use conversations to improve their models unless you turn that off in the
+          assistant’s data settings.
+        </p>
       )}
 
       <div className="mt-8 flex flex-col gap-2 text-[14px] leading-[1.7] text-ink2">
@@ -87,10 +146,24 @@ export function AiConsent({ label, host, groups, form }: { label: string; host: 
           <span className="text-ink">Not shared:</span> local Koyomi events stay on this device and are not included.
         </p>
         <p>Koyomi does not give {name} your Google, Microsoft, Yahoo or private-calendar credentials.</p>
-        <p>Read-only: {name} cannot add, change or delete anything. You can revoke this at any time in Koyomi, under Calendars.</p>
+        <p>
+          Read-only: {name} cannot add, change or delete anything. You can revoke this at any time in Koyomi, under Calendars, AI access.{' '}
+          <a href="/help" className={LINK}>
+            Help
+          </a>
+        </p>
       </div>
 
-      <div className="mt-10 flex flex-wrap items-center gap-4">
+      <p className="mt-8 text-[14px] leading-[1.7] text-ink2" aria-live="polite" data-chosen>
+        {picked.length ? (
+          <>
+            <span className="text-ink">To be shared with {name}:</span> {picked.map((c) => c.name).join(', ')}.
+          </>
+        ) : (
+          'Choose at least one calendar.'
+        )}
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-4">
         <button
           type="submit"
           name="action"
@@ -104,7 +177,10 @@ export function AiConsent({ label, host, groups, form }: { label: string; host: 
           Cancel
         </button>
       </div>
-      <p className="mt-4 text-[12.5px] text-muted">{chosen.size ? `${chosen.size} calendar${chosen.size === 1 ? '' : 's'} chosen. ` : 'Choose at least one calendar. '}You will return to {host}.</p>
+      <p className="mt-4 text-[12.5px] text-muted">
+        {chosen.size ? `${chosen.size} calendar${chosen.size === 1 ? '' : 's'} chosen. ` : ''}You will return to {host}.
+      </p>
     </form>
+    </>
   );
 }

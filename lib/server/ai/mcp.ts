@@ -6,7 +6,7 @@ import { JOB_TIMEOUT_MS, storeFor } from '../api';
 import { SCOPE, type AiConfig } from './config';
 import { GRANT_ALLOWANCE, aiStoreFor, clientMayCall } from './context';
 import { WEEKDAYS } from './free';
-import { authorizedCalendars, eventIdFor, readEvents } from './read';
+import { authorizedCalendars, readEvents } from './read';
 import type { Grant } from './store';
 import { ToolInputError, findFreeTimeTool, getEventsTool, getScheduleTool, listCalendarsTool, type ToolContext } from './tools';
 
@@ -71,7 +71,6 @@ export function serverFor(config: AiConfig, grant: Grant, log: (entry: ToolLog) 
     const deadline = AbortSignal.timeout(JOB_TIMEOUT_MS);
     const tc: ToolContext = {
       defaultZone: grant.timeZone,
-      eventId: (key) => eventIdFor(config, grant.id, key),
       access: {
         calendars: () => authorizedCalendars(config, ctx, grant, deadline),
         events: (sources, span) => readEvents(ctx, sources, span, deadline),

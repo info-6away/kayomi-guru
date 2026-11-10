@@ -32,7 +32,6 @@ export interface ToolContext {
   access: CalendarAccess;
   /** The grant's zone: where the person approved access. Used when a call names none. */
   defaultZone: string;
-  eventId: (eventKey: string) => string;
   now?: number;
 }
 
@@ -101,8 +100,12 @@ function intervalOf(event: ExternalEvent, zone: string): Interval {
   return { start: Date.parse(event.start), end: Date.parse(event.end) };
 }
 
+/**
+ * An event as an assistant receives it: what the person would want said of it, and no identifier.
+ * No tool takes an event as input, so an event id would serve the person nothing (and OpenAI's
+ * plugin rules ask that answers carry no internal ids). Calendars keep their handles: tools take them.
+ */
 export interface EventOut {
-  event_id: string;
   title: string;
   start: string;
   end: string;
@@ -113,9 +116,8 @@ export interface EventOut {
   provider: Provider;
 }
 
-function eventOut(ctx: ToolContext, { source, event }: SourceEvent, zone: string): EventOut {
+function eventOut({ source, event }: SourceEvent, zone: string): EventOut {
   return {
-    event_id: ctx.eventId(event.id),
     title: cleanTitle(event.title),
     start: event.allDay ? event.start : localIso(Date.parse(event.start), zone),
     end: event.allDay ? event.end : localIso(Date.parse(event.end), zone),
@@ -199,7 +201,7 @@ export async function getEventsTool(ctx: ToolContext, input: { start?: unknown; 
     truncated,
     total_events: total,
     ...(truncated ? { truncation: truncation(total) } : {}),
-    events: shown.map((each) => eventOut(ctx, each, zone)),
+    events: shown.map((each) => eventOut(each, zone)),
     notice: NOTICE,
   };
 }
@@ -211,7 +213,7 @@ export async function getScheduleTool(ctx: ToolContext, input: { date?: unknown;
   const { within, ...complete } = await eventsIn(ctx, zone, range, input.calendars);
   // One cap over the day's whole list (all-day events first, then by start), then split.
   const { shown, truncated, total } = capped(within);
-  const all = shown.map((each) => eventOut(ctx, each, zone));
+  const all = shown.map((each) => eventOut(each, zone));
   return {
     date: input.date,
     timezone: zone,
@@ -267,7 +269,7 @@ export async function findFreeTimeTool(
     free: free.shown.map((i) => ({ start: localIso(i.start, zone), end: localIso(i.end, zone), minutes: Math.round((i.end - i.start) / 60_000) })),
     total_free: free.total,
     busy_count: busy.length,
-    all_day_events: allDay.shown.map((each) => eventOut(ctx, each, zone)),
+    all_day_events: allDay.shown.map((each) => eventOut(each, zone)),
     total_all_day_events: allDay.total,
     notice: NOTICE,
   };

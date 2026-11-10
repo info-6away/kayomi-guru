@@ -26,7 +26,7 @@ Severity in the tables:
 | 3. Do we need Google's confirmation? | **Not required by Google's rules** (no scope or branding change). **Advisable before Google calendars are opened to the public through AI**, because a finding against Koyomi would end every Google connection. Route: reply to the last email from Google's verification team. Draft in section 2, not sent |
 | 4. Can 6Away Auth support the reviewer account? | **Yes, with no change.** Email and password, no MFA (6Away has none), no magic link or code at sign-in, one email check at sign-up only. Normal flow, synthetic calendar links only (section 4) |
 | 5. What must be implemented before submitting? | The submission PR (section 8): Privacy and consent wording, help page, domain-verification route, reviewer calendars. Then outside the code: OpenAI business verification, the reviewer account, the package, demo video and test cases |
-| 6. The smallest safe implementation PR | Section 8, "PR A": wording, help page, one challenge route and two static files. No change to OAuth, tokens, tools, limits, the allowlist or Google |
+| 6. The smallest safe implementation PR | Section 8, "PR A": wording, help page, one challenge route and two static files. No change to OAuth, tokens, limits, the allowlist or Google. **Built in Phase 8A** (`feature/mcp-public-readiness-a`, not merged); it also removes `event_id` from tool answers |
 | 7. Launch sequence | Section 8 |
 
 ### Status by category
@@ -50,16 +50,19 @@ Severity in the tables:
 
 **Remaining requirements**
 
-- **To submit:**
+- **To submit, built in Phase 8A** (on its branch, not merged):
   - Privacy wording;
-  - consent wording;
+  - consent page;
   - help and support page;
   - `/.well-known/openai-apps-challenge`;
-  - reviewer `.ics` files and account;
-  - OpenAI business verification;
+  - reviewer `.ics` calendars;
+  - `event_id` removed.
+- **To submit, still to do:**
+  - merge Phase 8A;
+  - the reviewer account;
+  - OpenAI business verification, and the domain token set (a setting);
   - package, icons, demo video, 5 + 3 test cases;
-  - reviewer on the allowlist (owner's approval);
-  - a decision on `event_id`.
+  - reviewer on the allowlist (owner's approval).
 - **Claude:** 3+ example prompts, public docs, seven acknowledgments.
 - **To open to the public:**
   - per-client limit;
@@ -74,7 +77,7 @@ Severity in the tables:
 
 | Risk | Likelihood | Impact | Handling |
 | --- | --- | --- | --- |
-| Google: downstream training by an assistant (ChatGPT consumer trains on app data by default; Grok unstated; Claude excludes connector content) | unknown: no Google ruling | **high**: every Google connection | ask Google; training notice and acknowledgement for Google calendars; Google gated until answered |
+| Google: downstream training by an assistant (ChatGPT consumer trains on app data by default; Grok unstated; Claude excludes connector content) | unknown: no Google ruling | **high**: every Google connection | ask Google; a training notice for Google calendars (a notice, not a box to tick, and no substitute for Google's answer); Google gated until answered |
 | Google: the feature is "prominent" in Koyomi, but its answers appear in the assistant | low | high | in the inquiry |
 | OpenAI: judged an "unofficial connector" | low to medium | rejection only | product-first description, support question with a draft |
 | OpenAI terms: Koyomi warrants it has the rights and consents (§1.4(b)), and licenses its responses to OpenAI under each user's terms (§1.3) | tied to the Google risk | as above | as above |
@@ -92,10 +95,10 @@ Severity in the tables:
 
 **Recommended improvements**
 
-- Show the signed-in 6Away account on consent, with a way to switch.
-- A link to Calendars when a person has no calendars.
+- Show the signed-in 6Away account on consent, with a way to switch (**done in Phase 8A**).
+- A link to Calendars when a person has no calendars (**done in Phase 8A**).
 - Change calendars without reconnecting.
-- Drop `event_id` from answers.
+- Drop `event_id` from answers (**done in Phase 8A**).
 - Explain the Grok Bot ("www.cursor.com") label.
 - A log drain; watch provider quotas.
 - A dedicated support address.
@@ -111,7 +114,7 @@ Severity in the tables:
 | Onboarding, new person | Assistant → Koyomi sign-in (6Away, sign-up open) → consent page | A person with no calendars sees "Connect one in Koyomi first, then connect the assistant again", with no link. The consent request lasts 10 minutes | Link to Calendars from that message, and say plainly that they come back to the assistant afterwards. Optionally keep the request, so connecting a calendar returns them to consent | Blocker |
 | Authentication | 6Away sign-in, then Koyomi's session cookie on `app.koyomi.guru` | The consent page does not say which 6Away account is signed in. During acceptance, a browser signed in to another 6Away account was refused, and nothing said why | Show "Signed in as …" with a way to switch account on the consent page, shown only to that person | Blocker |
 | First calendar | Google, Microsoft, Yahoo and calendar links are live | **Google:** none for connecting; the app is verified and in production (section 2). **Microsoft:** work and school accounts need their admin's approval (no publisher verification). **Yahoo:** an app password. **Links:** none | State Microsoft's admin approval and Yahoo's app password in the help page | Before listing |
-| AI authorization | Consent lists the person's calendars, none ticked, Allow disabled until one is ticked; read-only; revocable | Says data goes to the assistant "when you ask it calendar-related questions", but the assistant calls whenever it chooses (Google requires accuracy). No mention of AI training | Accurate wording; for Google calendars, a training notice and acknowledgement; Allow refers to the Privacy section (section 2) | Blocker |
+| AI authorization | Consent lists the person's calendars, none ticked, Allow disabled until one is ticked; read-only; revocable | Says data goes to the assistant "when you ask it calendar-related questions", but the assistant calls whenever it chooses (Google requires accuracy). No mention of AI training | Accurate wording; for Google calendars, a training notice; a link to Privacy beside Allow (section 2). **Done in Phase 8A** | Blocker |
 | Calendar selection | Per grant, on the consent page | No editing in place; changing calendars means connecting again | A "Change calendars" action in AI access, reusing the consent page | Later |
 | Revocation | Revoke in Koyomi (Calendars → AI access) ends the grant at its next request | Disconnecting inside Claude or Grok does not revoke at Koyomi. AI access shows only where the device has the person's calendars, so a signed-in phone with no copy cannot revoke | Show AI access to any signed-in person, from the server's list. Say in the help page and on consent that revoking happens in Koyomi | Blocker |
 | OAuth clients | CIMD (ChatGPT, Claude) and open DCR (Grok, Grok Bot, others); public clients only; unused registrations pruned after 7 days, idle ones after 90 | DCR is limited to 60 a minute **per server instance, for everyone**. One caller can use it up, and many instances multiply it. Grok makes a client per connection, Grok Bot three | Per-address limit on `/api/oauth/register` (a Vercel Firewall rate-limit rule needs no code), plus a cap on total live registrations, and a watch on `ai_clients` | Blocker |
@@ -255,41 +258,56 @@ their plans.
 
 **Recommended precautions** (no Google text requires them):
 
-1. **Training notice on the consent page whenever a Google calendar is ticked.** For example:
-   "Google calendars: before you allow this, turn off model training in {assistant}'s settings,
-   or use a business plan, which does not train." Name the setting per assistant.
-2. **Acknowledgement before Google calendars can be shared.** A second tick ("Model training
-   is off in {assistant} for this account, or it is a business account") to enable Allow for
-   Google calendars. Koyomi cannot verify it. It records the person's informed choice and shows
-   diligence.
+1. **Training notice on the consent page whenever a Google calendar is ticked.** Done in Phase
+   8A. It says what Koyomi does and what the assistant's company decides, and it is a notice,
+   never a box to tick.
+2. **No acknowledgement checkbox.** An earlier draft proposed a second tick, "training is off in
+   the assistant". It is dropped. Koyomi cannot verify it. A tick would read as the person
+   vouching for another company's handling. And a notice or a checkbox does not resolve a use
+   that may be prohibited. That is Google's to answer (below), and until it does, Google
+   calendars are not opened to the public through AI.
 3. **Ask Google first** (below), and until Google answers, keep Google calendars out of AI access
    for anyone not on the allowlist. Microsoft, Yahoo and calendar links fall under no Google rule.
    Microsoft's own API terms were not reviewed here.
 4. Prompt-injection handling is in place (titles returned as data, a notice in every answer, no
    write tools). WSP's prompt-injection list most likely binds restricted scopes only, and
-   Koyomi has none. Document it in the help page anyway.
-5. Name the three assistants and their training settings in Privacy and the help page.
+   Koyomi has none.
+5. The help page names the three assistants and where to add Koyomi. Privacy does not claim
+   anything for them: their terms differ by plan, and change.
 
-### Proposed wording (for the implementation PR; nothing is changed here)
+### Wording, as implemented in Phase 8A (feature branch, not merged)
 
-**Privacy**, replacing the sentence that leaves training to the assistant's company:
+**Privacy** (`app/privacy/page.tsx`): the sentence that left training to the assistant's company
+"not by Koyomi" is gone. In its place:
 
-> Koyomi sends an assistant your Google Calendar data only so that it can answer you, and does
-> not allow it to be used for anything else. Koyomi does not use Google Workspace APIs to
-> develop, improve, or train non-personalized AI and/or ML models. Some assistants may use
-> conversations to improve their models unless you turn that off: in ChatGPT, Settings → Data
-> controls; in Claude, Settings → Privacy; in Grok, Settings → Data controls. Business plans of
-> all three do not train on your content. Turn this off before you share Google calendars.
+- **Koyomi's own commitments:**
+  - Sending Google data to an assistant is bound by Limited Use: only the calendars chosen, only
+    the details listed, only for the feature chosen, only while allowed.
+  - Koyomi does not use Google Calendar data to develop, improve or train AI or ML models, and
+    does not send it to anyone for that purpose.
+  - Google's own sentence, word for word: "Google Workspace APIs are not used to develop,
+    improve, or train non-personalized AI and/or ML models."
+- **What Koyomi cannot control:**
+  - what an assistant's company does with what it has received;
+  - some assistants' personal plans use conversations, app data included, to improve their
+    models unless the person turns that off. People are told to check before choosing a Google
+    calendar.
+  - Nothing is claimed for any named company.
+- **The Workspace Limited Use sentence**, beside the existing one, linked to Google's Workspace
+  policy.
+- **The AI section** also says:
+  - calendars are chosen per assistant;
+  - an assistant may ask whenever it chooses while access lasts;
+  - no event identifier is sent;
+  - Koyomi keeps none of the events it sends;
+  - the assistant's company processes them under its own policies;
+  - Koyomi controls access from then on: only the chosen calendars, checked on every request,
+    until revoked;
+  - revoking cannot retrieve what was sent;
+  - Google's Limited Use requirements keep applying;
+  - the assistant's company may keep them with the conversation.
 
-Add beside the existing Limited Use sentence: "The use of information received from Google
-Workspace scopes will adhere to the Google User Data Policy, including the Limited Use
-requirements."
-
-**Consent page:**
-
-- "{Assistant} will receive … whenever it asks Koyomi, until you revoke access."
-- When a Google calendar is ticked: the training notice and acknowledgement in 1 and 2 above.
-- "By allowing, you agree to Koyomi's Privacy Policy for AI assistants" (linked).
+**Consent page:** see `docs/MCP.md`, Part 2, "Consent".
 
 ### Should Koyomi ask Google? Yes, before Google calendars are opened to the public
 
@@ -298,48 +316,70 @@ every Google connection. The official route is to **reply to the last email from
 verification team** (the FAQ's instruction). There is no standalone form, and the legacy contact
 page now redirects to the console.
 
-**Draft, not sent** (to send only with the owner's approval, from the account that holds that
-thread):
+**Final draft, not sent.** It is to be sent only with the owner's approval, from the account
+that holds that thread:
 
-> Subject: Koyomi (project koyomi-511111): Limited Use question about an AI assistant feature
+> Subject: Koyomi (project koyomi-511111): is anything more required for a user-authorized AI
+> assistant feature?
 >
 > Hello,
 >
-> Koyomi (koyomi.guru) was verified for calendar.calendarlist.readonly and
-> calendar.events.readonly, to show a person their own Google calendars beside their other
-> calendars. Before offering an optional new feature publicly, we would like to confirm it fits
-> the User Data Policy and the Workspace Limited Use requirements. It needs no new scope, client
-> or consent-screen change.
+> Koyomi (https://koyomi.guru) is verified for calendar.calendarlist.readonly and
+> calendar.events.readonly. It shows a person their Google calendars together with the other
+> calendars they connect to it: further Google accounts, Microsoft, Yahoo and published calendar
+> links. Before offering an optional feature publicly, we would like to confirm whether any
+> additional requirements apply to it. It needs no new scope, OAuth client, redirect or
+> consent-screen change.
 >
-> **The feature.** A person can connect an AI assistant they already use (ChatGPT, Claude or
-> Grok) to Koyomi, through the Model Context Protocol.
-> - They sign in to Koyomi. On Koyomi's own consent page they tick the calendars that assistant
->   may read; none is pre-selected. The page says what is shared, and that the assistant is a
->   third party.
-> - When they ask the assistant about their schedule, it calls Koyomi's read-only tools. Koyomi
->   reads only those calendars from Google at that moment, and returns event titles, start and
->   end, all-day or tentative, and calendar names. It returns no descriptions, locations or
->   attendees.
-> - Koyomi stores no event data and uses none for any model. The person can revoke the
->   assistant's access in Koyomi at any time.
+> **The feature.** A person may explicitly authorize an AI assistant they already use (ChatGPT,
+> Claude or Grok) to read calendars through Koyomi, using the Model Context Protocol.
+> - **The user authorizes the assistant explicitly.** The person adds Koyomi to their assistant,
+>   signs in to Koyomi, and approves that assistant on Koyomi's own consent page. Each assistant
+>   is authorized separately. The page names the assistant, says what will be shared and that
+>   the assistant is a third party. For Google calendars, it adds that Koyomi sends them only so
+>   the assistant can answer the person, and does not use them to train AI models.
+> - **Only the calendars the user selects.** The person ticks each calendar the assistant may
+>   read; none is pre-selected. The permission covers those calendars and no others: a calendar
+>   connected later is not included unless the person authorizes it.
+> - **Reads the assistant initiates.** While the authorization is active, the assistant may
+>   start a read on its own, usually when the person asks about their schedule, but not only
+>   then.
+> - **Every read authenticated and checked.** Each read carries a short-lived token issued to
+>   that assistant for Koyomi alone. On every request Koyomi checks that the authorization still
+>   exists and covers the calendars asked about. It then reads only those calendars from Google
+>   at that moment. It returns each event's title, start and end, whether it is all-day or
+>   tentative, and its calendar's name: no descriptions, locations, attendees or identifiers.
+>   Koyomi stores no event data.
+> - **Read-only, and revocable at any time.** The assistant can only list those calendars, read
+>   their events and look for free time. It cannot create, change or delete anything. The person
+>   can revoke the authorization in Koyomi at any time. The next request is refused, and so is
+>   any attempt to renew the token.
+> - **No training by Koyomi.** Koyomi does not use Google user data to develop, improve or train
+>   AI or ML models, and says so in its privacy policy.
+>
+> **What we cannot control.** The receiving assistant platforms have their own data-handling
+> policies. Their business plans exclude training by contract. Some of their consumer plans may
+> use conversation content, including data from connected apps, to improve their models unless
+> the person turns that off in the assistant's settings. Our consent page and privacy policy say
+> so.
 >
 > **Our questions:**
-> 1. Does this user-initiated, per-calendar transfer to an assistant the person chose meet the
->    Limited Use condition for transfers to provide user-facing features with the user's
+> 1. Does this explicitly authorized, per-calendar transfer, at the person's request, meet the
+>    Limited Use condition for transfers that provide a user-facing feature with the user's
 >    consent? The person sets it up in Koyomi, but reads the answers in the assistant.
-> 2. Some assistants' consumer plans may use conversation content to train their models, under
->    their own terms and the person's settings. Business plans do not. Koyomi transfers data only
->    to answer the person. Is Koyomi expected to restrict that? For example, it could ask the
->    person to confirm that training is off, or offer Google calendars only where training is
->    excluded. Or are clear disclosure and the person's consent sufficient?
-> 3. Is there anything else you expect in our privacy policy or in-product disclosure for this
->    feature?
+> 2. Where the person's consumer AI settings may permit model training, do additional
+>    requirements apply to Koyomi? For example, must Koyomi limit Google calendars to assistant
+>    plans that exclude training, require the person to turn training off first, or not offer
+>    Google calendars to AI assistants at all? Or are the disclosure and the person's explicit
+>    consent sufficient?
+> 3. Is anything further expected in our privacy policy (https://koyomi.guru/privacy) or our
+>    in-product disclosure for this feature?
 >
-> Our updated privacy policy will be at https://koyomi.guru/privacy. We can send a short
-> recording of the consent flow.
+> Until we hear from you, Google calendars will not be offered to AI assistants for the public.
+> We are happy to send a short recording of the consent flow.
 >
 > Thank you,
-> 6Away, for Koyomi
+> 6Away AI FZE LLC, for Koyomi
 
 None of this is legal advice. Only Google's answer is a confirmation.
 
@@ -527,19 +567,31 @@ rejection email.
 
 ---
 
-## 4. Reviewer account (proposed; not created)
+## 4. Reviewer account (calendars prepared in Phase 8A; account not created)
 
 **Safest approach: a separate 6Away account that owns only synthetic calendar links, with no
 Google or Microsoft account at all.**
 
 | Requirement | How |
 | --- | --- |
-| Synthetic data only | Two calendar links to static `.ics` files written for review: "Koyomi Demo, Work" and "Koyomi Demo, Home". Nothing copied from a real calendar |
+| Synthetic data only | Two calendar links to static `.ics` files written for review, "Koyomi Demo — Work" and "Koyomi Demo — Personal" (`public/demo/`). Every event is made up, with a `@demo.koyomi.guru` UID. Nothing is copied from a real calendar |
 | No access to real calendars | Its own 6Away identity, so its own subject. It owns only those two connections. Every read is scoped to the signed-in subject, as acceptance showed with a second real person |
-| Predictable events | Weekly recurring events (`RRULE`), so the answers are the same whichever day a reviewer tests: a weekday standup 09:30–09:45, a Wednesday lunch 12:00–13:00, a Thursday review 15:00–16:00, a Friday all-day "Demo day". Tied to no real date |
+| Predictable events | Weekly rules from January 2026 with no end, so the answers are the same whichever week a reviewer tests (below) |
 | Positive and negative cases | Below |
 | The existing read-only model | No change: same consent page, same grants, same four tools |
 | No bypass of 6Away Auth | The reviewer signs in through 6Away like anyone else. No test hook, no token pasted into a platform, no allowlist pattern |
+
+**The two calendars**, served at `https://koyomi.guru/demo/koyomi-demo-work.ics` and
+`https://koyomi.guru/demo/koyomi-demo-personal.ics`. The site's host is the one to use: Koyomi
+never fetches a link from its own app host.
+
+| Calendar | Weekly events (London time unless stated) |
+| --- | --- |
+| Work | Daily standup Mon–Fri 09:30–09:45 · Weekly planning Mon 10:00–11:00 · Design review Tue 14:00–15:00 · Optional training Tue 16:00–17:00 (**tentative**) · Team lunch Wed 12:00–13:00 (has notes and a place, **never sent**) · Call with the New York office Wed 10:00–10:30 **New York time** (15:00 London; 14:00 in the weeks when the two change clocks on different dates) · Client call Thu 10:00–11:00 and Team sync Thu 10:30–11:30 (**overlap**) · Demo day Fri, **all day** |
+| Personal | Gym Mon and Wed 07:00–08:00 · School pickup Tue and Thu 14:30–15:15 (**overlaps** Tuesday's design review across calendars) · Dinner with friends Fri 19:00–21:00 · Piano lesson Sat 10:00–11:00 · Call with family in Tokyo Sun 20:00–20:30 **Tokyo time** · Family day Sun, **all day** |
+
+They are tested as Koyomi reads them (`tests/unit/demo-calendars.test.ts`, and end to end in
+`tests/e2e/ai.spec.ts`).
 
 Why not Google: since Koyomi's Google app is verified and in production, a dedicated synthetic
 Google account would now work and would not lapse. But it would send Google user data into
@@ -549,10 +601,6 @@ later, if a platform wants to see Google specifically.
 
 Why not the "Koyomi Test" Google calendar used for acceptance: it is reached through the owner's
 own accounts.
-
-Where the `.ics` files live: a fixed public URL that serves only synthetic data. A small static
-file on `koyomi.guru` (for example `/demo/work.ics`) is the simplest, and it passes Koyomi's
-public-internet link checks. Anyone may subscribe to it, which does no harm.
 
 **6Away Auth supports this today, with no change** (its source, read on 10 November 2026):
 
@@ -578,6 +626,12 @@ read once. Reviewers then use only the email and password.
 Note that a 6Away identity can also sign up to other 6Away apps that allow sign-up. The
 reviewer account holds nothing of value there.
 
+**Setting it up (the owner, later, not in Phase 8A):**
+
+1. Create the account through Koyomi's sign-in, with the review mailbox.
+2. In Calendars, add a Calendar link for each of the two addresses above.
+3. Its subject goes on `KOYOMI_MCP_ALLOWLIST`, with the owner's approval, before a review starts.
+
 The account's credentials:
 
 - kept in the owner's password manager;
@@ -585,21 +639,19 @@ The account's credentials:
 - never written in the repository or a chat;
 - rotated after each review.
 
-Its subject is added to `KOYOMI_MCP_ALLOWLIST` only with the owner's approval, before a review
-starts.
-
-**Test cases** (reviewer authorizes "Koyomi Demo, Work" only):
+**Test cases.** The reviewer authorizes "Koyomi Demo — Work" only. Prompts name London time, so
+the answers do not depend on where the reviewer is.
 
 | # | Prompt | Expected |
 | --- | --- | --- |
-| P1 | Which calendars can you see through Koyomi? | "Koyomi Demo, Work" only |
-| P2 | What's on my calendar next Wednesday? | standup 09:30 and lunch 12:00, in the person's zone |
-| P3 | Find me an hour free next Thursday between 9 and 5. | 09:45–15:00 and 16:00–17:00 |
-| P4 | What is my next meeting? | the next standup, or the next event if sooner |
-| P5 | Is there anything all-day next Friday? | "Demo day", shown as all-day and not as busy |
+| P1 | Which calendars can you see through Koyomi? | "Koyomi Demo — Work" only |
+| P2 | What's on my calendar next Wednesday, in London time? | standup 09:30, team lunch 12:00, New York call 15:00 (14:00 in the clock-change weeks) |
+| P3 | Find me an hour free next Thursday between 9am and 5pm London time. | 11:30–17:00 only: the client call and the team sync overlap from 10:00 to 11:30 |
+| P4 | What's my first meeting next Monday, London time? | Daily standup at 09:30, then Weekly planning at 10:00 |
+| P5 | Is there anything all day next Friday? | "Demo day", all day, and the day is not counted as busy |
 | N1 | Add a meeting tomorrow at 3pm. | refused: Koyomi is read-only, with no tool to write |
-| N2 | What's on my Home calendar? | not available: that calendar was not shared |
-| N3 | Who is attending the Wednesday lunch, and where is it? | not available: Koyomi returns no guests or places |
+| N2 | When is my gym session this week? | not available: the Personal calendar was not shared |
+| N3 | Who is coming to Wednesday's team lunch, and where is it? | not available: Koyomi returns no guests or places |
 
 ---
 
@@ -658,11 +710,11 @@ other company's marks.
   > Koyomi sends your assistant only the calendars you chose, and only when it asks:
   > titles, times, all-day and tentative flags, and calendar names. Koyomi does not store your
   > events or your conversations, and does not use your calendar data to train AI models.
-  > [After the section 2 change:] It does not allow your assistant to do so either; you can
-  > also turn off training in your assistant's settings. Revoke at any time in Koyomi →
-  > Calendars → AI access. Full details: koyomi.guru/privacy.
+  > What your assistant does with what it receives is up to its own terms and your settings
+  > there: check them before you share a Google calendar. Revoke at any time in Koyomi →
+  > Calendars → AI access. Full details: koyomi.guru/privacy and koyomi.guru/help.
 
-- **Support:** the help page (to be written) and the contact address on koyomi.guru/privacy. A
+- **Support:** the help page (`https://koyomi.guru/help`, from Phase 8A) and the contact address on it. A
   dedicated support address is recommended before listing.
 
 ---
@@ -728,19 +780,19 @@ screenshot of the consent page and one of an answer. It links to the help page. 
 
 ## 8. Implementation and launch sequence
 
-### PR A: the smallest safe PR, for submission
+### PR A: the smallest safe PR, for submission (built in Phase 8A; not merged)
 
-The feature stays private (allowlist unchanged). There is no change to OAuth, tokens, the tools'
-behaviour, limits, the allowlist or anything at Google.
+Branch `feature/mcp-public-readiness-a`. The feature stays private: the allowlist is unchanged.
+There is no change to OAuth, grants, tokens, limits or anything at Google.
 
 | Change | Why | Where |
 | --- | --- | --- |
-| Privacy: the AI/ML affirmation; the Workspace Limited Use sentence; the training sentence replaced, with each assistant's setting; the date | Google, mandatory | `app/privacy/page.tsx` and its wording tests |
-| Consent: "whenever it asks Koyomi, until you revoke access"; when a Google calendar is ticked, the training notice and acknowledgement; a line agreeing to the Privacy section, linked | Google: accuracy (mandatory); the rest recommended | `components/AiConsent.tsx`, `app/api/oauth/decision`, e2e |
-| A public help page (for example `koyomi.guru/ai`): connecting each assistant, what is shared, training settings, revoking in Koyomi, managing and deleting data, support contact | Google (help documentation), OpenAI (support URL), Claude (public docs) | a new page; site tests |
-| `/.well-known/openai-apps-challenge` on `app.koyomi.guru`: plain text from a server setting, 404 when unset | OpenAI domain verification | a route, a rewrite, a unit test |
-| Two static `.ics` files of synthetic weekly events (`koyomi.guru/demo/…`) | reviewer data | `public/demo/` |
-| Optional: drop `event_id` from answers | OpenAI: no internal IDs | `lib/server/ai/tools.ts`, tests |
+| Privacy: per assistant; "whenever it chooses"; Koyomi keeps nothing it sends, the assistant's company processes it under its own policies, Koyomi controls access until revoked, revoking cannot retrieve what was sent; Limited Use for the sending; Google's AI/ML sentence; the Workspace Limited Use sentence; nothing promised for another company; the date | Google, mandatory | `app/privacy/page.tsx`; `tests/e2e/site.spec.ts` |
+| Consent page: the asker and its host; the signed-in account, with "Not you? Sign out"; "whenever it chooses, not only when you ask it"; the calendars chosen, by name; a Google notice when a Google calendar is ticked (no box to tick); a way on for someone with nothing connected | Google: accuracy (mandatory); the rest recommended | `components/AiConsent.tsx`, `app/ai/consent/page.tsx`, `app/api/oauth/decision/route.ts`; `tests/e2e/ai.spec.ts` |
+| A public help page, `koyomi.guru/help`, linked from the site's footer, Privacy and the consent page | Google (help documentation), OpenAI (support URL), Claude (public docs) | `app/help/page.tsx`; site tests |
+| `/.well-known/openai-apps-challenge`: plain text from the setting `OPENAI_APPS_CHALLENGE`, 404 when unset | OpenAI domain verification | `lib/server/openai-challenge.ts`, `app/api/openai-apps-challenge/route.ts`, `next.config.ts`; unit and site tests |
+| Two static `.ics` files of synthetic weekly events (`koyomi.guru/demo/…`) | reviewer data | `public/demo/`; unit and e2e tests |
+| `event_id` removed from tool answers | OpenAI: no internal ids | `lib/server/ai/tools.ts`, `mcp.ts`, `read.ts`, `config.ts`; tests |
 
 Merging PR A deploys it, and that is the only Production change it makes. The challenge route
 answers 404 until the token is set.
@@ -750,8 +802,6 @@ answers 404 until the token is set.
 - **Limits:** the per-client cap made per grant (or removed); DCR per-address limit and a cap on
   live registrations.
 - **Revoke anywhere:** AI access shown to any signed-in person, from the server's list.
-- **Consent page:** the signed-in account with a way to switch, and a link to Calendars when
-  there is nothing to share.
 - **New settings, both inert until the owner sets them:**
   - "everyone" for AI access;
   - a separate gate for Google calendars, allowlist-only until Google answers.
@@ -761,9 +811,10 @@ plan.
 
 ### Sequence
 
-1. **PR #37** (these documents): merge at the owner's word.
-2. **PR A:** reviewed, merged at the owner's word. Production gets the wording and the help
-   page; AI access is still the owner only.
+1. **PR #37** (these documents): merged 10 November 2026 (`946ddce`).
+2. **PR A (Phase 8A):** reviewed, merged at the owner's word. Production gets the wording, the
+   consent page, the help page, the demo calendars and the 404-until-set challenge route; AI
+   access is still the owner only.
 3. **Google:** the owner approves and sends the inquiry, on the verification thread.
 4. **Reviewer:**
    - the owner creates the 6Away account through Koyomi's sign-in, with a review mailbox;

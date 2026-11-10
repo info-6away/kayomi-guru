@@ -43,7 +43,7 @@ export function aiConfig(): AiConfig | null {
  * A key of its own for each use, drawn from the sealing key (as `fingerprint()` draws its own),
  * so no two uses ever share one and there is no new secret to keep.
  */
-export const keyFor = (config: AiConfig, use: 'access' | 'hash' | 'handle' | 'event' | 'form' | 'successor') =>
+export const keyFor = (config: AiConfig, use: 'access' | 'hash' | 'handle' | 'form' | 'successor') =>
   createHmac('sha256', Buffer.from(config.connections.tokenKey, 'hex')).update(`koyomi ai ${use} v1`).digest();
 
 /** A keyed hash, for codes and refresh tokens: what is stored cannot be used, or turned back into what was issued. */

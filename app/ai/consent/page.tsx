@@ -65,7 +65,7 @@ export default async function ConsentPage() {
 
   return (
     <Frame>
-      <AiConsent label={pending.label} host={pending.host} groups={groups} form={formToken(config, pending, user.sub)} />
+      <AiConsent label={pending.label} host={pending.host} groups={groups} form={formToken(config, pending, user.sub)} account={{ name: user.name ?? null, email: user.email ?? null }} />
     </Frame>
   );
 }
