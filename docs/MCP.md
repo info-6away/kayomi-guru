@@ -368,8 +368,11 @@ There is no admin screen. The browser tests let their own stand-in people in by 
    before AI access existed.
 
    What remains:
-   - the Privacy and consent wording on AI training;
-   - the owner's choice between asking Google to confirm and opening on the policy's text.
+   - the mandatory Privacy and consent changes (the AI/ML affirmation, accurate consent wording,
+     help documentation);
+   - Google's answer on whether an assistant's own training, after Koyomi's transfer, falls on
+     Koyomi. ChatGPT's consumer plans train on app data by default. Until Google answers, Google
+     calendars stay out of AI access for anyone not on the allowlist.
 
    See [MCP_PUBLIC_READINESS.md](MCP_PUBLIC_READINESS.md), section 2.
 2. Private tests in ChatGPT, Claude and Grok, and the cross-client comparison (done

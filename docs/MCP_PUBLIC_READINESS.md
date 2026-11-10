@@ -17,6 +17,92 @@ Severity in the tables:
 
 ---
 
+## Decision (10 November 2026)
+
+| Question | Answer |
+| --- | --- |
+| 1. Is Koyomi eligible for a public ChatGPT submission? | **Yes on the rule's text, but not certain.** Koyomi is its own product, with its own accounts and events, cross-provider normalization and cross-calendar free time. Its bounded read-only tools use authorized, official access, and comparable calendar aggregators are listed. "Unofficial connector" is undefined and the reviewer decides. There is no pre-ruling: ask support with a draft's plugin ID (section 3) |
+| 2. Is the Google Calendar → AI model compliant? | **Not yet, but the gaps are fixable, and one question only Google can settle.** The consent model meets Google's transfer conditions. Three mandatory items are missing: the privacy policy's AI/ML affirmation (and its sentence leaving training to the assistant must go), accurate consent wording, and help documentation. The open question: ChatGPT's consumer plans train on app data by default, and no Google page settles whether that downstream use falls on Koyomi (section 2) |
+| 3. Do we need Google's confirmation? | **Not required by Google's rules** (no scope or branding change). **Advisable before Google calendars are opened to the public through AI**, because a finding against Koyomi would end every Google connection. Route: reply to the last email from Google's verification team. Draft in section 2, not sent |
+| 4. Can 6Away Auth support the reviewer account? | **Yes, with no change.** Email and password, no MFA (6Away has none), no magic link or code at sign-in, one email check at sign-up only. Normal flow, synthetic calendar links only (section 4) |
+| 5. What must be implemented before submitting? | The submission PR (section 8): Privacy and consent wording, help page, domain-verification route, reviewer calendars. Then outside the code: OpenAI business verification, the reviewer account, the package, demo video and test cases |
+| 6. The smallest safe implementation PR | Section 8, "PR A": wording, help page, one challenge route and two static files. No change to OAuth, tokens, tools, limits, the allowlist or Google |
+| 7. Launch sequence | Section 8 |
+
+### Status by category
+
+**Completed**
+
+- Private acceptance in ChatGPT, Claude and Grok on Production (MCP.md, Part 4).
+- OAuth for public clients:
+  - CIMD and DCR, PKCE `S256`, `resource` audience, `iss`;
+  - refresh rotation with reuse detection, RFC 7009 revocation.
+- Four read-only tools with titles, annotations and `securitySchemes`.
+- Answers capped at 500 items; partial reads stated; hostile titles returned as data.
+- Allowlist at every step. Revocation in Koyomi. Logs hold outcomes only, and the AI tables hold
+  no event content.
+- Consent per assistant and per calendar, none preselected, affirmative Allow. Privacy's AI
+  section lists what is shared.
+- Google app verified (branding and data access), In production, existing scopes approved.
+- Privacy and Terms name the operator, as OpenAI's same-publisher rule requires.
+- 6Away Auth supports a reviewer account as it is. Vercel Security Review clean; PR checks
+  green.
+
+**Remaining requirements**
+
+- **To submit:**
+  - Privacy wording;
+  - consent wording;
+  - help and support page;
+  - `/.well-known/openai-apps-challenge`;
+  - reviewer `.ics` files and account;
+  - OpenAI business verification;
+  - package, icons, demo video, 5 + 3 test cases;
+  - reviewer on the allowlist (owner's approval);
+  - a decision on `event_id`.
+- **Claude:** 3+ example prompts, public docs, seven acknowledgments.
+- **To open to the public:**
+  - per-client limit;
+  - DCR per-address limit and cap;
+  - AI access (Revoke) shown on any signed-in device;
+  - an explicit "everyone" setting;
+  - a separate gate for Google calendars;
+  - Neon on a paid plan;
+  - Firewall rules.
+
+**Compliance risks**
+
+| Risk | Likelihood | Impact | Handling |
+| --- | --- | --- | --- |
+| Google: downstream training by an assistant (ChatGPT consumer trains on app data by default; Grok unstated; Claude excludes connector content) | unknown: no Google ruling | **high**: every Google connection | ask Google; training notice and acknowledgement for Google calendars; Google gated until answered |
+| Google: the feature is "prominent" in Koyomi, but its answers appear in the assistant | low | high | in the inquiry |
+| OpenAI: judged an "unofficial connector" | low to medium | rejection only | product-first description, support question with a draft |
+| OpenAI terms: Koyomi warrants it has the rights and consents (§1.4(b)), and licenses its responses to OpenAI under each user's terms (§1.3) | tied to the Google risk | as above | as above |
+| Claude: a submission is listed at once | certain | premature listing | submit only after opening |
+| Microsoft and Yahoo API terms for AI use | not reviewed | unknown | review before naming them in marketing |
+
+**Public-launch blockers**
+
+1. Privacy AI/ML affirmation, the training sentence, consent accuracy, help page (Google
+   mandatory).
+2. Google's answer, or Google calendars kept out of AI access for the public until it comes.
+3. Per-client limit and DCR limit.
+4. Revoke reachable from any signed-in device.
+5. An explicit "everyone" setting (unset still meaning nobody).
+
+**Recommended improvements**
+
+- Show the signed-in 6Away account on consent, with a way to switch.
+- A link to Calendars when a person has no calendars.
+- Change calendars without reconnecting.
+- Drop `event_id` from answers.
+- Explain the Grok Bot ("www.cursor.com") label.
+- A log drain; watch provider quotas.
+- A dedicated support address.
+- Check Microsoft and Yahoo through an assistant on Production before naming them in marketing.
+
+---
+
 ## 1. Public readiness audit
 
 | Area | Today | Gap | Recommendation | Severity |
@@ -25,7 +111,7 @@ Severity in the tables:
 | Onboarding, new person | Assistant → Koyomi sign-in (6Away, sign-up open) → consent page | A person with no calendars sees "Connect one in Koyomi first, then connect the assistant again", with no link. The consent request lasts 10 minutes | Link to Calendars from that message, and say plainly that they come back to the assistant afterwards. Optionally keep the request, so connecting a calendar returns them to consent | Blocker |
 | Authentication | 6Away sign-in, then Koyomi's session cookie on `app.koyomi.guru` | The consent page does not say which 6Away account is signed in. During acceptance, a browser signed in to another 6Away account was refused, and nothing said why | Show "Signed in as …" with a way to switch account on the consent page, shown only to that person | Blocker |
 | First calendar | Google, Microsoft, Yahoo and calendar links are live | **Google:** none for connecting; the app is verified and in production (section 2). **Microsoft:** work and school accounts need their admin's approval (no publisher verification). **Yahoo:** an app password. **Links:** none | State Microsoft's admin approval and Yahoo's app password in the help page | Before listing |
-| AI authorization | Consent lists the person's calendars, none ticked, Allow disabled until one is ticked; read-only; revocable | No mention of AI training; Google's Workspace policy wants a plain statement next to the consent (section 2) | Add a training notice and a link to the updated Privacy section to the consent page; make Allow the affirmative consent to it | Blocker |
+| AI authorization | Consent lists the person's calendars, none ticked, Allow disabled until one is ticked; read-only; revocable | Says data goes to the assistant "when you ask it calendar-related questions", but the assistant calls whenever it chooses (Google requires accuracy). No mention of AI training | Accurate wording; for Google calendars, a training notice and acknowledgement; Allow refers to the Privacy section (section 2) | Blocker |
 | Calendar selection | Per grant, on the consent page | No editing in place; changing calendars means connecting again | A "Change calendars" action in AI access, reusing the consent page | Later |
 | Revocation | Revoke in Koyomi (Calendars → AI access) ends the grant at its next request | Disconnecting inside Claude or Grok does not revoke at Koyomi. AI access shows only where the device has the person's calendars, so a signed-in phone with no copy cannot revoke | Show AI access to any signed-in person, from the server's list. Say in the help page and on consent that revoking happens in Koyomi | Blocker |
 | OAuth clients | CIMD (ChatGPT, Claude) and open DCR (Grok, Grok Bot, others); public clients only; unused registrations pruned after 7 days, idle ones after 90 | DCR is limited to 60 a minute **per server instance, for everyone**. One caller can use it up, and many instances multiply it. Grok makes a client per connection, Grok Bot three | Per-address limit on `/api/oauth/register` (a Vercel Firewall rate-limit rule needs no code), plus a cap on total live registrations, and a watch on `ai_clients` | Blocker |
@@ -33,7 +119,7 @@ Severity in the tables:
 | Quotas | Google Calendar API quota on project `koyomi-511111`; Graph and Yahoo throttle per app or account | Not measured. AI questions add reads on top of the app's | Read the project's Calendar API quota page before opening; alert on 429s in the `[mcp]` outcomes (`failed:` and `incomplete`) | Before listing |
 | Costs | Vercel Pro (Fluid compute); Neon free plan | Every tool call is a function invocation and at least one database write (the grant allowance). Tokens refresh every 15 minutes of use. On the free plan the database's compute allowance is the first ceiling | Move Neon to a paid plan before opening. Watch Vercel usage per route (`/mcp`, `/api/oauth/token`) for the first weeks | Before listing |
 | Privacy and Terms | AI section on Privacy; two sentences in Terms; dated 8 November 2026 | One sentence says the assistant's company's use of the data, "including whether it uses them to train its models", is governed by its own terms. Google's Workspace policy forbids transfers for training non-personalized models, so the page must say Koyomi does not allow it, and what the person can do | Rewrite per section 2; add the Workspace Limited Use sentence and Google's AI statement | Blocker |
-| Support | A contact address on Privacy and Terms | No public page about connecting an assistant, revoking, or getting help. Claude's directory needs public documentation, and ChatGPT a support URL | A public help page on `koyomi.guru` (section 6 has the text). A dedicated support address is worth having | Before listing |
+| Support | A contact address on Privacy and Terms | No public page about connecting an assistant, revoking, or getting help. Google requires help documentation on managing and deleting data; Claude's directory needs public documentation; ChatGPT a support URL | A public help page on `koyomi.guru` (section 5 has the text; PR A in section 8). A dedicated support address is worth having | Blocker |
 | Domain verification (ChatGPT) | None | ChatGPT verifies a domain with a token served at `/.well-known/openai-apps-challenge` | A small route on `app.koyomi.guru`, added when the token is issued | Before listing (ChatGPT) |
 | Labels | ChatGPT, Claude and Grok are named; anything else is "Other MCP client (host)" | Grok Bot shows as "Other MCP client (www.cursor.com)" | Keep host-based names (they cannot be spoofed by a registration's name), and explain "www.cursor.com" in the help page. A "Cursor" label is only right if Cursor itself is a target | Later |
 
@@ -82,71 +168,178 @@ required" beside the sensitive scope. That is the form for requesting a *change*
 anything there, or changing the logo, name or links on Branding, sends the app back into review.
 Leave both pages alone.
 
-### The existing approval versus what AI access adds
+### The policies that apply
 
-| | Calendar in Koyomi (verified) | AI access (new) |
+All pages were read on 10 November 2026:
+
+- **UDP:** [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
+  "Limited Use" under "Additional Requirements for Specific API Scopes". Last updated 15 February
+  2024.
+- **WSP:** [Google Workspace API user data and developer policy](https://developers.google.com/workspace/workspace-api-user-data-developer-policy).
+  It applies to Calendar data and names "MCPs" among what it covers. It contains "Limited use of
+  user data", "Transparent and accurate notice and control" and "Maintain a secure operating
+  environment".
+- **FAQ:** [OAuth verification FAQ](https://support.google.com/cloud/answer/13463817), "Limited
+  Use", including how it applies to machine learning and AI, and personalized versus generalized
+  models.
+- **ToS:** [Google APIs Terms of Service](https://developers.google.com/terms), §5c (explicit
+  opt-in before exposing content to third parties) and §4a (no clone of the API).
+- **Privacy policy findings:** [Google's guidance on privacy policy findings](https://support.google.com/cloud/answer/13806988),
+  including the AI/ML statement and naming who receives data.
+- **Changes after approval:** [what makes an approved app need review again](https://support.google.com/cloud/answer/13464018).
+
+### Is verification an approval of AI access?
+
+**No.** Verification covered Koyomi showing a person their own calendars, as submitted. AI
+access needs no new scope, redirect or branding change, so Google's listed triggers for review
+again are not met, and nothing has to be filed. But:
+
+- the UDP's rules for transfers and new uses apply on their own terms;
+- Google can audit, restrict or revoke an app found out of policy (UDP, "Enforcement"; WSP);
+- revoking would end **every** Google connection in Koyomi, not only AI access.
+
+### How the policies apply to each intended transfer
+
+| Question | Finding | Basis |
 | --- | --- | --- |
-| Scopes | the two above | **the same two: no new scope, no new redirect, no consent-screen change** |
-| Where data goes | Google → Koyomi's server → the person's own device | Google → Koyomi's server → **an AI company the person chose** |
-| Under Limited Use | a user-facing feature, prominent in the app | a **transfer to a third party**: allowed only for a user-facing feature that is visible and prominent in the app, and only with the person's consent (User Data Policy) |
-| AI and ML | none | Workspace policy: data may not be transferred or used to create, train or improve any model beyond that one person's personalized model. Google's FAQ rules out foundational and frontier models by name |
-| Disclosure | Privacy | Privacy **and** an in-product disclosure placed with, and immediately before, the consent, which takes an affirmative action |
-| New use | n/a | before data is used in a new way, people are told and asked to consent to an updated privacy policy (User Data Policy) |
+| Does the consent model meet the transfer conditions? | **Very likely yes.** A transfer is allowed for a user-facing feature that is visible and prominent in the app, and only with consent. Koyomi asks per assistant and per calendar: none ticked, an affirmative Allow, revocable, explained on a page of its own. That is also ToS §5c's explicit opt-in. No contract with the recipient is required, and no "necessary" test applies to transfers | UDP, WSP, ToS §5c |
+| Is there an open point in it? | The feature is set up in Koyomi's interface, but its answers appear in the assistant's. No Google page addresses that case | none found |
+| Does the training ban apply? | **Yes, to Koyomi's transfer.** WSP forbids transferring or using the data to create, train or improve any model beyond that person's personalized model. Koyomi's purpose (answering the person) is allowed: WSP itself approves general generative-AI summaries as a user feature. Whether the ban also reaches **what the assistant's company does afterwards** is not settled. WSP speaks of the developer's transfer. The FAQ says, without naming who, that the data may not be used to train foundational or frontier models, nor be stored with them | WSP, FAQ |
+| Must Koyomi get an assurance from the AI company? | No Google page requires one | absence, all of the above |
+| Does user consent cure a prohibited use? | **No.** Consent is a condition for transfers, not an exemption from the prohibited uses. The only consent path to training Google describes is explicit consent to *personalized* model training (verification video guidance) | UDP, WSP, [video guidance](https://support.google.com/cloud/answer/13464321) |
 
-AI access needs no new scope, redirect or branding change, so none of Google's listed
-re-verification triggers is met, and the verified status stays as it is. But AI access is a new
-purpose for data whose use Google verified on a different description. The User Data Policy's
-rule for new uses applies whether or not Google re-reviews.
+### What each assistant does with what Koyomi sends
 
-No Google page says whether a person's own assistant pulling data over MCP counts as Koyomi's
-transfer. Nor does any page say whether Koyomi must make sure the assistant does not train on it.
-Read literally, that risk is Koyomi's. A policy finding would put the verified status at risk,
-and with it every Google connection, not only AI access.
+Read from each provider's own pages on 10 November 2026:
 
-### Limited Use check of Koyomi today
+| Assistant and plan | Trains on Koyomi's answers? | Person's control | Business guarantee |
+| --- | --- | --- | --- |
+| **ChatGPT** Free, Go, Plus, Pro | **Yes, by default.** Data from connected apps is trainable while "Improve the model for everyone" is on ([connected apps FAQ](https://help.openai.com/en/articles/11487775-connected-apps-in-chatgpt), [data controls](https://help.openai.com/en/articles/7730893-data-controls-in-chatgpt)). OpenAI's own Google app is excluded from training, but nothing extends that to third-party apps ([Google app FAQ](https://help.openai.com/en/articles/10408842-google-app-data-controls-faq)) | Settings → Data controls → "Improve the model for everyone", or the Privacy Portal. Thumbs feedback still allows training on that conversation | none |
+| **ChatGPT** Business, Enterprise, Edu | No, by default | admin | [Services Agreement](https://openai.com/policies/services-agreement/) §4.2, [DPA](https://openai.com/policies/data-processing-addendum/), [enterprise privacy](https://openai.com/enterprise-privacy/) |
+| **Claude** Free, Pro, Max | **Raw content from connectors and MCP servers is not used for training**, unless the person copies it into the chat ([Privacy Center](https://privacy.claude.com/en/articles/10023580-is-my-data-used-for-model-training)). This is help-center text, not a contract. The [Privacy Policy](https://www.anthropic.com/legal/privacy) is broader, and Claude's own replies repeating event data are not addressed | Settings → Privacy, model improvement setting; incognito chats | none |
+| **Claude** Team, Enterprise, API | No | owner | [Commercial Terms](https://www.anthropic.com/legal/commercial-terms), [DPA](https://www.anthropic.com/legal/data-processing-addendum) |
+| **Grok** free, SuperGrok | **Unstated for custom connectors; trainable by inference.** xAI promises no training only for its own Google connectors ([privacy policy](https://x.ai/legal/privacy-policy), [Gmail & Calendar connector](https://docs.x.ai/grok/connectors/gmail-google-calendar)) | Settings → Data controls → "Improve the model"; Private Chat | none |
+| **Grok** Business, Enterprise | No (with a qualifier for customer settings) | admin | [Enterprise Terms](https://x.ai/legal/terms-of-service-enterprise), [DPA](https://x.ai/legal/data-processing-addendum) |
 
-| Requirement | Koyomi | State |
+**No provider gives the MCP developer any assurance, or a way to mark tool output as
+not-for-training.** OpenAI's [App Developer Terms](https://openai.com/policies/developer-apps-terms/)
+(§1.3) expressly leave the use of an app's responses to OpenAI's terms with each user. Cursor's
+Marketplace terms (§6.3) forbid the *publisher* from training, not the platform.
+
+**Consumer versus business accounts matters most.** On every business plan, training is off by
+contract. On consumer plans:
+
+- **ChatGPT:** trains on Koyomi's answers by default.
+- **Grok:** probably does the same.
+- **Claude:** says it does not.
+
+Koyomi cannot tell which plan a person uses: ChatGPT and Claude each use one client for all of
+their plans.
+
+### Requirements: mandatory and recommended
+
+**Mandatory** (the policy says "must"):
+
+| Requirement | Koyomi today | To do |
 | --- | --- | --- |
-| Use only for prominent user-facing features | AI access is in Calendars, and on its own consent page | met |
-| Transfer only with consent, for the user-facing feature | per calendar, per assistant, ticked by the person, revocable | met |
-| No ads, data brokers, resale, credit | none, and Privacy says so | met |
-| No humans reading the data | none; logs hold outcomes only | met |
-| No training of non-personalized models, transfers included | Koyomi trains nothing. Privacy leaves the assistant's training to "its own privacy policy and terms" | **not met as written** |
-| Privacy names who receives data | AI assistants named as a category, chosen by the person | met; name the three when listed |
-| Limited Use statement | present, in its User Data Policy form | add the Workspace form too |
-| In-product disclosure before consent | consent page says read-only, what is sent, revocable | **add training and a Privacy link** |
-| Re-consent for a new use | each assistant has its own consent, made after the AI section was published | met for AI grants; existing Google connections need no change |
-| Prompt-injection protection (Workspace security text, possibly only for restricted scopes) | titles returned as data, the server's instructions say so, each answer carries a notice, no write tools | met in substance; document it |
+| Transfer only for a prominent user-facing feature, with consent | met | none |
+| Explicit opt-in before third parties see content (ToS §5c) | met | none |
+| No transfer or use for training beyond a personalized model | Koyomi's own use: met. Downstream: unsettled (above) | ask Google; precautions below |
+| In-product disclosure: accurate, in normal use, says what data and how it is shared, immediately before consent, affirmative action, not only in the privacy policy | met, except **accuracy**: it says the assistant receives data "when you ask it calendar-related questions", but the assistant may call Koyomi whenever it chooses | say "whenever it asks Koyomi, until you revoke access" |
+| Privacy policy discloses how Google data is shared | met (AI assistants named as a category, and the three by name) | none |
+| The privacy policy's affirmation that Google Workspace data is not used to develop, improve or train non-personalized AI/ML models (verification guidance) | **missing**, and one sentence leaves training to the assistant's company | rewrite (wording below) |
+| Limited Use statement | present (UDP form) | add the Workspace form beside it |
+| Help documentation on how people manage and delete their data | Privacy only | a public help page |
+| Tell people about a new use and ask them to consent to the updated policy | each AI grant has its own consent, after the AI section was published | make Allow refer to the policy explicitly |
+| Follow the MCP security best practices (WSP, secure operating environment) | met: PKCE, `resource`-bound tokens, no token passthrough, per-grant handles, read-only | none |
 
-### Recommendations
+**Recommended precautions** (no Google text requires them):
 
-1. **Privacy.** Replace the sentence about the assistant's own training. Say that Koyomi sends
-   Google data to an assistant only to answer that person's request, and that Koyomi does not
-   allow it to be used to train non-personalized AI or ML models. Point people to their
-   assistant's setting for turning off training. Add Google's statement in its words: "Google
-   Workspace APIs are not used to develop, improve, or train non-personalized AI and/or ML
-   models". Add the Workspace Limited Use sentence next to the existing one.
-2. **Consent page.** One plain line on training and a link to Privacy. Say that the assistant
-   reads whenever it calls Koyomi, until access is revoked.
-3. **Google's view.** There is no pending review to fold this into, and Google does not require a
-   new submission. Two ways forward; both come after 1 and 2 are live:
-   - **(recommended) ask first.** Write to Google's OAuth or API policy contact for the project.
-     Describe AI access, send the updated Privacy and consent wording and a short screen
-     recording (the AI consent page, the chosen calendars, an answer, Revoke), and ask them to
-     confirm it fits Limited Use. This costs time. It protects the verified status, which every
-     Google connection depends on.
-   - **Open on the policy's text.** Publish the wording and open without asking. This is faster,
-     and the risk is the one stated above.
+1. **Training notice on the consent page whenever a Google calendar is ticked.** For example:
+   "Google calendars: before you allow this, turn off model training in {assistant}'s settings,
+   or use a business plan, which does not train." Name the setting per assistant.
+2. **Acknowledgement before Google calendars can be shared.** A second tick ("Model training
+   is off in {assistant} for this account, or it is a business account") to enable Allow for
+   Google calendars. Koyomi cannot verify it. It records the person's informed choice and shows
+   diligence.
+3. **Ask Google first** (below), and until Google answers, keep Google calendars out of AI access
+   for anyone not on the allowlist. Microsoft, Yahoo and calendar links fall under no Google rule.
+   Microsoft's own API terms were not reviewed here.
+4. Prompt-injection handling is in place (titles returned as data, a notice in every answer, no
+   write tools). WSP's prompt-injection list most likely binds restricted scopes only, and
+   Koyomi has none. Document it in the help page anyway.
+5. Name the three assistants and their training settings in Privacy and the help page.
 
-   The choice is the owner's. MCP.md's release gate 1 is this step.
-4. **Until that choice is made,** AI access can open with Google calendars left off the consent
-   page for people not on the allowlist (a small code change). Microsoft, Yahoo and calendar
-   links are under no Google rule.
-5. **Publishing status:** already In production. Nothing to change.
-6. **Change nothing on the Google OAuth client** for this: no scope, redirect, origin, logo or
-   name. Any of those reopens review.
-7. Keep the tools narrow and per person. Koyomi is not a general Calendar API proxy (Google APIs
-   Terms §4a).
+### Proposed wording (for the implementation PR; nothing is changed here)
+
+**Privacy**, replacing the sentence that leaves training to the assistant's company:
+
+> Koyomi sends an assistant your Google Calendar data only so that it can answer you, and does
+> not allow it to be used for anything else. Koyomi does not use Google Workspace APIs to
+> develop, improve, or train non-personalized AI and/or ML models. Some assistants may use
+> conversations to improve their models unless you turn that off: in ChatGPT, Settings → Data
+> controls; in Claude, Settings → Privacy; in Grok, Settings → Data controls. Business plans of
+> all three do not train on your content. Turn this off before you share Google calendars.
+
+Add beside the existing Limited Use sentence: "The use of information received from Google
+Workspace scopes will adhere to the Google User Data Policy, including the Limited Use
+requirements."
+
+**Consent page:**
+
+- "{Assistant} will receive … whenever it asks Koyomi, until you revoke access."
+- When a Google calendar is ticked: the training notice and acknowledgement in 1 and 2 above.
+- "By allowing, you agree to Koyomi's Privacy Policy for AI assistants" (linked).
+
+### Should Koyomi ask Google? Yes, before Google calendars are opened to the public
+
+The downstream-training question is not settled by any Google page. The cost of being wrong is
+every Google connection. The official route is to **reply to the last email from Google's
+verification team** (the FAQ's instruction). There is no standalone form, and the legacy contact
+page now redirects to the console.
+
+**Draft, not sent** (to send only with the owner's approval, from the account that holds that
+thread):
+
+> Subject: Koyomi (project koyomi-511111): Limited Use question about an AI assistant feature
+>
+> Hello,
+>
+> Koyomi (koyomi.guru) was verified for calendar.calendarlist.readonly and
+> calendar.events.readonly, to show a person their own Google calendars beside their other
+> calendars. Before offering an optional new feature publicly, we would like to confirm it fits
+> the User Data Policy and the Workspace Limited Use requirements. It needs no new scope, client
+> or consent-screen change.
+>
+> **The feature.** A person can connect an AI assistant they already use (ChatGPT, Claude or
+> Grok) to Koyomi, through the Model Context Protocol.
+> - They sign in to Koyomi. On Koyomi's own consent page they tick the calendars that assistant
+>   may read; none is pre-selected. The page says what is shared, and that the assistant is a
+>   third party.
+> - When they ask the assistant about their schedule, it calls Koyomi's read-only tools. Koyomi
+>   reads only those calendars from Google at that moment, and returns event titles, start and
+>   end, all-day or tentative, and calendar names. It returns no descriptions, locations or
+>   attendees.
+> - Koyomi stores no event data and uses none for any model. The person can revoke the
+>   assistant's access in Koyomi at any time.
+>
+> **Our questions:**
+> 1. Does this user-initiated, per-calendar transfer to an assistant the person chose meet the
+>    Limited Use condition for transfers to provide user-facing features with the user's
+>    consent? The person sets it up in Koyomi, but reads the answers in the assistant.
+> 2. Some assistants' consumer plans may use conversation content to train their models, under
+>    their own terms and the person's settings. Business plans do not. Koyomi transfers data only
+>    to answer the person. Is Koyomi expected to restrict that? For example, it could ask the
+>    person to confirm that training is off, or offer Google calendars only where training is
+>    excluded. Or are clear disclosure and the person's consent sufficient?
+> 3. Is there anything else you expect in our privacy policy or in-product disclosure for this
+>    feature?
+>
+> Our updated privacy policy will be at https://koyomi.guru/privacy. We can send a short
+> recording of the consent flow.
+>
+> Thank you,
+> 6Away, for Koyomi
 
 None of this is legal advice. Only Google's answer is a confirmation.
 
@@ -158,28 +351,135 @@ Nothing below has been submitted. Each item says whether Koyomi already has it.
 
 ### ChatGPT (OpenAI)
 
-- [ ] OpenAI platform account verified, individual or business. The business is 6Away.
-- [ ] Package (a ZIP) with the plugin manifest and MCP configuration, in OpenAI's current format.
-  Auth type `oauth`, client mode `cimd`. Koyomi already accepts ChatGPT's CIMD client
-  (`https://chatgpt.com/oauth/client.json`) and fixed redirect.
-- [ ] `displayName` ≤ 30 characters, `shortDescription` ≤ 30, `longDescription` ≤ 4,000
-  (drafts in section 5).
-- [ ] Website, support, privacy and terms URLs. The support page is to be written.
-- [ ] Logo and composer icon: square PNG, 48–4,096 px, from the existing Koyomi mark (see section
-  5), and brand colours.
-- [ ] Domain verification: serve OpenAI's token at
-  `https://app.koyomi.guru/.well-known/openai-apps-challenge` (a small PR, once the token
-  exists).
-- [x] Tool metadata: titles, `readOnlyHint`, `destructiveHint: false`, `openWorldHint: false`,
-  OAuth security scheme on every tool.
-- [ ] Demo video: connect, consent with one calendar, three questions, revoke.
-- [ ] Exactly 5 positive and 3 negative test cases (section 4).
-- [ ] Reviewer account with no MFA, magic link or emailed code (section 4).
-- [ ] Content suitable for ages 13–17 (calendar data, no generated content: fine).
-- [ ] Review risk: OpenAI rejects "unofficial connectors to third-party services". Koyomi reads
-  Google, Microsoft and Yahoo through its own accounts, consent and service. Say so in the
-  submission, and lead with Koyomi as the product, not "a Google Calendar connector".
-- [ ] Allowlist: the reviewer's subject added (owner's approval) before the review starts.
+OpenAI now calls apps "plugins". The pages below were read on 10 November 2026:
+
+- [Plugin guidelines](https://developers.openai.com/plugins/plugin-guidelines)
+- [Submission](https://developers.openai.com/plugins/deploy/submission)
+- [App review](https://developers.openai.com/plugins/deploy/app-review)
+- [Auth](https://developers.openai.com/plugins/build/auth)
+- [App Developer Terms](https://openai.com/policies/developer-apps-terms/)
+
+#### Eligibility: the "unofficial connectors" rule
+
+Under "Third-party content and integrations", OpenAI says it cannot approve plugins that
+*primarily* function as unofficial connectors to third-party services, including pass-through
+layers. Two bullets beside it require authorized access under each third party's terms, and
+forbid getting around their limits. "Unofficial", "primarily" and "aggregator" are defined
+nowhere. No staff ruling or FAQ addresses them, and the reviewer decides.
+
+**Koyomi against the rule.** Koyomi is the publisher's own service, not a connector to someone
+else's:
+
+- **Its own product:** a calendar app with its own accounts and its own day, week and month
+  views. Its own local events never leave the device.
+- **More than any one provider offers:**
+  - several Google accounts, Microsoft, Yahoo (CalDAV) and `.ics` links, normalized into one
+    event model, with recurrence and time zones handled per provider;
+  - free time worked out across all of them;
+  - per-calendar authorization for each assistant, on Koyomi's own consent page.
+- **Bounded tools, not a pass-through:** four read-only tools with validated inputs, capped and
+  shaped answers, and no provider request built from the assistant's text.
+- **Authorized access:** each provider through its official API and the person's own consent
+  (Google verified; Microsoft Graph; Yahoo's documented CalDAV with an app password; public
+  `.ics`), within each provider's limits.
+
+**Comparable plugins are listed today**, seen in the ChatGPT directory on 10 November 2026:
+
+- CalendarBridge (Google, Outlook and Apple calendars in one), the closest match to Koyomi;
+- alfred_;
+- Slashy;
+- Reclaim.ai.
+
+A listing does not say which version of the rules it was reviewed under.
+
+**Where it is genuinely uncertain:**
+
+- OpenAI ships its own Google, Outlook and iCloud Calendar plugins. A reviewer could see Koyomi
+  as overlapping them. The case rests on what those do not do: several providers and accounts
+  together, Yahoo and `.ics`, free time across all of them, and per-calendar choice.
+- "Authorized access" makes Koyomi answerable for Google's terms. The Google training question
+  (section 2) is the weak point: OpenAI may train on app data for consumer plans with the
+  setting on.
+
+**Assessment:** eligible on the rule's text and on comparable listings, but not certain. The
+final word is the reviewer's.
+
+**No marketing workaround:**
+
+- lead with Koyomi as a product;
+- keep provider names out of the name and the short description;
+- describe exactly what the tools do.
+
+**Asking OpenAI first.** There is no channel for an eligibility ruling. The
+[app review page](https://developers.openai.com/plugins/deploy/app-review) says to contact
+support (the chat at [help.openai.com](https://help.openai.com/en/articles/6614161-how-can-i-contact-support))
+with questions before submitting, quoting the plugin ID. So a draft must exist in the portal
+first. Expect guidance, not a binding answer. A rejection can be appealed by replying to the
+rejection email.
+
+#### Submission requirements
+
+- [ ] **Who submits:** the OpenAI organisation owner, or a member with the apps-management
+  permission. **Business verification** is needed for 6Away at
+  platform.openai.com → Settings → Organization. The directory shows the verified name, and the
+  website, support, privacy and terms pages must name the same publisher. Privacy and Terms
+  already name the operator.
+- [ ] **Where:** platform.openai.com → Plugins → upload → "With MCP".
+- [ ] **Package:** a ZIP with `plugin.json` and `mcp.json`, one MCP server, and these fields:
+
+  | Field | Limit |
+  | --- | --- |
+  | `name` | 64 characters, lowercase and hyphens |
+  | `displayName` | 30 characters |
+  | `shortDescription` | 30 characters |
+  | `longDescription` | 4,000 characters |
+  | `developerName` | 80 characters |
+  | `capabilities` | up to 20 labels |
+  | `defaultPrompt` | up to 3, 128 characters each |
+  | Listing URLs | website, support, privacy, terms; HTTPS |
+
+  Drafts are in section 5. The **support URL is still to be written**.
+- [ ] **Icons:** square PNG, JPEG, WebP or SVG, at least 48 px, at most 4,096 px and 5 MiB.
+  A primary icon is required and a dark variant is optional. Use the existing Koyomi mark.
+- [ ] **Domain verification:** the portal's token as **plain text** at
+  `https://app.koyomi.guru/.well-known/openai-apps-challenge`, the MCP host. This is code: a
+  route that serves a value from a setting.
+- [x] **OAuth:**
+  - OAuth 2.1 per the MCP spec, PKCE `S256`;
+  - protected-resource metadata;
+  - CIMD (`https://chatgpt.com/oauth/client.json`, since Koyomi supports RFC 9207 `iss`) and the
+    stable redirect;
+  - `resource` checked into the token's audience;
+  - `securitySchemes` on every tool.
+
+  All of this was proven in private acceptance.
+- [x] **Annotations:** every tool sets `readOnlyHint`, `destructiveHint: false` and
+  `openWorldHint: false`. False is allowed for a tool bounded to the person's own account.
+- [ ] **Answers:** only data relevant to the request, with no telemetry or internal IDs. Each
+  event carries `event_id`, an opaque per-grant handle that no tool takes as input. Drop it, or
+  be ready to justify it. The calendar handles are needed (they are tool inputs).
+- [ ] **Privacy policy:** categories of data, purposes, recipients, retention and user controls,
+  and every category of personal data the app returns. Koyomi's AI section covers these. Add
+  the section 2 changes.
+- [ ] **Demo video** showing the test cases. **Exactly 5 positive and 3 negative test cases**
+  (section 4), plus release notes.
+- [ ] **Reviewer account:**
+  - no MFA, emailed or SMS codes, magic links or private network;
+  - sample data;
+  - kept for later reviews;
+  - credentials entered in the portal's secure review form.
+
+  6Away supports this (section 4).
+- [x] Ages 13–17 suitable; no 18+ content.
+- [ ] **After approval:**
+  - the owner chooses when to publish;
+  - OpenAI scans the server daily, and new tools are held until checked;
+  - metadata changes need a new ZIP and a new review;
+  - changing the MCP origin needs a new plugin;
+  - contact press@openai.com before any announcement.
+- [ ] **Timeline:** none is published. The forum reports weeks to months.
+- [ ] **Allowlist:** the reviewer's subject is added, with the owner's approval, before the review
+  starts.
 
 ### Claude (Anthropic)
 
@@ -243,7 +543,7 @@ Google or Microsoft account at all.**
 
 Why not Google: since Koyomi's Google app is verified and in production, a dedicated synthetic
 Google account would now work and would not lapse. But it would send Google user data into
-other companies' reviews before section 2's step 3 is settled. It also needs a Google account
+other companies' reviews before Google has answered (section 2). It also needs a Google account
 kept just for this. Calendar links avoid both. A Google account can be added to the reviewer
 later, if a platform wants to see Google specifically.
 
@@ -254,9 +554,29 @@ Where the `.ics` files live: a fixed public URL that serves only synthetic data.
 file on `koyomi.guru` (for example `/demo/work.ics`) is the simplest, and it passes Koyomi's
 public-internet link checks. Anyone may subscribe to it, which does no harm.
 
-**To confirm with 6Away first:** the reviewer must sign in with an email and password, with no
-MFA, magic link or emailed code (OpenAI's requirement). 6Away's email sign-in offers "Send a
-magic link instead", which suggests a password option exists. That is unverified.
+**6Away Auth supports this today, with no change** (its source, read on 10 November 2026):
+
+| Need | 6Away Auth |
+| --- | --- |
+| Email and password | Email-first sign-in: enter the address. An account with a password goes to the password step (argon2id). "Send a magic link instead" and "Continue with Google" are offered, never required |
+| No MFA | 6Away has no second factor of any kind: no TOTP, passkey, step-up or new-device check |
+| No magic link, no emailed code at sign-in | The password step completes sign-in by itself |
+| Email verification | **Once, at sign-up only.** The account is created without a password or session. The chosen password is applied only when the emailed code or link is used. After that, sign-in never sends mail |
+| Normal authentication, no bypass | The same 6Away client (`koyomi-guru`, sign-up open) and the same flow as everyone else. Nothing is seeded in the database, and no test hook is used |
+| Limits | 10 password attempts a minute per IP and per address, and 10 look-ups a minute per IP. A reviewer will not meet them |
+
+So the reviewer account is made through Koyomi's own sign-in, like any person's. It uses a
+mailbox the owner controls (an alias kept for reviews), and that mailbox's one sign-up code is
+read once. Reviewers then use only the email and password.
+
+**Not to do:**
+
+- no database seed of a password user, which would skip verification;
+- no flag to turn MFA or verification off, since there is nothing to turn off;
+- no change to 6Away for existing users.
+
+Note that a 6Away identity can also sign up to other 6Away apps that allow sign-up. The
+reviewer account holds nothing of value there.
 
 The account's credentials:
 
@@ -290,7 +610,9 @@ owner's), on Koyomi's paper colour `#F5F1E8`, with ink `#252421` and the vermili
 `#C45845` (dark: `#1D1D1B`, `#ECE8DE`, `#C45D4A`). No AI imagery, sparkles or robots, and no
 other company's marks.
 
-- **Name:** Koyomi
+- **Name:** Koyomi. ChatGPT's guidelines ask to avoid generic single-word dictionary names not
+  clearly tied to a brand. "Koyomi" is the product's own name and domain, not an English word:
+  keep it, and never add "MCP", "Plugin" or a provider's name to it.
 - **Positioning:** All your calendars. One connection for your AI.
 - **Short description** (≤ 30): "All your calendars, read-only" (29). Alternative: "Your
   calendars, one connection" (30).
@@ -323,7 +645,8 @@ other company's marks.
   - **Grok:** Connect Apps → New connector → Custom, with the same URL.
 
   In every case, sign in to Koyomi, tick the calendars to share, then Allow.
-- **Example prompts:**
+- **Example prompts** (ChatGPT's `defaultPrompt` takes the first three, ≤ 128 characters each;
+  Claude needs at least three):
   - "What does my day look like tomorrow?"
   - "Find me 90 minutes free on Thursday afternoon."
   - "What's my next meeting?"
@@ -403,36 +726,66 @@ screenshot of the consent page and one of an answer. It links to the help page. 
 
 ---
 
-## 8. Recommended launch sequence
+## 8. Implementation and launch sequence
 
-1. **This PR:** documentation only. Production unchanged.
-2. **Code (one PR, reviewed, flag still private):**
-   - consent page: signed-in account and switch, no-calendar path, training line;
-   - AI access shown to any signed-in person;
-   - per-client limit reworked;
-   - DCR per-address limit and cap;
-   - Privacy and Terms text per section 2;
-   - public help page;
-   - an explicit "everyone" setting for AI access, unused.
-3. **Google:** once the new wording is live, the owner chooses section 2's step 3. Either ask
-   Google to confirm (recommended), or open on the policy's text. Until then, Google calendars
-   can be left out of AI access for people not on the list. The app is already verified and in
-   production: nothing on Google's side is changed.
-4. **Reviewer account:** created by the owner as in section 4. Its subject goes on the allowlist
-   with the owner's approval.
+### PR A: the smallest safe PR, for submission
+
+The feature stays private (allowlist unchanged). There is no change to OAuth, tokens, the tools'
+behaviour, limits, the allowlist or anything at Google.
+
+| Change | Why | Where |
+| --- | --- | --- |
+| Privacy: the AI/ML affirmation; the Workspace Limited Use sentence; the training sentence replaced, with each assistant's setting; the date | Google, mandatory | `app/privacy/page.tsx` and its wording tests |
+| Consent: "whenever it asks Koyomi, until you revoke access"; when a Google calendar is ticked, the training notice and acknowledgement; a line agreeing to the Privacy section, linked | Google: accuracy (mandatory); the rest recommended | `components/AiConsent.tsx`, `app/api/oauth/decision`, e2e |
+| A public help page (for example `koyomi.guru/ai`): connecting each assistant, what is shared, training settings, revoking in Koyomi, managing and deleting data, support contact | Google (help documentation), OpenAI (support URL), Claude (public docs) | a new page; site tests |
+| `/.well-known/openai-apps-challenge` on `app.koyomi.guru`: plain text from a server setting, 404 when unset | OpenAI domain verification | a route, a rewrite, a unit test |
+| Two static `.ics` files of synthetic weekly events (`koyomi.guru/demo/…`) | reviewer data | `public/demo/` |
+| Optional: drop `event_id` from answers | OpenAI: no internal IDs | `lib/server/ai/tools.ts`, tests |
+
+Merging PR A deploys it, and that is the only Production change it makes. The challenge route
+answers 404 until the token is set.
+
+### PR B: before opening to the public
+
+- **Limits:** the per-client cap made per grant (or removed); DCR per-address limit and a cap on
+  live registrations.
+- **Revoke anywhere:** AI access shown to any signed-in person, from the server's list.
+- **Consent page:** the signed-in account with a way to switch, and a link to Calendars when
+  there is nothing to share.
+- **New settings, both inert until the owner sets them:**
+  - "everyone" for AI access;
+  - a separate gate for Google calendars, allowlist-only until Google answers.
+
+Outside the code: Vercel Firewall rules on `/mcp` and `/api/oauth/register`, and Neon on a paid
+plan.
+
+### Sequence
+
+1. **PR #37** (these documents): merge at the owner's word.
+2. **PR A:** reviewed, merged at the owner's word. Production gets the wording and the help
+   page; AI access is still the owner only.
+3. **Google:** the owner approves and sends the inquiry, on the verification thread.
+4. **Reviewer:**
+   - the owner creates the 6Away account through Koyomi's sign-in, with a review mailbox;
+   - subscribe it to the two demo calendars;
+   - its subject goes on the allowlist with the owner's approval.
 5. **ChatGPT:**
-   - organisation verification;
-   - domain token route;
+   - 6Away business verification;
+   - a draft plugin in the portal;
+   - optionally ask support about eligibility, quoting its ID;
+   - the domain token set in Production (a setting, at the owner's word);
    - package, demo video and test cases;
    - submit.
 
-   ChatGPT's review is private, so it can run while AI access is still limited to the list.
-6. **Open AI access:**
-   - the "everyone" setting in Production, at the owner's word;
-   - Neon on a paid plan;
-   - Firewall rules in place;
+   The review is private, and the reviewer sees synthetic calendars only. **Publishing after
+   approval waits for steps 6 and 7.**
+6. **PR B:** merged, Firewall rules added, Neon upgraded.
+7. **Open AI access:**
+   - the "everyone" setting at the owner's word;
+   - Google calendars included only once Google has answered favourably;
+   - until then, Microsoft, Yahoo and calendar links only for people not on the list;
    - watch the first days.
-7. **Claude:** submit once open, since a submission lists at once.
-8. **Grok:** custom connectors are documented from step 2. The marketplace waits for its
-   grok.com target and a decision on Cursor's terms.
-9. **Marketing:** after the first listing is live.
+8. **Publish on ChatGPT** (press@openai.com before any announcement).
+9. **Claude:** submit (it lists at once).
+10. **Grok:** custom connector documented on the help page; the marketplace later.
+11. **Marketing** (section 6), after the first listing is live.
