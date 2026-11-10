@@ -8,7 +8,9 @@ an AI assistant: one connection to Koyomi instead of one per provider.
 
 One standards-based remote MCP server, used unchanged by ChatGPT, Claude and Grok. Read-only,
 behind OAuth, switched off unless `KOYOMI_MCP=on`. This document is the audit of `main` it was
-designed from (`10db829`, 2026-11-07), then the design.
+designed from (`10db829`, 2026-11-07), then the design, then its acceptance: automated (Part 3)
+and in ChatGPT, Claude and Grok on Production (Part 4). Public release:
+[MCP_PUBLIC_READINESS.md](MCP_PUBLIC_READINESS.md).
 
 ---
 
@@ -361,7 +363,8 @@ There is no admin screen. The browser tests let their own stand-in people in by 
    is not opened beyond the private beta until Koyomi's Google verification and Limited Use
    disclosure position for this use is confirmed** (in the verification resubmission, or by asking
    Google's review team). The private beta is not that confirmation.
-2. Private tests in ChatGPT, Claude and Grok, and the cross-client comparison.
+2. Private tests in ChatGPT, Claude and Grok, and the cross-client comparison (done
+   8–10 November 2026, passed: Part 4).
 3. Migration 004 rehearsed on a disposable Neon branch with `--only` (done 2026-11-08, passed),
    then applied to Production with the same command (done 8 November 2026; below).
 4. Privacy and Terms dates set at merge (8 November 2026).
@@ -546,11 +549,186 @@ calendars first was logged with no outcome. The line is now written when the ans
 sent (`lib/server/ai/sent.ts`; `tests/unit/mcp-log.test.ts` drives the real SDK handler). Answers
 and access were never affected.
 
-### Still to do (needs a public deployment; see the PR)
+---
 
-`KOYOMI_MCP=on` and the owner's subject in `KOYOMI_MCP_ALLOWLIST` (Production only) and one
-redeploy, on approval (migration 004 is applied, and the code is merged with the feature off);
-ChatGPT, Claude and Grok private connectors (Grok stays a target: its documentation describes
-custom MCP connectors with required authentication; only if real testing shows it needs a
-manually pasted long-lived token is it dropped); the cross-client comparison; the real
-multi-provider acceptance with the owner's accounts; the release gates above.
+## Part 4: private acceptance on Production (8–10 November 2026)
+
+The same server, unchanged per assistant, passed private acceptance in ChatGPT, Claude and Grok
+on Production. Each assistant was added by the owner as a private, unpublished connector in
+their own browser and authorized through Koyomi's ordinary consent page. Nothing was submitted
+to any directory, and nothing in this part names a person, an account or a real event.
+
+### Production during acceptance
+
+On 8 November 2026 `KOYOMI_MCP=on` and `KOYOMI_MCP_ALLOWLIST` were set in Vercel Production only.
+The allowlist holds exactly one 6Away subject, the owner's. It was taken from the database, never
+printed, and is not recorded here. Preview and Development have neither setting.
+
+| Assistant | Date | Production commit | Deployment |
+| --- | --- | --- | --- |
+| ChatGPT | 8 Nov 2026 | `9adffe9` (PR #35) | `dpl_EgVFUfGUjRdN2nLGGqTEui5yCVCc` |
+| Claude | 8 Nov 2026 | `9adffe9`, then `e6feaef` (PR #36) | `dpl_EgVFUfGUjRdN2nLGGqTEui5yCVCc`, then `dpl_4TEYpaktJhbjuaxzHEDgKMJPxWnb` |
+| Grok | 10 Nov 2026 | `e6feaef` | `dpl_4TEYpaktJhbjuaxzHEDgKMJPxWnb` |
+
+`dpl_EgVF…` is `9adffe9` redeployed with the two settings. `dpl_4TEY…` is PR #36's merge, with
+the settings carried over. It is still Production on 10 November 2026: that day, all four tools
+were called again through the Claude connector on it, and their answers matched the test
+calendar exactly.
+
+Before any assistant connected, `dpl_EgVF…` was checked:
+
+- Discovery (RFC 9728 in both forms, RFC 8414) answered.
+- `/mcp` gave the 401 challenge for no token, a junk token, a forged token and a token in the
+  query string.
+- The owner's consent page listed their calendars with none ticked. Cancel returned
+  `access_denied`.
+- A second, real Koyomi user with connections of their own was refused at every step, in a clean
+  browser:
+  - authorize gave `access_denied`, and the consent page said "This request has ended";
+  - decision and the grants API gave 404, the token endpoint `invalid_grant`, and `/mcp` 401;
+  - none of the owner's connections could be read with their session.
+
+### Test data
+
+Every grant was given one synthetic Google calendar, "Koyomi Test", made for these tests. It
+holds 32 events titled "Koyomi test …". They are timed and all-day events over two weeks. One
+carries notes and a place, which must never be returned. One has a title written as an
+instruction to the assistant.
+
+One local Koyomi event was made on the owner's device, to show that device-only events never
+reach an assistant. For ChatGPT's first run the owner chose to share all their calendars (13,
+over Google and a calendar link). That grant was revoked, and ChatGPT reconnected with Koyomi Test
+only.
+
+The same five questions were put to each assistant, with answers checked against the calendar:
+
+| Question | What a pass needs |
+| --- | --- |
+| Which calendars can you access through Koyomi? | Koyomi Test, nothing else |
+| What do I have tomorrow? | that day's test events, each once, at the right local times |
+| Find 90 minutes free tomorrow between 9 and 6 | the gaps between those events, exactly |
+| What is my next meeting? | the earliest one, even though its title says "test" |
+| A meeting that is only on a calendar not shared | not found through Koyomi |
+
+### How each assistant connects
+
+Every assistant used the same endpoint (`https://app.koyomi.guru/mcp`) and PKCE S256. Each was a
+public client with no secret, and had `resource` and `iss` checked. Refresh tokens were rotated.
+They differ in how they identify themselves:
+
+| | ChatGPT | Claude | Grok (grok.com) | Grok Bot |
+| --- | --- | --- | --- | --- |
+| Client registration | metadata document (CIMD) `https://chatgpt.com/oauth/client.json` | metadata document (CIMD) `https://claude.ai/oauth/mcp-oauth-client-metadata` | dynamic registration (DCR) as "Grok": **a new client on every connection** | dynamic registration as "Cursor": **three clients per connection** |
+| Redirect | `https://chatgpt.com/connector_platform_oauth_redirect` (one fixed address) | `https://claude.ai/api/mcp/auth_callback` | `https://grok.com/connectors-oauth-exchange-code/` (trailing slash) | `https://www.cursor.com/agents/mcp/oauth/callback`, and `http://localhost:8787/callback` |
+| Named in Koyomi | ChatGPT | Claude | Grok | Other MCP client (www.cursor.com) |
+| Where it is added | Plugins: add a custom MCP server, OAuth | Connectors: add a custom connector | Connect Apps: new custom connector | the bot's own connector settings |
+| Disconnecting in the assistant | not checked | **does not revoke at Koyomi**: the grant stays until revoked in Koyomi | **does not revoke at Koyomi** (no RFC 7009 call) | not checked |
+| After a Koyomi revoke | refresh refused; ChatGPT asks to reconnect | 401; Claude reconnects through consent | refresh refused; tools gone; "Reauthenticate" gives a new grant | (not connected by then) |
+
+Grok Bot is a separate surface from grok.com, with its own connection and grant. The first Grok
+answers came from it, not from grok.com. So for every run, the grant that made the calls was
+read from the log before its answers were accepted. Grok's own built-in Google Calendar
+connector can also answer calendar questions while it is switched on, so for Grok the answer's
+source has to be checked too.
+
+The 2026-07-28 client in Claude opens a `subscriptions/listen` stream for tool changes. Until
+PR #36 the server advertised `listChanged: true` and held that stream open until Vercel ended
+the function. That gave one 300-second timeout per Claude session, with no effect on any answer.
+Since `e6feaef` the stream is answered and closed at once. A Claude session after the deploy had
+no timeout.
+
+### Results
+
+All four tools (`list_calendars`, `get_schedule`, `get_events`, `find_free_time`) answered on
+Production for each assistant. Each assistant chose which tool to call for which question.
+
+| Check | ChatGPT | Claude | Grok |
+| --- | --- | --- | --- |
+| Calendars listed | only those granted (13, then 1) | Koyomi Test only | Koyomi Test only |
+| Tomorrow's events, times in Dubai | correct | correct | correct |
+| 90 minutes free | exactly the gaps | exactly the gaps | exactly the gaps |
+| Next meeting | correct; it left out "test" events when asked to choose | the earliest, a test event, not skipped | correct |
+| Calendar not shared | not obtained | not obtained | not obtained |
+| Instruction-like title | reported as a title, not followed | reported as data | reported as data |
+| Notes, places, guests | never returned | never returned | never returned |
+| Calendar link address, credentials | never returned | never returned | never returned |
+| Local Koyomi event | never seen | never seen | never seen |
+
+Three things are the assistants' own, not Koyomi's:
+
+- ChatGPT folded the same test event seen through two accounts.
+- ChatGPT chose to pass over events titled "test" when picking the next meeting.
+- Answers are in each assistant's words.
+
+The data the tools returned was correct in every case. In the Claude case it was read raw: the
+same connector also appeared in a Claude Code session and was called there. Calendars and events
+come back as opaque handles (`cal_…`, `ev_…`) that differ per grant, with no provider id, link
+or token.
+
+### Isolation, independent grants and revocation
+
+- **One grant per assistant.** Three grants by the end, one each for ChatGPT, Claude and Grok,
+  each covering Koyomi Test only. Koyomi's AI access section lists them separately, by name.
+  No assistant can use another's token: tokens are bound to their grant and client.
+- **Per-grant calendars.** Each grant holds its own list, chosen on the consent page, and the
+  handles each grant sees are its own. A grant cannot be edited in place: choosing other calendars
+  means connecting again. That makes a new grant and leaves the others as they were.
+- **Revocation.** Revoking in Koyomi ends that grant at its next request (401) and its refresh
+  (`invalid_grant`). This was done for ChatGPT, Claude and Grok in turn. Each reconnected through
+  the consent page and got a new grant with new handles. Revoking one never touched another:
+  after Claude's revoke, ChatGPT's refresh and next call still worked; after Grok's, Claude's
+  grant still answered.
+- **Someone else.** A second real Koyomi user was refused everywhere (above). Nothing of theirs
+  was visible to the owner's grants, and nothing of the owner's was visible to them.
+- **What is stored.** The AI tables (migration 004) have no column that can hold event content.
+  Their rows were read after each step: grants, calendar fingerprints, client registrations,
+  hashed tokens and codes, and nothing else.
+- **Logs.** Each `[mcp]` line names the tool and its outcome, never a title, calendar, account or
+  token. A credential scan of the runtime log after each step found nothing. There was no 5xx
+  after PR #36.
+
+### Fixes that came from acceptance
+
+| Found | Fix |
+| --- | --- |
+| Claude's tool-change subscription held each function for 300 s | PR #36, `e6feaef`: `listChanged: false` (above) |
+| On the 2025 handshake the `/mcp` log line was written before the answer finished, so it had no outcome (MCP Inspector, before merge) | `615b4f3`: logged once the answer is sent |
+| Vercel Security Review, before merge: refresh grace could mint independent token lines, and a calendar link given a new address kept its AI permission | `b14e58a`: one successor per token; calendar permission keyed to the connection's account |
+
+### Known limitations
+
+1. **Revoking in the assistant is not revoking in Koyomi.** Claude and Grok, at least, only stop
+   using the connection. The grant ends when it is revoked in Koyomi, or when its refresh token
+   expires after 30 days unused.
+2. **Grok registers a new client on every connection, and Grok Bot registers three.** Unused
+   registrations are removed after 7 days, idle ones after 90. Grok Bot is shown as "Other MCP
+   client (www.cursor.com)", because its callback is Cursor's.
+3. **The same calendar through two connected accounts is listed twice**, and its events come
+   twice. Koyomi does not merge them.
+4. **The AI access section appears only where Koyomi has the person's calendars on that
+   device.** On a device that is only signed in, it is not shown, so there is nowhere there to
+   revoke from.
+5. **The consent page does not say which 6Away account is signed in.** During acceptance a
+   browser signed in to a different 6Away account was refused, as the allowlist intends. Nothing
+   on the page explained why.
+6. **A person with no calendars reaches a dead end** on the consent page. It tells them to
+   connect one first, but gives no link.
+7. **Microsoft and Yahoo were not exercised through an assistant on Production:** the owner's
+   account has no such connection. Google and calendar links were. All four providers are
+   covered by the automated tests with stand-ins. A provider failing mid-answer (`complete:
+   false`) is likewise tested with stand-ins and by the Inspector, not on Production.
+8. **The per-client limit is per server instance and shared by everyone using that assistant**:
+   300 calls a minute per client. ChatGPT and Claude each use one client id for all their users.
+   Dynamic registration is limited to 60 a minute per instance, for everyone. Both are fine for a
+   private beta and are reviewed for public use in
+   [MCP_PUBLIC_READINESS.md](MCP_PUBLIC_READINESS.md).
+9. **An assistant's calendars cannot be changed in place.** The AI access section offers Revoke.
+   To share other calendars, a person connects the assistant again.
+
+### Still to do
+
+Public release is not started. The allowlist stays at one person, and no listing has been
+submitted. What a public release needs is in
+[MCP_PUBLIC_READINESS.md](MCP_PUBLIC_READINESS.md): the onboarding gaps above, the per-client
+limit, Google's confirmation for this use of Google data (release gate 1), a reviewer account,
+and each platform's submission.
