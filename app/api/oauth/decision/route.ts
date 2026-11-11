@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { storeFor } from '@/lib/server/api';
 import { auth } from '@/lib/server/auth';
-import { aiConfig, hashOf, ownHost } from '@/lib/server/ai/config';
+import { aiConfig, hashOf, mayShare, ownHost } from '@/lib/server/ai/config';
 import { CONSENT_COOKIE, back, consentCookie, formTokenMatches, openPending } from '@/lib/server/ai/consent';
 import { aiStoreFor } from '@/lib/server/ai/context';
 import { calendarFingerprint } from '@/lib/server/ai/read';
@@ -66,13 +66,21 @@ export async function POST(request: Request) {
   // Only the person's own connections; the store checks this again. Each calendar is tied to the
   // account its connection is for now, the one the person was shown.
   const own = new Map((await storeFor(config.connections).list(user.sub)).map((c) => [c.id, c]));
+  // Google calendars only where this person may share them with an assistant (accessPolicy). The
+  // page does not offer them otherwise; a request that names one anyway is not granted it, and a
+  // request that names nothing else grants nothing.
+  const access = config.access(user.sub);
+  const allowedConnection = (id: string) => own.has(id) && mayShare(access, own.get(id)!.provider);
+  if (picked.some((each) => each !== null && own.has(each.connectionId) && !allowedConnection(each.connectionId))) console.warn('[oauth] decision: a calendar at a provider not offered was named; left out');
   const calendars = picked
-    .filter((each): each is NonNullable<typeof each> => each !== null && own.has(each.connectionId))
+    .filter((each): each is NonNullable<typeof each> => each !== null && allowedConnection(each.connectionId))
     .map((each) => ({ connectionId: each.connectionId, fingerprint: calendarFingerprint(config, own.get(each.connectionId)!, each.calendarId) }));
   if (!calendars.length) return NextResponse.redirect(new URL('/ai/consent', config.issuer), 303);
 
   const zone = form.get('timezone');
   const store = aiStoreFor(config);
+  // Limits whose windows ended long ago go as grants are written (registrations do the same).
+  await store.pruneLimits().catch(() => 0);
   const grantId = await store.createGrant({
     subject: user.sub,
     clientId: pending.clientId,

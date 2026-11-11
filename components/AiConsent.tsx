@@ -9,6 +9,8 @@ export interface ConsentGroup {
   account: string | null;
   /** False when the account could not be read just now: none of its calendars can be chosen. */
   readable: boolean;
+  /** False when this provider's calendars cannot be shared with an assistant (Google, while that is closed: accessPolicy). */
+  offered: boolean;
   calendars: { calendarId: string; name: string }[];
 }
 
@@ -46,8 +48,10 @@ export function AiConsent({ label, host, groups, form, account }: { label: strin
 
   // Every calendar that can be chosen, by the value its box sends: its name, and its provider.
   const choices = new Map(
-    groups.flatMap((group) => (group.readable ? group.calendars.map((c) => [JSON.stringify([group.connectionId, c.calendarId]), { name: c.name, provider: group.provider }] as const) : [])),
+    groups.flatMap((group) => (group.offered && group.readable ? group.calendars.map((c) => [JSON.stringify([group.connectionId, c.calendarId]), { name: c.name, provider: group.provider }] as const) : [])),
   );
+  const shown = groups.filter((group) => group.offered);
+  const notOffered = [...new Set(groups.filter((group) => !group.offered).map((group) => group.provider))];
   const picked = [...choices].filter(([value]) => chosen.has(value)).map(([, c]) => c);
   const googlePicked = picked.some((c) => c.provider === 'google');
   const who = account.email ?? account.name ?? 'your 6Away account';
@@ -94,10 +98,10 @@ export function AiConsent({ label, host, groups, form, account }: { label: strin
         </a>
       </p>
 
-      {groups.length ? (
+      {shown.length ? (
         <fieldset className="mt-8 flex flex-col gap-6">
           <legend className="sr-only">Calendars {name} may read</legend>
-          {groups.map((group) => (
+          {shown.map((group) => (
             <div key={group.connectionId} role="group" aria-label={`${PROVIDER[group.provider]}${group.account ? `, ${group.account}` : ''}`} className="flex flex-col">
               <p className="flex items-baseline gap-2 border-b border-line pb-2 text-[12px] tracking-[.04em] text-muted">
                 <span>{PROVIDER[group.provider].toUpperCase()}</span>
@@ -121,12 +125,23 @@ export function AiConsent({ label, host, groups, form, account }: { label: strin
         </fieldset>
       ) : (
         <div className="mt-8 flex flex-col gap-3 text-[15px] leading-[1.8] text-ink2" data-no-calendars>
-          <p>You have no connected calendars to share yet.</p>
+          <p>{notOffered.length ? 'None of your connected calendars can be shared with an assistant yet.' : 'You have no connected calendars to share yet.'}</p>
           <p>
             <a href="/?calendars=open" target="_blank" rel="noopener" className={LINK}>
               Connect a calendar in Koyomi
             </a>
             , then come back to this page and reload it within ten minutes, or connect Koyomi again from {name}.
+          </p>
+        </div>
+      )}
+
+      {/* A provider whose calendars cannot be shared with an assistant yet: said, so the list is not taken for all there is. */}
+      {notOffered.includes('google') && (
+        <div className="mt-6 flex flex-col" data-not-offered="google">
+          <p className="border-b border-line pb-2 text-[12px] tracking-[.04em] text-muted">GOOGLE</p>
+          <p className="py-3 text-[13.5px] leading-[1.7] text-pretty text-ink2">
+            Google calendars can’t be shared with an AI assistant yet, so they are not listed here. They stay connected to Koyomi; Microsoft, Yahoo
+            and calendar link calendars can be shared.
           </p>
         </div>
       )}

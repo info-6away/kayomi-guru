@@ -64,8 +64,11 @@ export default function Help() {
       <H2>Revoking an assistant’s access</H2>
       <P>
         In Koyomi, open Calendars, then AI access, and choose Revoke beside the assistant. Its access ends at once, and your calendars stay
-        connected. It cannot take back what it has already received. AI access appears in Calendars once that device shows your connected
-        calendars: if you do not see it, open Koyomi where you connected them.
+        connected. It cannot take back what it has already received.
+      </P>
+      <P>
+        From any device, even one with no calendars on it, open <A href="https://app.koyomi.guru/ai/access">app.koyomi.guru/ai/access</A> and
+        sign in: it lists each assistant that can read your calendars, how many calendars at which provider, and a Revoke for each.
       </P>
 
       <H2>Removing Koyomi inside the assistant</H2>

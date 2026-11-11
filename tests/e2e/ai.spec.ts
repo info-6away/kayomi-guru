@@ -58,9 +58,13 @@ const pkce = () => {
 
 const form = (fields: Record<string, string>) => ({ method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(fields) });
 
+/** A registration from a source address of its own (the tests name it; limits.ts). Each call is a source of its own unless one is given. */
+const registration = (source = randomBytes(6).toString('hex'), name = 'ChatGPT') =>
+  fetch(`${APP}/api/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-koyomi-test-source': source }, body: JSON.stringify({ client_name: name, redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none' }) });
+
 /** Registers a client the way one without a metadata document does (RFC 7591). */
-async function registerClient(): Promise<string> {
-  const response = await fetch(`${APP}/api/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'ChatGPT', redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none' }) });
+async function registerClient(source?: string): Promise<string> {
+  const response = await registration(source);
   expect(response.status).toBe(201);
   return (await response.json()).client_id;
 }
@@ -247,6 +251,8 @@ test.describe('AI assistants', () => {
   });
 
   test('Koyomi refuses what it must: no token, a forged one, a foreign redirect, a replayed code, a wrong verifier, another site, another person', async ({ page, id, browser }) => {
+    // Four authorizations and a second browser: 12–21 s, past 30 on a machine running the whole suite.
+    test.slow();
     // No token: where to get one.
     const bare = await fetch(MCP, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     expect(bare.status).toBe(401);
@@ -600,6 +606,218 @@ test.describe('AI assistants', () => {
     // Nothing of the calendar that was not shared, and nothing Koyomi does not send.
     const said = JSON.stringify([wednesday, thursday, friday]);
     for (const never of ['Koyomi Demo — Personal', 'Gym', 'School pickup', 'Piano lesson', 'Family day', 'Synthetic Cafe', 'Synthetic notes']) expect(said, never).not.toContain(never);
+    await assistant.close();
+  });
+
+  // ---- Phase 8B: fair limits, registrations, revoking from any device, public access ----
+
+  /** A second person, in a browser of their own, with a Google account of their own, connected. */
+  async function secondPerson(browser: import('@playwright/test').Browser, id: string, who: string) {
+    const context = await browser.newContext({ timezoneId: 'Europe/Istanbul' });
+    const other = await context.newPage();
+    const account = `${id}${who}`;
+    await google.has(account, aiAccount());
+    await context.addCookies([
+      { name: 'fake_user', value: `user-${account}`, url: FAKE },
+      { name: 'fake_google', value: account, url: FAKE },
+    ]);
+    await open(other);
+    await connect(other);
+    return { context, page: other };
+  }
+
+  test('people sharing one platform’s client (as every ChatGPT or Claude user does) never limit each other', async ({ page, id, browser }) => {
+    // Both connect the same client, known by its metadata document, as ChatGPT and Claude are.
+    await google.has(id, aiAccount());
+    await open(page);
+    await connect(page);
+    const mine = await authorize(page, DOCUMENT, ['Work']);
+    const busy = await mcp((await tokensFor(DOCUMENT, mine.code, mine.verifier)).access_token);
+    const second = await secondPerson(browser, id, 'b');
+    const theirs = await authorize(second.page, DOCUMENT, ['Personal']);
+    const calm = await mcp((await tokensFor(DOCUMENT, theirs.code, theirs.verifier)).access_token);
+
+    // One of them asks 40 things at once: exactly the grant's 30 are answered, the rest told why and when.
+    const answers = await Promise.all(Array.from({ length: 40 }, () => call(busy, 'get_schedule', { date: TOMORROW, timezone: ZONE })));
+    expect(answers.filter((a) => !a.isError)).toHaveLength(30);
+    const refused = answers.filter((a) => a.isError);
+    expect(refused).toHaveLength(10);
+    for (const answer of refused) expect(answer.structuredContent).toMatchObject({ error: 'rate_limited', limit: 'grant' });
+    expect(refused[0].structuredContent.retry_after).toBeGreaterThanOrEqual(1);
+    expect(refused[0].structuredContent.message).toMatch(/^Too many calendar requests from this assistant just now\. Try again in \d+ seconds\.$/);
+    // The other person, on the very same client, is answered as if nothing had happened; and only from their own calendars.
+    const theirDay = (await call(calm, 'list_calendars')).structuredContent;
+    expect(theirDay.calendars.map((c: { name: string }) => c.name)).toEqual(['Personal']);
+    expect((await call(calm, 'get_schedule', { date: TOMORROW, timezone: ZONE })).isError).toBeFalsy();
+    await Promise.all([busy.close(), calm.close(), second.context.close()]);
+  });
+
+  test('a client that registers anew on every connection, as Grok does: each is its own grant, listed apart, and each can be ended', async ({ page, id }) => {
+    await google.has(id, aiAccount());
+    await open(page);
+    await connect(page);
+    const first = await registerClient();
+    const second = await registerClient();
+    expect(second).not.toBe(first);
+    const one = await authorize(page, first, ['Work']);
+    const oneTokens = await tokensFor(first, one.code, one.verifier);
+    const two = await authorize(page, second, ['Personal']);
+    const twoTokens = await tokensFor(second, two.code, two.verifier);
+    // Two connections, not one replacing the other.
+    const listed = (await (await page.request.post(`${APP}/api/ai/grants`, { headers: { origin: APP }, data: { calendars: [] } })).json()).grants;
+    expect(listed).toHaveLength(2);
+    // The older ended; the newer carries on, and both kept their own refresh.
+    expect((await page.request.post(`${APP}/api/ai/grants/revoke`, { headers: { origin: APP }, data: { grantId: listed[0].id } })).status()).toBe(200);
+    expect((await fetch(MCP, { method: 'POST', headers: { authorization: `Bearer ${oneTokens.access_token}`, 'content-type': 'application/json' }, body: '{}' })).status).toBe(401);
+    const still = await mcp(twoTokens.access_token);
+    expect((await call(still, 'list_calendars')).structuredContent.calendars.map((c: { name: string }) => c.name)).toEqual(['Personal']);
+    const refreshed = await fetch(`${APP}/api/oauth/token`, form({ grant_type: 'refresh_token', refresh_token: twoTokens.refresh_token, client_id: second, resource: MCP }));
+    expect(refreshed.status).toBe(200);
+    await still.close();
+  });
+
+  test('registrations: so many from one source, then refused with a time to wait; another source is not held up; nothing but public clients', async () => {
+    const source = `limit-${randomBytes(4).toString('hex')}`;
+    const statuses: number[] = [];
+    let refused: Response | null = null;
+    for (let i = 0; i < 12; i++) {
+      const response = await registration(source);
+      statuses.push(response.status);
+      if (response.status === 429) refused = response;
+    }
+    expect(statuses).toEqual([...Array(10).fill(201), 429, 429]);
+    expect(refused!.headers.get('retry-after')).toMatch(/^\d+$/);
+    expect(await refused!.json()).toMatchObject({ error: 'temporarily_unavailable' });
+    // Another address is not held up by it.
+    expect((await registration(`other-${source}`)).status).toBe(201);
+    // Not a public client, or a redirect elsewhere than https or this computer: refused, and nothing kept.
+    const post = (body: unknown) => fetch(`${APP}/api/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-koyomi-test-source': `bad-${source}` }, body: JSON.stringify(body) });
+    expect((await post({ redirect_uris: [CALLBACK], token_endpoint_auth_method: 'client_secret_basic' })).status).toBe(400);
+    expect((await post({ redirect_uris: ['http://evil.example/cb'], token_endpoint_auth_method: 'none' })).status).toBe(400);
+    expect((await post({ redirect_uris: [] })).status).toBe(400);
+    // A header the client chose does not change who it is where none is trusted: on Vercel the
+    // address is Vercel's own, and anywhere else the tests' header is honoured only by their switch
+    // (tests/unit/limits.test.ts).
+  });
+
+  test('revoking from any device: a browser with no calendars on it, signed in, sees each assistant and ends one; nobody else’s are shown', async ({ page, id, browser }) => {
+    const { client, tokens } = await connectedAssistant(page, id);
+    // A fresh browser: nothing on it but a sign-in. No calendar is connected there, or read.
+    const fresh = await browser.newContext({ timezoneId: 'Europe/Istanbul' });
+    const device = await fresh.newPage();
+    await fresh.addCookies([{ name: 'fake_user', value: `user-${id}`, url: FAKE }]);
+    // Signed out, the page asks for a sign-in and shows nothing else.
+    await device.goto(`${APP}/ai/access`);
+    await expect(device.getByRole('heading', { level: 1 })).toHaveText('AI access');
+    await expect(device.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/api/auth/signin?returnTo=%2Fai%2Faccess');
+    await expect(device.locator('[data-grants]')).toHaveCount(0);
+    await device.getByRole('link', { name: 'Sign in' }).click();
+    await expect(device).toHaveURL(`${APP}/ai/access`);
+    await expect(device.getByText(`Signed in to Koyomi as user-${id}@example.test`)).toBeVisible();
+    const grant = device.getByRole('group', { name: 'An app on this computer access' });
+    await expect(grant).toContainText('Read-only · 2 calendars (2 Google calendars) · 127.0.0.1:4398');
+    // This device holds no calendars: nothing of them was read here.
+    expect(await device.evaluate(() => localStorage.getItem('koyomi-calendars'))).not.toBe('connected');
+    await grant.getByRole('button', { name: 'Revoke An app on this computer…' }).click();
+    await grant.getByRole('button', { name: 'Revoke An app on this computer', exact: true }).click();
+    await expect(device.getByText('No AI connections.')).toBeVisible();
+    // Ended at once, from here.
+    expect((await fetch(MCP, { method: 'POST', headers: { authorization: `Bearer ${tokens.access_token}`, 'content-type': 'application/json' }, body: '{}' })).status).toBe(401);
+    expect(await (await fetch(`${APP}/api/oauth/token`, form({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: client }))).json()).toMatchObject({ error: 'invalid_grant' });
+    // The calendars are still connected, on the first device.
+    expect(((await (await page.request.get(`${APP}/api/calendars`)).json()).connections as unknown[]).length).toBe(1);
+    await fresh.close();
+
+    // Someone else, signed in elsewhere, sees only their own (none), and cannot end anyone else's.
+    const again = await registerClient();
+    const allowed = await authorize(page, again, ['Work']);
+    const kept = await tokensFor(again, allowed.code, allowed.verifier);
+    const mineNow = (await (await page.request.post(`${APP}/api/ai/grants`, { headers: { origin: APP }, data: { calendars: [] } })).json()).grants[0].id;
+    const second = await secondPerson(browser, id, 'c');
+    await second.page.goto(`${APP}/ai/access`);
+    await expect(second.page.getByText('No AI connections.')).toBeVisible();
+    await expect(second.page.getByRole('group')).toHaveCount(0);
+    expect(await (await second.page.request.post(`${APP}/api/ai/grants/revoke`, { headers: { origin: APP }, data: { grantId: mineNow } })).json()).toEqual({ revoked: false });
+    const stillMine = await mcp(kept.access_token);
+    expect((await call(stillMine, 'list_calendars')).structuredContent.calendars.map((c: { name: string }) => c.name)).toEqual(['Work']);
+    await stillMine.close();
+    await second.context.close();
+  });
+
+  test('outside AI access, holding no grant, the page is not there at all', async ({ page, id }) => {
+    await actAs(page, `outsider-${id}`);
+    await signInOnly(page);
+    const answer = await page.goto(`${APP}/ai/access`);
+    expect(answer?.status()).toBe(404);
+  });
+
+  test('public access with Google closed: Google calendars are not offered, cannot be granted by a made-up request, and are never read', async ({ page, id }) => {
+    // A person let in by public access, not on the allowlist (the tests' public stand-in).
+    await actAs(page, `public-${id}`);
+    await google.has(id, aiAccount());
+    await open(page);
+    await connect(page);
+    const FEEDS = 'http://localhost:4317';
+    await fetch(`${FEEDS}/__fake/feeds/${id}pub`, { method: 'PUT', body: JSON.stringify({ ics: readFileSync('public/demo/koyomi-demo-work.ics', 'utf8') }) });
+    expect((await page.request.post(`${APP}/api/link/connect`, { headers: { origin: APP }, data: { link: `${FEEDS}/feeds/${id}pub/calendar.ics` } })).status()).toBe(200);
+    const connections = (await (await page.request.get(`${APP}/api/calendars`)).json()).connections as { connectionId: string; provider: string }[];
+    const googleId = connections.find((c) => c.provider === 'google')!.connectionId;
+    const linkId = connections.find((c) => c.provider === 'link')!.connectionId;
+
+    const clientId = await registerClient();
+    await page.goto(askFor(clientId));
+    // The page says so, and offers the link's calendar alone.
+    await expect(page.locator('[data-not-offered="google"]')).toContainText('Google calendars can’t be shared with an AI assistant yet');
+    await expect(page.getByRole('checkbox')).toHaveCount(1);
+    await expect(page.getByRole('checkbox', { name: 'Koyomi Demo — Work' })).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: 'Personal' })).toHaveCount(0);
+    await expect(page.locator('[data-google-notice]')).toHaveCount(0);
+
+    // A request made up by hand, naming a Google calendar beside the link's: the Google one is left out.
+    const formValue = await page.locator('form:not([hidden]) input[name="form"]').inputValue();
+    const body = new URLSearchParams([
+      ['form', formValue],
+      ['timezone', ZONE],
+      ['action', 'allow'],
+      ['calendar', JSON.stringify([googleId, 'me@example.test'])],
+      ['calendar', JSON.stringify([linkId, 'calendar'])],
+    ]);
+    const answer = await page.request.post(`${APP}/api/oauth/decision`, { headers: { origin: APP, 'content-type': 'application/x-www-form-urlencoded' }, data: body.toString(), maxRedirects: 0 });
+    expect(answer.status()).toBe(303);
+    const back = new URL(answer.headers().location);
+    expect(`${back.origin}${back.pathname}`).toBe(CALLBACK);
+    expect(back.searchParams.get('code')).toBeTruthy();
+    // The grant holds the link's calendar, and not Google's: one calendar, not two.
+    const listed = (await (await page.request.post(`${APP}/api/ai/grants`, { headers: { origin: APP }, data: { calendars: [] } })).json()).grants;
+    expect(listed).toHaveLength(1);
+    expect(listed[0].calendars.length + listed[0].unnamed).toBe(1);
+    // A request naming only Google grants nothing: back to the consent page.
+    await page.goto(askFor(clientId, 'again'));
+    const formAgain = await page.locator('form:not([hidden]) input[name="form"]').inputValue();
+    const onlyGoogle = await page.request.post(`${APP}/api/oauth/decision`, {
+      headers: { origin: APP, 'content-type': 'application/x-www-form-urlencoded' },
+      data: new URLSearchParams([['form', formAgain], ['action', 'allow'], ['calendar', JSON.stringify([googleId, 'me@example.test'])]]).toString(),
+      maxRedirects: 0,
+    });
+    expect([onlyGoogle.status(), new URL(onlyGoogle.headers().location, APP).pathname]).toEqual([303, '/ai/consent']);
+  });
+
+  test('public access with Google closed: what the assistant reads through a granted link calendar, end to end', async ({ page, id }) => {
+    await actAs(page, `public-${id}`);
+    await google.has(id, aiAccount());
+    await open(page);
+    await connect(page);
+    const FEEDS = 'http://localhost:4317';
+    await fetch(`${FEEDS}/__fake/feeds/${id}pub2`, { method: 'PUT', body: JSON.stringify({ ics: readFileSync('public/demo/koyomi-demo-work.ics', 'utf8') }) });
+    expect((await page.request.post(`${APP}/api/link/connect`, { headers: { origin: APP }, data: { link: `${FEEDS}/feeds/${id}pub2/calendar.ics` } })).status()).toBe(200);
+    const clientId = await registerClient();
+    const { code, verifier } = await authorize(page, clientId, ['Koyomi Demo — Work']);
+    const assistant = await mcp((await tokensFor(clientId, code, verifier)).access_token);
+    const listed = (await call(assistant, 'list_calendars')).structuredContent;
+    expect(listed.calendars.map((c: { name: string; provider: string }) => [c.name, c.provider])).toEqual([['Koyomi Demo — Work', 'link']]);
+    expect(listed.complete).toBe(true);
+    const week = JSON.stringify((await call(assistant, 'get_events', { start: dayFrom(0), end: dayFrom(6), timezone: 'Europe/London' })).structuredContent);
+    for (const never of ['Standup', 'Project review', 'Dentist', 'Holiday', 'me@example.test', 'google']) expect(week, never).not.toContain(never);
     await assistant.close();
   });
 

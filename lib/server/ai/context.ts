@@ -2,10 +2,11 @@ import 'server-only';
 import { neon } from '@neondatabase/serverless';
 import type { Sql } from '../connections';
 import { SCOPE, type AiConfig } from './config';
+import { spendCallIn } from './limits';
 import { memoryAiStore, sqlAiStore, type AiStore, type Grant } from './store';
 import { readAccess } from './tokens';
 
-const shared = globalThis as typeof globalThis & { koyomiAiStore?: { database: string; store: AiStore }; koyomiAiClientCalls?: Map<string, { start: number; count: number }> };
+const shared = globalThis as typeof globalThis & { koyomiAiStore?: { database: string; store: AiStore } };
 
 /** One store per server instance, beside the connections' own (api.ts). */
 export function aiStoreFor(config: AiConfig): AiStore {
@@ -31,8 +32,9 @@ export function unauthorized(config: AiConfig, invalid: boolean): Response {
 /**
  * The grant behind a request's bearer token, or null. The token must be Koyomi's, unexpired, for
  * this endpoint, and its grant must still be in force, belong to the client the token was issued
- * to, and be of a person in the beta's allowlist (taking someone off it ends their access at
- * once). Only the Authorization header is read: never a query string, never a cookie.
+ * to, and be of a person AI access lets in (accessPolicy: taking someone off the allowlist, or
+ * turning public access off, ends their access at once). Only the Authorization header is read:
+ * never a query string, never a cookie.
  */
 export async function grantFor(config: AiConfig, request: Request): Promise<{ grant: Grant; token: string; expiresAt: number } | null> {
   const header = request.headers.get('authorization') ?? '';
@@ -45,23 +47,10 @@ export async function grantFor(config: AiConfig, request: Request): Promise<{ gr
   return { grant, token: match[1], expiresAt: claims.e };
 }
 
-/** Tool calls one grant may make: a person asks a few questions a minute; an assistant in a loop is stopped here. */
-export const GRANT_ALLOWANCE = { units: 30, seconds: 60 };
-/** Tool calls one client may make on one server instance, across all its grants: a second line behind the first. */
-const CLIENT_CALLS = 300;
+export { GRANT_ALLOWANCE } from './limits';
 
-/** Counts a tool call for a client on this instance. False once it has made too many this minute. */
-export function clientMayCall(clientId: string, now = Date.now()): boolean {
-  const calls = (shared.koyomiAiClientCalls ??= new Map());
-  const held = calls.get(clientId);
-  if (!held || held.start <= now - 60_000) {
-    if (calls.size > 1000) calls.clear();
-    calls.set(clientId, { start: now, count: 1 });
-    return true;
-  }
-  held.count++;
-  return held.count <= CLIENT_CALLS;
-}
+/** Counts one tool call against every limit it falls under, in this deployment's store (limits.ts, spendCallIn). */
+export const spendCall = (config: AiConfig, grant: Grant) => spendCallIn(aiStoreFor(config), config, grant);
 
 /** Whether a browser origin may call the MCP endpoint. Servers send none; a browser must be the AI client's own page, or a tool on this computer. */
 export function originAllowed(origin: string | null): boolean {

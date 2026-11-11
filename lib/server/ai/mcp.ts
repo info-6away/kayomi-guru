@@ -4,7 +4,8 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { JOB_TIMEOUT_MS, storeFor } from '../api';
 import { SCOPE, type AiConfig } from './config';
-import { GRANT_ALLOWANCE, aiStoreFor, clientMayCall } from './context';
+import { spendCall } from './context';
+import { LIMIT_WORDS } from './limits';
 import { WEEKDAYS } from './free';
 import { authorizedCalendars, readEvents } from './read';
 import type { Grant } from './store';
@@ -59,14 +60,19 @@ export function serverFor(config: AiConfig, grant: Grant, log: (entry: ToolLog) 
   const ctx = { config: config.connections, store: storeFor(config.connections), subject: grant.subject };
 
   const run = <I,>(tool: string, work: (tc: ToolContext, input: I) => Promise<Record<string, unknown>>) => async (input: I) => {
-    const spent = await aiStoreFor(config).spendGrant(grant.id, 1, GRANT_ALLOWANCE);
+    // The limits are counted in the database; if it cannot be reached, nothing is read either.
+    const spent = await spendCall(config, grant).catch((error: unknown) => (error instanceof Error ? error : new Error('unknown')));
+    if (spent instanceof Error) {
+      log({ tool, status: `failed:limits:${spent.name.replace(/[^A-Za-z]/g, '').slice(0, 40)}` });
+      return refuse('unavailable', 'Koyomi could not read the calendars just now. Try again shortly.');
+    }
     if (!spent) {
       log({ tool, status: 'revoked' });
       return refuse('access_revoked', 'This connection to Koyomi has been revoked. The person can connect again from the assistant.');
     }
-    if (!spent.allowed || !clientMayCall(grant.clientId)) {
-      log({ tool, status: 'rate_limited' });
-      return refuse('rate_limited', `Too many calendar requests just now. Try again in ${spent.retryAfter} seconds.`, { retry_after: spent.retryAfter });
+    if (spent.refused) {
+      log({ tool, status: `rate_limited:${spent.refused}` });
+      return refuse('rate_limited', `${LIMIT_WORDS[spent.refused]} Try again in ${spent.retryAfter} seconds.`, { retry_after: spent.retryAfter, limit: spent.refused });
     }
     const deadline = AbortSignal.timeout(JOB_TIMEOUT_MS);
     const tc: ToolContext = {

@@ -738,7 +738,8 @@ or token.
    twice. Koyomi does not merge them.
 4. **The AI access section appears only where Koyomi has the person's calendars on that
    device.** On a device that is only signed in, it is not shown, so there is nowhere there to
-   revoke from.
+   revoke from. *Addressed in Phase 8B:* `app.koyomi.guru/ai/access` lists and revokes from any
+   device, by the sign-in alone (Part 6).
 5. **The consent page did not say which 6Away account is signed in.** During acceptance a
    browser signed in to a different 6Away account was refused, as the allowlist intends. Nothing
    on the page explained why. *Addressed in Phase 8A:* the page names the signed-in account and
@@ -755,7 +756,9 @@ or token.
    300 calls a minute per client. ChatGPT and Claude each use one client id for all their users.
    Dynamic registration is limited to 60 a minute per instance, for everyone. Both are fine for a
    private beta and are reviewed for public use in
-   [MCP_PUBLIC_READINESS.md](MCP_PUBLIC_READINESS.md).
+   [MCP_PUBLIC_READINESS.md](MCP_PUBLIC_READINESS.md). *Addressed in Phase 8B:* limits counted in
+   the database, per grant, per person and per self-registered client, never per platform; and
+   registrations limited per source address and in total (Part 6).
 9. **An assistant's calendars cannot be changed in place.** The AI access section offers Revoke.
    To share other calendars, a person connects the assistant again.
 
@@ -774,7 +777,7 @@ submitted. What a public release needs is in
 
 ---
 
-## Part 5: public plugin preparation, Phase 8A (feature branch, not merged)
+## Part 5: public plugin preparation, Phase 8A
 
 This prepares Koyomi for a directory submission. **It does not open AI access**: the allowlist,
 OAuth, grants, tokens, limits and Google's settings are unchanged.
@@ -799,3 +802,237 @@ Tests:
 - `tests/e2e/ai.spec.ts`: the consent page, "Not you? Sign out", the no-calendar path, and the demo
   calendars subscribed by link and read through MCP
 - `tests/e2e/site.spec.ts`: Privacy, Help, hosts, the challenge address, the demo files
+
+
+Merged on 10 November 2026 as `51dee8e` (PR #38), in Production as
+`dpl_2BQNqLYsKKtwcRQnCGAeEzfEPei1`.
+
+---
+
+## Part 6: public access infrastructure, Phase 8B (feature branch, not merged)
+
+This makes public AI access possible without turning it on. Production settings, the allowlist,
+OAuth scopes, the token model and the three private integrations are unchanged.
+
+### Audit (before any change)
+
+| Area | Found | Change |
+| --- | --- | --- |
+| Per-grant limit | 30 calls a minute, counted in the database (`ai_grants`), so it already held across instances | kept |
+| Per-client limit | 300 a minute **per client per server instance, in memory**. ChatGPT and Claude each use one client id for all their users, so one busy person could slow everyone else, and Vercel instances each kept their own count | replaced |
+| Per-person limit | none: a person with three assistants had three allowances | added |
+| Provider protection | 120 provider units a minute per connection (database), a minute's memory of identical reads, a 25 s deadline, range caps | kept |
+| Registration (DCR) | 60 a minute **per instance, for everyone**, in memory | replaced |
+| Unused registrations | pruned after 7 days unused or 90 days idle, on registration | kept; a cap added |
+| Vercel | Fluid compute: instances are reused and run side by side, so a count held in memory is neither shared nor complete | limits moved to the database |
+| Neon | the HTTP driver, one request per query; every tool call already wrote the grant's allowance | one more upsert per call (two for a registered client) |
+| AI access UI | shown only where the device holds the person's calendars | an any-device page added |
+| Revocation | by grant id, scoped to the signed-in subject; refused outside the allowlist | kept; never refused to someone who still holds a grant |
+| Feature flags | `KOYOMI_MCP` (on/off) and `KOYOMI_MCP_ALLOWLIST`; no public mode | public and Google switches added, both off |
+| Google authorization | the same for every allowed person | Google closed for public access, on the server |
+
+### Limits, counted in the database (`lib/server/ai/limits.ts`, migration 005)
+
+Every tool call spends one unit of each limit that applies, in this order. The first to refuse
+is named in the answer (`error: "rate_limited"`, `limit`, `retry_after`, and a sentence saying
+which).
+
+| Limit | Allowance | Kept in |
+| --- | --- | --- |
+| The grant (one assistant of one person) | 30 a minute | `ai_grants` (migration 004, unchanged) |
+| The person (all their assistants together) | 60 a minute | `ai_limits`, under a keyed hash of the subject |
+| A self-registered client (one Grok connection, one installed app), across everyone using it | 300 a minute | `ai_limits`, under a keyed hash of the client id |
+| A platform's client (an https metadata document: ChatGPT, Claude) | **none** | per person and per grant only |
+
+**Why no platform-wide limit:** a cap on ChatGPT's or Claude's client id would let one person
+slow down every other user of that assistant. Each person is held by their own allowances, and
+their providers by the per-connection allowance.
+
+**Atomic and distributed:** each count is one `insert … on conflict do update … returning`
+statement. The row is locked while it is counted, so concurrent spends from any number of
+servers are counted one after another. Tested with 50 spends at once from two stores on one
+database: exactly the allowance gets through.
+
+**No event data:** `ai_limits` holds `limit_key` (kind plus a 32-character keyed hash), the
+window's start and a count. Rows a day past their window are deleted as grants and
+registrations are written.
+
+**If the database cannot be reached:** the tool call answers `unavailable` and nothing is read;
+a registration answers 503. Never unlimited.
+
+### Registration (DCR) protection
+
+| Protection | Value |
+| --- | --- |
+| Per source address | 10 an hour (`ai_limits`, keyed hash of the address) |
+| All sources together | 300 an hour |
+| Unused registrations | none taken while 2,000 or more have never started an authorization (after pruning) |
+| Pruning | as before: 7 days unused, 90 days idle, never while a grant or code names a client |
+| Order | limits are counted before the body is read |
+
+**The source:** on Vercel it is `x-real-ip`, falling back to the first entry of
+`x-forwarded-for`. Vercel's documentation says it overwrites `X-Forwarded-For` and does not
+forward external addresses, to prevent spoofing, and `x-real-ip` is the same address. Anywhere
+else no header is taken, and every request is one source, "unknown", which is only stricter. The
+browser tests name a source with `x-koyomi-test-source`, honoured only where
+`KOYOMI_TEST_TRUST_SOURCE` is on and never on Vercel.
+
+**Unchanged:**
+
+- CIMD clients (ChatGPT, Claude) never register.
+- Grok's registration per connection still works, and so does Grok Bot's three.
+
+**Vercel Firewall (evaluated, not deployed).** It complements these limits by refusing floods at
+the edge before a function runs or Neon is touched. Pro has 40 rate-limit rules per project,
+fixed windows of 10 s to 10 min, keyed by IP or JA4, at $0.50 per million allowed requests. Its
+counters are per region, so they are not exact: the application limits remain the source of
+truth. Suggested rules, at the owner's word:
+
+| Route | Rule |
+| --- | --- |
+| `POST /api/oauth/register` | 20 per 10 min per IP |
+| `POST /api/oauth/token` | 60 per min per IP |
+| `POST /mcp` | 600 per min per IP |
+| `GET /api/oauth/authorize` | 60 per min per IP |
+
+The `/mcp` rule is generous because some assistants call from a few shared addresses.
+
+### Revoking from any device (`app/ai/access`)
+
+`https://app.koyomi.guru/ai/access` is a server-rendered page under `/ai/`, which the service
+worker never answers. It reads the person's grants from the server by their sign-in alone. No
+calendar on the device is needed, no provider is asked anything, and no reconnecting is
+required.
+
+| Visitor | What they see |
+| --- | --- |
+| Signed out | "Sign in", which returns to this page |
+| Signed in, let in by AI access, or holding a grant from before | each assistant: its name (and host for unnamed clients), "Read-only · N calendars (2 Google calendars, 1 calendar link)", since when, last read, and Revoke with a confirmation |
+| Signed in, not let in, holding no grant | a 404, as when AI access is off |
+
+- **Revoke** goes through `/api/ai/grants/revoke`: same origin, the signed-in subject, only that
+  person's grant. It is never refused to someone who still holds a grant, wherever AI access
+  stands for them now.
+- The Calendars section and the Help page link to the page.
+
+### Public access switches (`accessPolicy` in `lib/server/ai/config.ts`)
+
+| Setting | Means | Default |
+| --- | --- | --- |
+| `KOYOMI_MCP` | AI access exists at all | as before |
+| `KOYOMI_MCP_ALLOWLIST` | the private beta: these subjects, with every provider, Google included | as before; empty is nobody |
+| `KOYOMI_MCP_PUBLIC` | every other signed-in person | **off** unless exactly `on` (white space aside); `true`, `ON`, `yes`, `1`: off |
+| `KOYOMI_MCP_GOOGLE_PUBLIC` | those people may share Google calendars too | **off**, same rule; means nothing while public access is off |
+
+- `config.access(subject)` answers `{ allowed, google, via }`, and `config.allowed` is
+  `access(subject).allowed`, so every existing check (authorize, consent, decision, token, refresh,
+  `/mcp`) now follows the policy unchanged.
+- The browser tests let in their own "public" stand-ins by `KOYOMI_TEST_AI_PUBLIC_PREFIX`, ignored
+  on Vercel.
+
+### Google, closed to public access, on the server
+
+One rule, `mayShare(access, provider)`: Google only where `access.google`; Microsoft, Yahoo and
+calendar links wherever AI access is allowed. It is enforced in three places:
+
+1. **The consent page** does not list Google calendars, and does not ask Google for them. A plain
+   note says they cannot be shared with an assistant yet and stay connected to Koyomi.
+2. **The decision** leaves out any Google calendar named in the request, so a request made by
+   hand gets nothing of Google. A request naming only Google calendars grants nothing.
+3. **Every read** (`authorizedCalendars`): a grant's Google calendars are reported `unavailable`
+   with reason `provider_not_available`, and Google is not asked. This holds however the grant
+   was made, so an existing grant, a reconnect, or a switch turned off later all end the same
+   way.
+
+Allowlisted people keep Google exactly as before. No Google OAuth scope or setting changes.
+
+### Migration 005, and the order of release
+
+`migrations/005_ai_limits.sql` adds `ai_limits` (one table, one index). It must be in Production
+**before** this branch is deployed: every tool call and registration now uses it. The same
+procedure as 004:
+
+1. Rehearse on a disposable Neon branch of Production, run twice, with the rollback
+   (`drop table ai_limits;`).
+2. Then on Production, exactly:
+
+   ```sh
+   npm run db:migrate -- --only 005_ai_limits.sql --yes
+   ```
+
+   Never the plain `--yes`.
+3. Then merge.
+
+Tests:
+
+- `tests/unit/migrate.test.ts`: `--only 005` sends 005 alone; on Postgres after 001–004 it adds
+  `ai_limits` and nothing else, twice, rows unchanged.
+- `tests/unit/limits.test.ts`
+
+**Rehearsal (2026-11-11), passed.**
+
+- **The branch:** `rehearsal-005-2026-11-11`, a disposable branch of Production's `main` made in
+  the Neon console with its data as of that moment, on its own compute and set to auto-delete
+  after a day. It was deleted after the run.
+- **The command:** exactly `npm run db:migrate -- --only 005_ai_limits.sql --yes`, against the
+  branch's endpoint with Production's role (a branch is a whole copy). The address came from
+  Vercel into one process and was never printed. The script refused Production's endpoint and
+  never connected to it.
+- **The checks:** synthetic identities only (`rehearsal-005-…`); no real grant or token was used.
+
+| Step | Result |
+| --- | --- |
+| Before | 8 calendar connections, 3 AI grants (3 grant calendars), 7 registered clients, 1 code, 28 refresh tokens; 16 tables and indexes recorded |
+| First run | "Only 005_ai_limits.sql. Not run: 001…, 002…, 003…, 004…", exit 0. Schema +9 −0, every line on `ai_limits` (3 columns, key, index, constraints). Every existing table's and index's oid and storage file unchanged, so nothing rebuilt. Every existing table's rows, row digest and row versions unchanged |
+| Second run | the same output, exit 0; everything identical to the first run; no duplicate index or constraint |
+| Distributed limits, two stores and two OS processes at once | one limit of 30: 30 of 50 allowed, all 50 counted. Two processes, 40 each: 14 + 16 = 30 allowed, 80 counted (none lost). Two people on ChatGPT's client: the busy one 30 of 40, the other unaffected. One person's three assistants: 60 of 75. One registered client, 12 people: 300 of 312. Registrations from one source: 10 of 15. Cleanup removed a day-old window and kept a current one. An unreachable database: refused (an error), never allowed |
+| After the checks | every existing table identical to before; synthetic grants removed |
+| Rollback | `drop table ai_limits;` brought the schema and every row back exactly. With the table gone, counting a limit fails (42P01) rather than allowing |
+| Production | not connected to, not changed: still no `ai_limits`, the same row counts |
+
+**Applied to Production on 11 November 2026**, once, with exactly
+`npm run db:migrate -- --only 005_ai_limits.sql --yes`, before this PR was merged and with
+`KOYOMI_MCP_PUBLIC` and `KOYOMI_MCP_GOOGLE_PUBLIC` unset. The script refused any compute but
+`ep-cold-river-b7hmnqw0`, and a dry run without `--yes` named that host first. Results:
+
+| Check | Result |
+| --- | --- |
+| Runner output | "Only 005_ai_limits.sql. Not run: 001…, 002…, 003…, 004…", `applying` / `applied 005_ai_limits.sql`, exit 0 |
+| Schema | the three `ai_limits` columns, its primary key on `limit_key` and the index `ai_limits_by_window`, as in the rehearsal; nothing else added or removed; the table empty |
+| Existing tables | every table's and index's oid and storage file unchanged; every table's row count and row digest unchanged across the run |
+| The live site | answering as before (the deployed code does not use `ai_limits` until this PR is merged) |
+
+**Operations:**
+
+- About 8 queries a tool call, 2 of them new: the person's limit, and the client's for a
+  registered client. Each is one upsert to an existing row.
+- 4 more operations per registration: two counts, the cleanup and the unused count.
+- Write amplification is small: rows are tiny and updated in place.
+- The only row shared by everyone is the hourly count of all registrations, at most 300 an hour.
+
+### Tests
+
+- `tests/unit/limits.test.ts`:
+  - the policy: fail closed on every invalid value, empty allowlist ≠ public, Google only when
+    opened, test prefixes dead on Vercel;
+  - `mayShare`;
+  - the source: Vercel headers, spoofed headers ignored elsewhere;
+  - keyed-hash keys;
+  - on Postgres and memory: 50 spends at once at two stores (exactly the allowance), the boundary
+    and a new window, pruning;
+  - many people on one platform client not limiting each other;
+  - one person's three assistants sharing 60;
+  - a registered client across 12 people capped at 300;
+  - registrations per source.
+- `tests/e2e/ai.spec.ts`:
+  - two people on one CIMD client, one sending 40 calls at once (30 answered, 10 `rate_limited`
+    `grant`), the other unaffected;
+  - Grok-style registrations per connection, listed apart and revoked apart, with refresh;
+  - registration limits per source (10, then 429 with `retry-after`), another source unaffected,
+    non-public clients and bad redirects refused;
+  - revoking from a fresh browser with no calendars, and another person seeing and ending
+    nothing of it;
+  - the page's 404 for an outsider;
+  - public access with Google closed: not offered, a hand-made request naming Google granted the
+    link's calendar alone, Google alone grants nothing, and reads through a link calendar end to
+    end.

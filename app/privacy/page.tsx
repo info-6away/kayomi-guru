@@ -213,7 +213,13 @@ export default function Privacy() {
         connected it and last used it, the time zone of the browser in which you allowed it, and for each calendar you chose, which connected
         account it is in and a keyed hash of its identifier, never its name. The assistant’s tokens are kept only as keyed hashes. You can revoke
         an assistant’s access at any time in Koyomi, under Calendars, AI access: it ends at once, and its record is deleted. Revoking an assistant
-        does not disconnect any of your calendar accounts, and disconnecting an account removes its calendars from every assistant’s access.
+        does not disconnect any of your calendar accounts, and disconnecting an account removes its calendars from every assistant’s access. The
+        same can be done from any device, even one with no calendars on it, at app.koyomi.guru/ai/access.
+      </P>
+      <P>
+        To keep assistants within fair limits, our server also counts recent requests: those of each assistant, of each person across their
+        assistants, and the registrations that come from each network address. Each count is kept under a keyed hash of what it counts, which
+        cannot be turned back into it, holds nothing else, and is deleted within a day.
       </P>
 
       <H2>Where it is kept</H2>

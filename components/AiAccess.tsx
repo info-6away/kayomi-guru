@@ -145,6 +145,12 @@ export function AiAccess({ calendars, mobile }: { calendars: ExternalCalendar[];
             );
           })}
           <p className="text-pretty text-muted">Local Koyomi events stay on this device and are not shared with AI connections.</p>
+          <p className="text-pretty text-muted">
+            From any device, even one with no calendars on it:{' '}
+            <a href="/ai/access" className={`text-ink2 ${QUIET}`}>
+              AI access page
+            </a>
+          </p>
         </div>
       )}
     </div>

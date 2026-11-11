@@ -4,7 +4,7 @@ import type { CalendarInfo, CalendarResult, ExternalEvent, Provider } from '../.
 import { inTurn, once, reading, type Ctx } from '../api';
 import type { Connection } from '../connections';
 import { fingerprint } from '../seal';
-import { keyFor, type AiConfig } from './config';
+import { keyFor, mayShare, type AiConfig } from './config';
 import type { Grant } from './store';
 
 // What an AI grant may read, read on demand through the production readers (google.ts,
@@ -29,7 +29,7 @@ export interface Source {
  * Why a calendar is in `unavailable` (not read at all), or, for `too_many_events`, in
  * `partly_read`: it was read, but stopped before the end of the span, so what is missing is not known.
  */
-export type Reason = 'needs_reconnecting' | 'temporarily_unavailable' | 'rate_limited' | 'blocked' | 'too_many_events';
+export type Reason = 'needs_reconnecting' | 'temporarily_unavailable' | 'rate_limited' | 'blocked' | 'too_many_events' | 'provider_not_available';
 
 export interface Unavailable {
   calendar: string;
@@ -108,8 +108,16 @@ export async function authorizedCalendars(config: AiConfig, ctx: Ctx, grant: Gra
     byConnection.set(each.connectionId, set);
   }
   const out: Authorized = { sources: [], unavailable: [], removed: 0 };
+  // Google calendars are read for an assistant only where this person may share them now
+  // (accessPolicy): whatever a grant holds, whenever it was made. Until then they are said to be
+  // unavailable, and Google is not asked anything for them.
+  const access = config.access(grant.subject);
   await inTurn([...byConnection], 5, async ([connectionId, prints]) => {
     const connection = connections.get(connectionId)!;
+    if (!mayShare(access, connection.provider)) {
+      for (const print of prints) out.unavailable.push({ calendar: handleFor(config, grant.id, connectionId, print), name: null, provider: connection.provider, reason: 'provider_not_available' });
+      return;
+    }
     const listed = await listCalendars(ctx, connection, deadline);
     if (!listed.ok) {
       if (listed.reason === 'gone') return;
