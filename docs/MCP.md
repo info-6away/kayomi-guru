@@ -990,6 +990,18 @@ Tests:
 | Rollback | `drop table ai_limits;` brought the schema and every row back exactly. With the table gone, counting a limit fails (42P01) rather than allowing |
 | Production | not connected to, not changed: still no `ai_limits`, the same row counts |
 
+**Applied to Production on 11 November 2026**, once, with exactly
+`npm run db:migrate -- --only 005_ai_limits.sql --yes`, before this PR was merged and with
+`KOYOMI_MCP_PUBLIC` and `KOYOMI_MCP_GOOGLE_PUBLIC` unset. The script refused any compute but
+`ep-cold-river-b7hmnqw0`, and a dry run without `--yes` named that host first. Results:
+
+| Check | Result |
+| --- | --- |
+| Runner output | "Only 005_ai_limits.sql. Not run: 001…, 002…, 003…, 004…", `applying` / `applied 005_ai_limits.sql`, exit 0 |
+| Schema | the three `ai_limits` columns, its primary key on `limit_key` and the index `ai_limits_by_window`, as in the rehearsal; nothing else added or removed; the table empty |
+| Existing tables | every table's and index's oid and storage file unchanged; every table's row count and row digest unchanged across the run |
+| The live site | answering as before (the deployed code does not use `ai_limits` until this PR is merged) |
+
 **Operations:**
 
 - About 8 queries a tool call, 2 of them new: the person's limit, and the client's for a
