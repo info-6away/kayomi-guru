@@ -1,9 +1,11 @@
 # Koyomi for AI assistants: public release readiness
 
-Status on 10 November 2026. Private acceptance passed in ChatGPT, Claude and Grok on Production
-([MCP.md, Part 4](MCP.md#part-4-private-acceptance-on-production-810-november-2026)). AI access
-is still a private beta: `KOYOMI_MCP=on` with one person on `KOYOMI_MCP_ALLOWLIST`, Production
-only. Nothing has been submitted to any directory.
+Status on 11 November 2026. Private acceptance passed in ChatGPT, Claude and Grok on Production
+([MCP.md, Part 4](MCP.md#part-4-private-acceptance-on-production-810-november-2026)). Phase 8A
+(the submission changes, PR #38) and Phase 8B (the public access infrastructure, PR #39) are
+merged and in Production, with both public settings off. AI access is still a private beta:
+`KOYOMI_MCP=on` with one person on `KOYOMI_MCP_ALLOWLIST`, Production only. Nothing has been
+submitted to any directory.
 
 This document is the audit and plan for opening it to the public. It changes nothing. Every
 platform requirement below was read from the platforms' own pages on 10 November 2026. Each
@@ -26,7 +28,7 @@ Severity in the tables:
 | 3. Do we need Google's confirmation? | **Not required by Google's rules** (no scope or branding change). **Advisable before Google calendars are opened to the public through AI**, because a finding against Koyomi would end every Google connection. Route: reply to the last email from Google's verification team. Draft in section 2, not sent |
 | 4. Can 6Away Auth support the reviewer account? | **Yes, with no change.** Email and password, no MFA (6Away has none), no magic link or code at sign-in, one email check at sign-up only. Normal flow, synthetic calendar links only (section 4) |
 | 5. What must be implemented before submitting? | The submission PR (section 8): Privacy and consent wording, help page, domain-verification route, reviewer calendars. Then outside the code: OpenAI business verification, the reviewer account, the package, demo video and test cases |
-| 6. The smallest safe implementation PR | Section 8, "PR A": wording, help page, one challenge route and two static files. No change to OAuth, tokens, limits, the allowlist or Google. **Built in Phase 8A** (`feature/mcp-public-readiness-a`, not merged); it also removes `event_id` from tool answers |
+| 6. The smallest safe implementation PR | Section 8, "PR A": wording, help page, one challenge route and two static files. No change to OAuth, tokens, limits, the allowlist or Google. **Built in Phase 8A and merged 10 November 2026** (PR #38, `51dee8e`); it also removes `event_id` from tool answers |
 | 7. Launch sequence | Section 8 |
 
 ### Status by category
@@ -50,7 +52,7 @@ Severity in the tables:
 
 **Remaining requirements**
 
-- **To submit, built in Phase 8A** (on its branch, not merged):
+- **To submit, done in Phase 8A** (merged 10 November 2026, PR #38):
   - Privacy wording;
   - consent page;
   - help and support page;
@@ -58,20 +60,22 @@ Severity in the tables:
   - reviewer `.ics` calendars;
   - `event_id` removed.
 - **To submit, still to do:**
-  - merge Phase 8A;
   - the reviewer account;
   - OpenAI business verification, and the domain token set (a setting);
   - package, icons, demo video, 5 + 3 test cases;
   - reviewer on the allowlist (owner's approval).
 - **Claude:** 3+ example prompts, public docs, seven acknowledgments.
-- **To open to the public:**
+- **To open to the public, done in Phase 8B** (merged 11 November 2026, PR #39):
   - per-client limit;
   - DCR per-address limit and cap;
-  - AI access (Revoke) shown on any signed-in device;
-  - an explicit "everyone" setting;
-  - a separate gate for Google calendars;
+  - AI access (Revoke) shown on any signed-in device (`app.koyomi.guru/ai/access`);
+  - an explicit "everyone" setting (off);
+  - a separate gate for Google calendars (off).
+- **To open to the public, still to do:**
   - Neon on a paid plan;
-  - Firewall rules.
+  - Firewall rules;
+  - a spend budget;
+  - the settings turned on, at the owner's word.
 
 **Compliance risks**
 
@@ -275,7 +279,7 @@ their plans.
 5. The help page names the three assistants and where to add Koyomi. Privacy does not claim
    anything for them: their terms differ by plan, and change.
 
-### Wording, as implemented in Phase 8A (feature branch, not merged)
+### Wording, as implemented in Phase 8A (merged 10 November 2026)
 
 **Privacy** (`app/privacy/page.tsx`): the sentence that left training to the assistant's company
 "not by Koyomi" is gone. In its place:
@@ -812,7 +816,8 @@ vendor. Reconsider only if Neon's write load from limits ever matters, which is 
 1. **Neon on the Launch plan.** This is required: on Free, running out of compute stops the whole
    app, the calendar included. Neon bought through the Vercel Marketplace is billed on the Vercel
    invoice, but Vercel's spend management does not cap it, so watch it in Neon.
-2. **Migration 005 in Production** (MCP.md, Part 6), before Phase 8B is deployed.
+2. **Migration 005 in Production** (MCP.md, Part 6): applied 11 November 2026, before Phase 8B
+   was merged.
 3. **Vercel spend management:** an on-demand budget with notifications (free on Pro). The hard
    pause is optional, and checks only every few minutes.
 4. **Vercel Firewall rate-limit rules** on `/api/oauth/register`, `/api/oauth/token`, `/mcp` and
@@ -834,7 +839,7 @@ Support load and policy upkeep are as before:
 
 ## 8. Implementation and launch sequence
 
-### PR A: the smallest safe PR, for submission (built in Phase 8A; not merged)
+### PR A: the smallest safe PR, for submission (Phase 8A; merged 10 November 2026, PR #38)
 
 Branch `feature/mcp-public-readiness-a`. The feature stays private: the allowlist is unchanged.
 There is no change to OAuth, grants, tokens, limits or anything at Google.
@@ -851,7 +856,7 @@ There is no change to OAuth, grants, tokens, limits or anything at Google.
 Merging PR A deploys it, and that is the only Production change it makes. The challenge route
 answers 404 until the token is set.
 
-### PR B: before opening to the public (built in Phase 8B; not merged)
+### PR B: before opening to the public (Phase 8B; merged 11 November 2026, PR #39)
 
 Branch `feature/mcp-public-readiness-b`. Details are in MCP.md, Part 6.
 
@@ -870,19 +875,19 @@ Branch `feature/mcp-public-readiness-b`. Details are in MCP.md, Part 6.
   - `KOYOMI_MCP_GOOGLE_PUBLIC` for Google calendars. Until it is on, Google is left out on the
     consent page, at the decision and at every read.
 
-Outside the code, still to do at the owner's word:
+Outside the code, at the owner's word:
 
-1. Migration 005 in Production before merging.
-2. Vercel Firewall rules.
-3. Neon on the Launch plan.
-4. A spend budget.
+1. Migration 005 in Production before merging: done 11 November 2026.
+2. Vercel Firewall rules: still to do.
+3. Neon on the Launch plan: still to do.
+4. A spend budget: still to do.
 
 ### Sequence
 
 1. **PR #37** (these documents): merged 10 November 2026 (`946ddce`).
-2. **PR A (Phase 8A):** reviewed, merged at the owner's word. Production gets the wording, the
-   consent page, the help page, the demo calendars and the 404-until-set challenge route; AI
-   access is still the owner only.
+2. **PR A (Phase 8A):** merged at the owner's word on 10 November 2026 (`51dee8e`, PR #38).
+   Production has the wording, the consent page, the help page, the demo calendars and the
+   404-until-set challenge route; AI access is still the owner only.
 3. **Google:** the owner approves and sends the inquiry, on the verification thread.
 4. **Reviewer:**
    - the owner creates the 6Away account through Koyomi's sign-in, with a review mailbox;
@@ -898,7 +903,8 @@ Outside the code, still to do at the owner's word:
 
    The review is private, and the reviewer sees synthetic calendars only. **Publishing after
    approval waits for steps 6 and 7.**
-6. **PR B:** merged, Firewall rules added, Neon upgraded.
+6. **PR B:** merged at the owner's word on 11 November 2026 (`78907fc`, PR #39), after
+   migration 005. Still to do before step 7: Firewall rules added, Neon upgraded.
 7. **Open AI access:**
    - the "everyone" setting at the owner's word;
    - Google calendars included only once Google has answered favourably;
