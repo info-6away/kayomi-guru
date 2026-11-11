@@ -969,6 +969,35 @@ Tests:
   `ai_limits` and nothing else, twice, rows unchanged.
 - `tests/unit/limits.test.ts`
 
+**Rehearsal (2026-11-11), passed.**
+
+- **The branch:** `rehearsal-005-2026-11-11`, a disposable branch of Production's `main` made in
+  the Neon console with its data as of that moment, on its own compute and set to auto-delete
+  after a day. It was deleted after the run.
+- **The command:** exactly `npm run db:migrate -- --only 005_ai_limits.sql --yes`, against the
+  branch's endpoint with Production's role (a branch is a whole copy). The address came from
+  Vercel into one process and was never printed. The script refused Production's endpoint and
+  never connected to it.
+- **The checks:** synthetic identities only (`rehearsal-005-…`); no real grant or token was used.
+
+| Step | Result |
+| --- | --- |
+| Before | 8 calendar connections, 3 AI grants (3 grant calendars), 7 registered clients, 1 code, 28 refresh tokens; 16 tables and indexes recorded |
+| First run | "Only 005_ai_limits.sql. Not run: 001…, 002…, 003…, 004…", exit 0. Schema +9 −0, every line on `ai_limits` (3 columns, key, index, constraints). Every existing table's and index's oid and storage file unchanged, so nothing rebuilt. Every existing table's rows, row digest and row versions unchanged |
+| Second run | the same output, exit 0; everything identical to the first run; no duplicate index or constraint |
+| Distributed limits, two stores and two OS processes at once | one limit of 30: 30 of 50 allowed, all 50 counted. Two processes, 40 each: 14 + 16 = 30 allowed, 80 counted (none lost). Two people on ChatGPT's client: the busy one 30 of 40, the other unaffected. One person's three assistants: 60 of 75. One registered client, 12 people: 300 of 312. Registrations from one source: 10 of 15. Cleanup removed a day-old window and kept a current one. An unreachable database: refused (an error), never allowed |
+| After the checks | every existing table identical to before; synthetic grants removed |
+| Rollback | `drop table ai_limits;` brought the schema and every row back exactly. With the table gone, counting a limit fails (42P01) rather than allowing |
+| Production | not connected to, not changed: still no `ai_limits`, the same row counts |
+
+**Operations:**
+
+- About 8 queries a tool call, 2 of them new: the person's limit, and the client's for a
+  registered client. Each is one upsert to an existing row.
+- 4 more operations per registration: two counts, the cleanup and the unused count.
+- Write amplification is small: rows are tiny and updated in place.
+- The only row shared by everyone is the hourly count of all registrations, at most 300 an hour.
+
 ### Tests
 
 - `tests/unit/limits.test.ts`:
