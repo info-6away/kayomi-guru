@@ -92,6 +92,77 @@ export async function read(page: Page): Promise<Reading[]> {
   }, screenshot);
 }
 
+export interface Mark {
+  /** The shape's colour as the browser computes it, before any fading. */
+  colour: string;
+  ratio: number;
+  width: number;
+  /** Dimmed with opacity, on purpose: days of the months either side. */
+  faded: boolean;
+}
+
+/**
+ * Every shape matching `selector` that carries meaning without words (a day's dots), with its
+ * contrast against what is really behind it: the commonest colour in the box of the button it is
+ * in. WCAG holds such shapes to 3:1.
+ */
+export async function marks(page: Page, selector: string): Promise<Mark[]> {
+  await page.mouse.move(5, 5);
+  await settled(page);
+  const screenshot = (await page.screenshot()).toString('base64');
+
+  return page.evaluate(
+    async ([png, wanted]) => {
+      const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+      const canvas = new OffscreenCanvas(image.width, image.height);
+      const context = canvas.getContext('2d')!;
+      context.drawImage(image, 0, 0);
+      const pixels = context.getImageData(0, 0, image.width, image.height).data;
+      const behind = (box: DOMRect) => {
+        const counts = new Map<number, number>();
+        for (let y = Math.max(0, Math.floor(box.top)); y < Math.min(image.height, Math.ceil(box.bottom)); y++) {
+          for (let x = Math.max(0, Math.floor(box.left)); x < Math.min(image.width, Math.ceil(box.right)); x++) {
+            const i = (y * image.width + x) * 4;
+            const colour = (pixels[i] << 16) | (pixels[i + 1] << 8) | pixels[i + 2];
+            counts.set(colour, (counts.get(colour) ?? 0) + 1);
+          }
+        }
+        const [most] = [...counts].sort((a, b) => b[1] - a[1])[0];
+        return [(most >> 16) & 255, (most >> 8) & 255, most & 255];
+      };
+      const luminance = (rgb: number[]) => {
+        const [r, g, b] = rgb.map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const probe = new OffscreenCanvas(1, 1).getContext('2d', { willReadFrequently: true })!;
+      const rgba = (colour: string) => {
+        probe.clearRect(0, 0, 1, 1);
+        probe.fillStyle = colour;
+        probe.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = probe.getImageData(0, 0, 1, 1).data;
+        return a ? [(r * 255) / a, (g * 255) / a, (b * 255) / a, a / 255] : [0, 0, 0, 0];
+      };
+
+      return [...document.querySelectorAll(wanted)].map((element) => {
+        const style = getComputedStyle(element);
+        let opacity = 1;
+        for (let parent: Element | null = element; parent; parent = parent.parentElement) opacity *= Number(getComputedStyle(parent).opacity);
+        const [r, g, b, a] = rgba(style.backgroundColor);
+        const background = behind((element.closest('button') ?? element.parentElement!).getBoundingClientRect());
+        const shape = [r, g, b].map((v, i) => v * a * opacity + background[i] * (1 - a * opacity));
+        const [lighter, darker] = [luminance(shape), luminance(background)].sort((x, y) => y - x);
+        return {
+          colour: style.backgroundColor,
+          ratio: Math.round(((lighter + 0.05) / (darker + 0.05)) * 10) / 10,
+          width: element.getBoundingClientRect().width,
+          faded: opacity < 1,
+        };
+      });
+    },
+    [screenshot, selector] as const,
+  );
+}
+
 /**
  * Fails if anything on screen is hard to read, or is dimmed with opacity instead of given a colour.
  *

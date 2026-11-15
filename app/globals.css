@@ -50,6 +50,10 @@
   /* The colour of an event nobody has coloured, which is most of them. Stone is too pale on paper
      to carry a bar or a tint, so it gets a neutral about as strong as the other three colours. */
   --other: #827D73;
+  /* A day's dots in the month on a phone, for an event nobody has coloured and for every event from
+     a connected calendar. They are the only sign that a day has something on it, so they are held
+     to 3:1, as any shape that carries meaning is: the default event colour (3.6:1), never stone. */
+  --dot: var(--other);
   color-scheme: light;
 }
 
@@ -88,6 +92,9 @@
   --past-tint: 3%;
   --tint-selected: 16%;
   --other: var(--stone);
+  /* Stone is 2.6:1 at night, too faint for a dot that says a day has something on it. Muted is
+     5.7:1, about as strong as the other three colours' dots. */
+  --dot: var(--muted);
   color-scheme: dark;
 }
 

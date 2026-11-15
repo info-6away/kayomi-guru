@@ -62,9 +62,19 @@ export function MonthView({ date, today, mobile, viewportH, byDay, external, lab
           const inMonth = day.m === month;
           const isToday = key === today;
           // One list for the day: all-day first, then by time. External events are drawn a level quieter.
+          // On a phone a day shows dots instead, the only sign it has something on it, so an event
+          // nobody has coloured and every external one take the dot colour, which stays at 3:1.
           const list = [
-            ...(byDay.get(key) ?? []).map((o) => ({ key: o.key, title: o.event.title, allDay: o.event.allDay, start: o.start, color: CAT[o.event.category], quiet: false })),
-            ...(external.get(key) ?? []).map((s) => ({ key: s.key, title: s.event.title, allDay: s.allDay, start: s.start, color: 'var(--stone)', quiet: true })),
+            ...(byDay.get(key) ?? []).map((o) => ({
+              key: o.key,
+              title: o.event.title,
+              allDay: o.event.allDay,
+              start: o.start,
+              color: CAT[o.event.category],
+              dot: o.event.category === 'misc' ? 'var(--dot)' : CAT[o.event.category],
+              quiet: false,
+            })),
+            ...(external.get(key) ?? []).map((s) => ({ key: s.key, title: s.event.title, allDay: s.allDay, start: s.start, color: 'var(--stone)', dot: 'var(--dot)', quiet: true })),
           ].sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.start - b.start);
 
           if (mobile) {
@@ -85,9 +95,10 @@ export function MonthView({ date, today, mobile, viewportH, byDay, external, lab
                   {day.d}
                 </span>
                 {list.length > 0 && (
-                  <span className="flex h-1 justify-center gap-[3px]">
+                  <span className="flex h-[5px] justify-center gap-[3px]">
+                    {/* Days of the month before and after keep their dots quieter, as their numerals are. */}
                     {list.slice(0, 3).map((o) => (
-                      <span key={o.key} className="size-1 rounded-full" style={{ background: o.color, opacity: inMonth ? undefined : 0.5 }} />
+                      <span key={o.key} data-dot="" className="size-[5px] rounded-full" style={{ background: o.dot, opacity: inMonth ? undefined : 0.5 }} />
                     ))}
                   </span>
                 )}
