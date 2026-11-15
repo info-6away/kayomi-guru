@@ -252,6 +252,17 @@ function Calendar({ data, w, h, ai }: { data: Data; w: number; h: number; ai: bo
     if (mobile) setCalendarsOpen(false);
   };
 
+  /**
+   * An event moved to another day from its details. If that day is not on screen (a phone shows
+   * one day, a week seven), the calendar goes to it, with the details still open; otherwise the
+   * view stays as it is. Without this the event left the screen with nothing to say where.
+   */
+  const follow = (day: string, key: string) => {
+    if (!(v === 'week' ? week : [date]).includes(day)) setDate(day);
+    setSel(key);
+    setQa(null);
+  };
+
   const moveEvent = (o: Occurrence, to: Span) => {
     updateEvent(o.event.id, moved(o, to));
     if (sel === o.key) setSel(occurrenceKey(o.event.id, to.date));
@@ -475,6 +486,7 @@ function Calendar({ data, w, h, ai }: { data: Data; w: number; h: number; ai: bo
                 setSel(key);
                 setQa(null);
               }}
+              onFollow={follow}
               onQa={(slot) => {
                 setQa(slot);
                 // Chosen on the calendar: ＋ opens here until it is used, put away or left for another day.
