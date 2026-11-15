@@ -775,6 +775,9 @@ submitted. What a public release needs is in
 - a reviewer account;
 - each platform's submission.
 
+*Since then:* Part 5 (Phase 8A) added the wording and the help page, and Part 6 (Phase 8B) the
+limits and revoking from any device. The reviewer account and the submissions are still to do.
+
 ---
 
 ## Part 5: public plugin preparation, Phase 8A
@@ -809,7 +812,7 @@ Merged on 10 November 2026 as `51dee8e` (PR #38), in Production as
 
 ---
 
-## Part 6: public access infrastructure, Phase 8B (feature branch, not merged)
+## Part 6: public access infrastructure, Phase 8B
 
 This makes public AI access possible without turning it on. Production settings, the allowlist,
 OAuth scopes, the token model and the three private integrations are unchanged.
@@ -1036,3 +1039,19 @@ Tests:
   - public access with Google closed: not offered, a hand-made request naming Google granted the
     link's calendar alone, Google alone grants nothing, and reads through a link calendar end to
     end.
+
+Merged on 11 November 2026 as `78907fc` (PR #39), after migration 005 was applied, in Production
+as `dpl_Am68ZRJKPQGorhSz56U27sL4WY2o`. `KOYOMI_MCP_PUBLIC` and `KOYOMI_MCP_GOOGLE_PUBLIC` are
+unset, and the allowlist is unchanged. Checked after the release:
+
+- **Signed out, no token:**
+  - `/ai/access` shows Sign in and is not indexed;
+  - `/api/ai/grants` and `/api/ai/grants/revoke` answer 401;
+  - Help and Privacy carry the new text;
+  - the challenge address answers 404 with nothing in it;
+  - `/mcp` answers 401 with no token or a forged one.
+- **The runtime log:** no warning, error or 5xx, and nothing credential-like.
+- **One real tool call** (`list_calendars`, through the owner's Claude connection) answered, the
+  owner's Google calendar included through the allowlist. It was counted: one `person:` row in
+  `ai_limits`. The grant's own count stays on `ai_grants`, and a `client:` row exists only for a
+  self-registered client.
