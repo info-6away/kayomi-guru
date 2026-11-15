@@ -48,6 +48,8 @@ interface Props {
   qa: Slot | null;
   scroller: RefObject<HTMLDivElement | null>;
   onSelect: (key: string | null) => void;
+  /** An event moved to another day from its details, which stay open: the calendar goes there. */
+  onFollow: (day: string, key: string) => void;
   onQa: (slot: Slot | null) => void;
   onCreate: (slot: Slot, title: string) => void;
   onMove: (o: Occurrence, to: Span) => void;
@@ -565,7 +567,14 @@ export function Timeline(p: Props) {
         })}
 
         {selected && (
-          <EventPopover key={selected.key} o={selected} mobile={mobile} style={popoverStyle(selected, selected.event.allDay)} onSelect={p.onSelect} />
+          <EventPopover
+            key={selected.key}
+            o={selected}
+            mobile={mobile}
+            style={popoverStyle(selected, selected.event.allDay)}
+            onSelect={p.onSelect}
+            onMoved={p.onFollow}
+          />
         )}
         {selectedExternal && (
           <ExternalPopover

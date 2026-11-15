@@ -23,10 +23,12 @@ interface Props {
   mobile: boolean;
   style: CSSProperties;
   onSelect: (key: string | null) => void;
+  /** Moved to another day from here: the calendar goes there too, with these details still open. */
+  onMoved: (day: string, key: string) => void;
 }
 
 /** Shows one event and edits it in place. Changes to a repeating event apply to the whole series. */
-export function EventPopover({ o, mobile, style, onSelect }: Props) {
+export function EventPopover({ o, mobile, style, onSelect, onMoved }: Props) {
   const ev = o.event;
   const [choosingDelete, setChoosingDelete] = useState(false);
   const day = parts(o.date);
@@ -34,7 +36,9 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
   const reschedule = (to: Partial<Span>) => {
     const next = { date: o.date, start: o.start, end: o.end, ...to };
     updateEvent(ev.id, moved(o, next));
-    if (next.date !== o.date) onSelect(occurrenceKey(ev.id, next.date));
+    // A day that may not be on screen (a phone shows one day): the calendar follows the event,
+    // so it never leaves the screen unseen.
+    if (next.date !== o.date) onMoved(next.date, occurrenceKey(ev.id, next.date));
   };
 
   const setRepeat = (freq: string) => {
@@ -81,8 +85,18 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
           <input
             type="date"
             aria-label="Date"
-            value={o.date}
-            onChange={(e) => e.target.value && reschedule({ date: e.target.value })}
+            // Not held to the event's day from keystroke to keystroke: a year typed into the field
+            // passes through 0002, 0020 and 0202 on its way to 2027. Only a whole date with a year
+            // of four digits moves the event, and leaving the field half-typed puts its day back.
+            // A new day remounts these details (their key holds the day), so this is never stale.
+            defaultValue={o.date}
+            onChange={(e) => {
+              const date = e.target.value;
+              if (/^[1-9]\d{3}-\d{2}-\d{2}$/.test(date)) reschedule({ date });
+            }}
+            onBlur={(e) => {
+              if (e.target.value !== o.date) e.target.value = o.date;
+            }}
             onClick={(e) => {
               try {
                 e.currentTarget.showPicker();

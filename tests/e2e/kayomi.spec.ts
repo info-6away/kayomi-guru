@@ -21,6 +21,9 @@ import {
   today,
 } from './helpers';
 
+/** The local day an event starts on, from the instant it is stored as. */
+const dayOf = (instant: string) => new Date(instant).toLocaleDateString('sv-SE');
+
 // The calendar itself: events, the views, where Calendars is, and the look.
 // Koyomi as an installed app (manifest, offline, releases) is in pwa.spec.ts, and calendars
 // connected from elsewhere are in calendars.spec.ts and accounts.spec.ts.
@@ -126,6 +129,51 @@ test.describe('calendar', () => {
 
     await reload(page);
     await expect(page.locator(`[data-day="${otherDay()}"] [data-event]`, { hasText: 'Deep work' })).toContainText('13:30 – 15:00');
+  });
+
+  test('an event moved to a day in another week takes the calendar with it, still open', async ({ page }) => {
+    await open(page);
+    await addEvent(page, 'Dentist', '10:00');
+    await event(page, 'Dentist').click();
+
+    // A year and a day on: another week, another year. It used to leave the screen unseen.
+    const later = addDays(today(), 366);
+    await popover(page).getByLabel('Date').fill(later);
+    await expect(page.locator(`[data-day="${later}"] [data-event]`, { hasText: 'Dentist' })).toContainText('10:00 – 11:00');
+    await expect(columns(page)).toHaveCount(7);
+    await expect(popover(page).getByLabel('Date')).toHaveValue(later);
+    await expect(page.locator('header')).toContainText(later.slice(0, 4));
+    await expect.poll(async () => dayOf((await stored(page)).events[0].start)).toBe(later);
+
+    // Back to today: it is no longer there.
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('t');
+    await expect(page.locator(`[data-day="${today()}"]`)).toBeVisible();
+    await expect(event(page, 'Dentist')).toHaveCount(0);
+  });
+
+  test('a year typed into an event’s day never moves it to year 2 on the way', async ({ page }) => {
+    test.skip(today().endsWith('-02-29'), 'the same day a year on does not exist');
+    await open(page);
+    await addEvent(page, 'Dentist', '10:00');
+    await event(page, 'Dentist').click();
+
+    // Month, day, year: on to the year, and type next year's.
+    const year = String(new Date().getFullYear() + 1);
+    const later = `${year}${today().slice(4)}`;
+    await popover(page).getByLabel('Date').focus();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    const days = new Set<string>();
+    for (const digit of year) {
+      await page.keyboard.type(digit);
+      const [saved] = (await stored(page)).events;
+      days.add(dayOf(saved.start));
+    }
+    // 0002, 0020 and 0202 came and went without moving it; 2027 (or whichever) did.
+    await expect.poll(async () => dayOf((await stored(page)).events[0].start)).toBe(later);
+    expect([...days].filter((day) => day !== today() && day !== later)).toEqual([]);
+    await expect(page.locator(`[data-day="${later}"] [data-event]`, { hasText: 'Dentist' })).toBeVisible();
   });
 
   test('move and resize an event with the mouse', async ({ page }) => {
@@ -633,6 +681,32 @@ test.describe('phone', () => {
     // A tap on the day behind it puts it away again.
     await page.mouse.click(195, 60);
     await expect(calendars(page)).toBeHidden();
+  });
+
+  test('an event moved to another day takes the day on screen with it, still open', async ({ page }) => {
+    await open(page);
+    const slot = await at(page, today(), '09:00');
+    await slot.column.tap({ position: slot.position });
+    await page.getByPlaceholder('What are you doing?').fill('Dentist');
+    await page.keyboard.press('Enter');
+    await event(page, 'Dentist').tap();
+
+    // A phone shows one day, so any other day used to take the event off the screen: even tomorrow.
+    const tomorrow = addDays(today(), 1);
+    await popover(page).getByLabel('Date').fill(tomorrow);
+    await expect(page.locator(`[data-day="${tomorrow}"] [data-event]`, { hasText: 'Dentist' })).toContainText('09:00 – 10:00');
+    await expect(popover(page)).toBeVisible();
+
+    // As it was reported: the same event, a year on.
+    const later = addDays(tomorrow, 365);
+    await popover(page).getByLabel('Date').fill(later);
+    await expect(page.locator(`[data-day="${later}"] [data-event]`, { hasText: 'Dentist' })).toContainText('09:00 – 10:00');
+    await expect(columns(page)).toHaveCount(1);
+    await expect(popover(page)).toBeVisible();
+    await expect(popover(page).getByLabel('Date')).toHaveValue(later);
+    const month = new Date(`${later}T12:00`).toLocaleString('en-US', { month: 'long' });
+    await expect(page.locator('header').getByRole('button', { name: new RegExp(month) })).toBeVisible();
+    await expect.poll(async () => dayOf((await stored(page)).events[0].start)).toBe(later);
   });
 
   test('the month is a tap away and opens a day', async ({ page }) => {
