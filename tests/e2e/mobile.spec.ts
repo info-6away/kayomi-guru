@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { CalendarEvent } from '../../lib/types';
-import { check } from './contrast';
+import { check, marks } from './contrast';
 import { at, calendars, calendarsButton, colourOf, columns, event, fits, open, popover, seed, settled, stored } from './helpers';
 import { ME, confirmation, connect, connectAlso, disconnectButton, google, group, ist, openCalendars, refresh, test as connected, view } from './connected';
 
@@ -595,3 +595,52 @@ connected.describe('ending a connection', () => {
     });
   });
 });
+
+for (const theme of ['light', 'dark'] as const) {
+  connected.describe(`a month on a phone, ${theme}`, () => {
+    connected.describe.configure({ timeout: 90_000 });
+    connected.use({ viewport: { width: 390, height: 844 }, ...PHONE, colorScheme: theme });
+
+    connected('every dot that says a day has something on it is plain to see: 3:1 or more, connected calendars and uncoloured events included', async ({ page }) => {
+      await page.clock.setFixedTime(new Date('2026-10-07T10:10:00Z'));
+      const coloured = (id: string, day: string, title: string, category: CalendarEvent['category']) => ({ ...made(id, day, '12:00', '13:00', title), category });
+      await seed(page, {
+        events: [
+          made('mine', '2026-10-07', '12:00', '13:00', 'My own event'),
+          coloured('work', '2026-10-05', 'Review', 'work'),
+          coloured('life', '2026-10-06', 'Gym', 'life'),
+          coloured('focus', '2026-10-09', 'Writing', 'focus'),
+          // A day of September, which the month shows before October 1.
+          made('before', '2026-09-29', '12:00', '13:00', 'Documents'),
+        ],
+      });
+      await open(page);
+      await connect(page);
+      await view(page).getByRole('button', { name: 'Close calendars' }).tap();
+      await expect(view(page)).toBeHidden();
+      await page.getByRole('button', { name: /October/ }).first().tap();
+      await expect(columns(page)).toHaveCount(0);
+      await expect(page.locator('[data-outside]').first()).toBeVisible();
+
+      // The 14th has only the connected account's weekly meeting: its dot is the dot colour, never stone.
+      const fourteenth = page.locator('button:has([data-dot])').filter({ hasText: /^14$/ });
+      await expect(fourteenth.locator('[data-dot]')).toHaveCount(1);
+      await expect(fourteenth.locator('[data-dot]')).toHaveCSS('background-color', await colourOf(page, '--dot'));
+      await expect(fourteenth.locator('[data-dot]')).not.toHaveCSS('background-color', await colourOf(page, '--stone'));
+
+      const inMonth = await marks(page, 'button:not(:has([data-outside])) [data-dot]');
+      // Koyomi's own events in all four colours, and the connected account's on four days.
+      expect(inMonth.length).toBeGreaterThanOrEqual(9);
+      expect(new Set(inMonth.map((m) => m.colour))).toEqual(
+        new Set(await Promise.all(['--dot', '--indigo', '--matcha', '--verm'].map((token) => colourOf(page, token)))),
+      );
+      expect(inMonth.filter((m) => m.ratio < 3).map((m) => `${m.colour} ${m.ratio}:1`), 'dots that are hard to see').toEqual([]);
+      expect(inMonth.filter((m) => m.faded || m.width < 5)).toEqual([]);
+
+      // A day of the month before keeps its dot quieter, as its numeral is.
+      const outside = await marks(page, 'button:has([data-outside]) [data-dot]');
+      expect(outside.length).toBeGreaterThanOrEqual(1);
+      expect(outside.every((m) => m.faded)).toBe(true);
+    });
+  });
+}

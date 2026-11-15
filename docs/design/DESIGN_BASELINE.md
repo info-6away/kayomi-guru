@@ -49,6 +49,14 @@ Month and the phone Calendars sheet are shown in light only: dark changes their 
   phone, 14px on a desktop, against 16 and 17) in `outside`. Text cannot go much lighter than
   `muted` and still meet AA, so the size is what tells them apart. Today and the chosen day keep
   their full size.
+- **On a phone, a day's dots can be seen.** In the phone's month a day shows up to three 5px dots
+  instead of its events, the only sign it has something on it, so they are held to 3:1 (WCAG's
+  line for shapes that mean something). Koyomi's colours keep their own; an event nobody has
+  coloured, and every event from a connected calendar, take `dot`: the default event grey on
+  paper (3.6:1) and `muted` at night (5.7:1), never stone (1.9:1 and 2.6:1). No new colour: the
+  grey stays about as strong as the other three. Days of the months either side keep their dots
+  at half strength, as their numerals are quieter. `tests/e2e/mobile.spec.ts` measures every dot
+  in both themes.
 - **A narrow window keeps the same header.** From 980px up it is as in the screenshots. Below
   that it draws in a step at a time rather than changing, so that nothing in it overlaps
   anything else down to 760px. A day's date goes to three letters below 980px ("Wed 27 Sep 2028"), and a
@@ -79,7 +87,8 @@ Month and the phone Calendars sheet are shown in light only: dark changes their 
   | `outside` | Days of the month before and after, in the month view | 5.1:1 | 5.0:1 |
   | `event-time`, `hour` | Event times and the hour labels | 8.2:1 | 6.4:1 and 6.8:1 |
   | `verm-text` | Small vermilion text: today's date, the current time, and trouble | 4.9:1 | 5.1:1 |
-  | `stone`, `line` | Never text: rules, dots and outlines only | | |
+  | `dot` | Not text: a day's dots in the month on a phone, held to 3:1 like any shape that means something | 3.6:1 | 5.7:1 |
+  | `stone`, `line` | Never text, and never a dot that says something is there: rules, bars and outlines only | | |
 
   At night `muted` was raised from 5.0:1 after testers on phones found thin secondary type too
   faint there. Days outside the month kept the old level, so they stay quieter than everything else.
