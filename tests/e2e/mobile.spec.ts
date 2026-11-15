@@ -252,6 +252,137 @@ test.describe('a title too long for its event', () => {
   });
 });
 
+/**
+ * A phone's keyboard, as a page sees one: the part of the window that can be seen shrinks from the
+ * bottom, and the page keeps its height. iOS does this, and Android Chrome does by default. A
+ * desktop browser shows no keyboard, so `visualViewport` is stood in for, and `keyboard(px)` opens
+ * one that tall (0 puts it away). What the phone itself does about a keyboard is not tried here.
+ */
+async function phoneKeyboard(page: Page) {
+  await page.addInitScript(() => {
+    const real = window.visualViewport!;
+    const viewport = new EventTarget();
+    let covered = 0;
+    Object.defineProperties(viewport, {
+      width: { get: () => real.width },
+      height: { get: () => document.documentElement.clientHeight - covered },
+      offsetTop: { get: () => 0 },
+      offsetLeft: { get: () => 0 },
+      pageTop: { get: () => scrollY },
+      pageLeft: { get: () => scrollX },
+      scale: { get: () => 1 },
+    });
+    Object.defineProperty(window, 'visualViewport', { value: viewport, configurable: true });
+    Object.assign(window, {
+      keyboard: (px: number) => {
+        covered = px;
+        viewport.dispatchEvent(new Event('resize'));
+      },
+    });
+  });
+}
+const keyboard = (page: Page, px: number) => page.evaluate((px) => (window as unknown as { keyboard: (px: number) => void }).keyboard(px), px);
+/** An iPhone's keyboard with its row of suggestions, on a 390×844 screen: what is left above it ends here. */
+const KEYBOARD = 336;
+const ABOVE = 844 - KEYBOARD;
+
+test.describe('typing with the keyboard up (reported by a tester on an iPhone)', () => {
+  test.use({ viewport: { width: 390, height: 844 }, ...PHONE });
+
+  /** The last event of the day, its details open, and the day scrolled to its end: the details are as low as they go. */
+  async function lastEventOpen(page: Page) {
+    await phoneKeyboard(page);
+    await start(page);
+    const card = event(page, 'Late event');
+    await card.scrollIntoViewIfNeeded();
+    await card.tap();
+    await expect(popover(page)).toBeVisible();
+    await toTheEnd(page);
+  }
+  const toTheEnd = (page: Page) => scroller(page).evaluate((el) => (el.scrollTop = el.scrollHeight));
+
+  test('the line being typed stays above it as a title grows, on the last event of the day', async ({ page }) => {
+    await lastEventOpen(page);
+    const title = popover(page).getByRole('textbox', { name: 'Title' });
+    await title.tap();
+    await keyboard(page, KEYBOARD);
+    await page.keyboard.press('Control+End');
+    const top = (await scroller(page).boundingBox())!.y;
+
+    // The caret is at the end, so the title's last line is the one being typed on. Sixteen lines
+    // are taller than all that can be seen between the top of the day and the keyboard.
+    for (let line = 0; line < 16; line++) {
+      await page.keyboard.type(' and then a few more words');
+      const t = (await title.boundingBox())!;
+      expect(t.y + t.height).toBeLessThanOrEqual(ABOVE);
+      expect(t.y + t.height).toBeGreaterThan(top + 26);
+    }
+    expect((await title.boundingBox())!.height).toBeGreaterThan(ABOVE - top);
+    // Only the day scrolled: the page never moves.
+    expect(await page.evaluate(() => [scrollX, scrollY])).toEqual([0, 0]);
+    expect(await fits(page)).toBe(true);
+
+    // Typing on a line near the start keeps that line in sight, not the end of the title.
+    await page.keyboard.press('Control+Home');
+    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
+    await page.keyboard.type('x');
+    const line = await title.evaluate((el) => ({ top: el.getBoundingClientRect().top, height: parseFloat(getComputedStyle(el).lineHeight) }));
+    expect(line.top + 4 * line.height).toBeLessThanOrEqual(ABOVE);
+    expect(line.top + 3 * line.height).toBeGreaterThanOrEqual(top);
+
+    // Saved as typed.
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await stored(page)).events.find((e) => e.id === 'late')?.title).toMatch(/^Late event and then a few more words/);
+  });
+
+  test('a time of the last event of the day is above it once tapped, and the room that took goes when it is put away', async ({ page }) => {
+    await lastEventOpen(page);
+    const end = popover(page).getByRole('textbox', { name: 'End' });
+    const room = () => scroller(page).evaluate((el) => el.scrollHeight);
+    const without = await room();
+    // Low enough that the keyboard would cover it.
+    const before = (await end.boundingBox())!;
+    expect(before.y + before.height).toBeGreaterThan(ABOVE);
+
+    await end.tap();
+    await keyboard(page, KEYBOARD);
+    const field = (await end.boundingBox())!;
+    expect(field.y + field.height).toBeLessThanOrEqual(ABOVE);
+    expect(await room()).toBeGreaterThan(without);
+
+    await keyboard(page, 0);
+    await expect.poll(room).toBe(without);
+  });
+
+  test('a new event typed at the end of the day is above it', async ({ page }) => {
+    await phoneKeyboard(page);
+    await start(page, []);
+    const { column, position } = await at(page, TODAY, '23:30');
+    await column.tap({ position });
+    const field = page.getByPlaceholder('What are you doing?');
+    await expect(field).toBeFocused();
+    await toTheEnd(page);
+    const before = (await field.boundingBox())!;
+    expect(before.y + before.height).toBeGreaterThan(ABOVE);
+
+    await keyboard(page, KEYBOARD);
+    const f = (await field.boundingBox())!;
+    expect(f.y + f.height).toBeLessThanOrEqual(ABOVE);
+    await page.keyboard.type('Night train');
+    await page.keyboard.press('Enter');
+    await expect(event(page, 'Night train')).toBeVisible();
+  });
+
+  test('with no keyboard, nothing is added below the day', async ({ page }) => {
+    await lastEventOpen(page);
+    const room = await scroller(page).evaluate((el) => el.scrollHeight);
+    await popover(page).getByRole('textbox', { name: 'Title' }).tap();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type(' too');
+    expect(await scroller(page).evaluate((el) => el.scrollHeight)).toBe(room);
+  });
+});
+
 for (const theme of ['light', 'dark'] as const) {
   test.describe(`the month, ${theme}`, () => {
     test.use({ colorScheme: theme, hasTouch: true });

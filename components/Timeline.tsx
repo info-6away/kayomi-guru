@@ -15,6 +15,7 @@ import { DAY_MIN, DOW, clamp, hm, pad, parts, weekday, type Span } from '@/lib/d
 import { layoutDay, type Occurrence } from '@/lib/occurrences';
 import { EventPopover } from './EventPopover';
 import { ExternalPopover } from './ExternalPopover';
+import { keepCaretInSight, useKeyboardCover } from './keyboard';
 import { CAT, type Slot } from './ui';
 
 /** Room kept under a popover so it stays inside the grid late in the day. */
@@ -701,8 +702,11 @@ function QuickAdd({
 }) {
   const input = useRef<HTMLInputElement>(null);
   const finished = useRef(false);
+  // As for an event's details: room to scroll this line above a phone's keyboard, and the line brought there.
+  const cover = useKeyboardCover();
 
   useEffect(() => input.current?.focus({ preventScroll: true }), []);
+  useEffect(() => keepCaretInSight(input.current), [cover]);
 
   const finish = (commit: boolean) => {
     if (finished.current) return;
@@ -732,6 +736,7 @@ function QuickAdd({
         className={`h-[26px] min-w-0 flex-1 bg-transparent p-0 text-ink caret-verm outline-none ${mobile ? 'text-[16px]' : 'text-[14px]'}`}
       />
       <span className="flex-none text-[11px] leading-[26px] text-muted">↵</span>
+      {cover > 0 && <div aria-hidden className="pointer-events-none absolute inset-x-0 top-full" style={{ height: cover }} />}
     </div>
   );
 }

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { DAY_MIN, DOWL, MON, hm, parseTime, parts, spanOf, toInstant, weekday, type Span } from '@/lib/dates';
 import { moved, occurrenceKey, type Occurrence } from '@/lib/occurrences';
 import { deleteEvent, endSeriesBefore, skipOccurrence, updateEvent } from '@/lib/store';
 import type { Frequency } from '@/lib/types';
+import { keepCaretInSight, typingIn, useKeyboardCover } from './keyboard';
 import { CAT, CATEGORIES, CloseButton, SURFACE } from './ui';
 
 const ACTION = 'rounded-[4px] px-2 text-[12.5px]';
@@ -15,6 +16,8 @@ const grow = (field: HTMLTextAreaElement | null) => {
   if (!field) return;
   field.style.height = 'auto';
   field.style.height = `${field.scrollHeight}px`;
+  // A new line moves the caret down, perhaps behind a phone's keyboard: the day follows it.
+  keepCaretInSight(field);
 };
 
 
@@ -30,6 +33,11 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
   const ev = o.event;
   const [choosingDelete, setChoosingDelete] = useState(false);
   const day = parts(o.date);
+  const box = useRef<HTMLDivElement>(null);
+  // While a phone's keyboard is up, room for these details to be scrolled above it, however low
+  // on the day they are; and the field being typed in, brought above it as it comes up.
+  const cover = useKeyboardCover();
+  useEffect(() => keepCaretInSight(typingIn(box.current)), [cover]);
 
   const reschedule = (to: Partial<Span>) => {
     const next = { date: o.date, start: o.start, end: o.end, ...to };
@@ -68,7 +76,10 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
 
   return (
     <div
+      ref={box}
       data-popover
+      // From one field to another with the keyboard still up: the one now typed in is brought above it too.
+      onFocus={() => requestAnimationFrame(() => keepCaretInSight(typingIn(box.current)))}
       style={style}
       className={`absolute z-[8] flex w-[260px] scroll-mt-24 scroll-mb-4 flex-col gap-[5px] px-4 pt-3.5 pb-2 select-text ${SURFACE}`}
     >
@@ -231,6 +242,7 @@ export function EventPopover({ o, mobile, style, onSelect }: Props) {
           </button>
         </div>
       )}
+      {cover > 0 && <div aria-hidden className="pointer-events-none absolute inset-x-0 top-full" style={{ height: cover }} />}
     </div>
   );
 }
